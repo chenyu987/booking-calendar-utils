@@ -1,0 +1,337 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { supabase } from "@/lib/supabase";
+import { calcAge } from "@/lib/age";
+import { formatDayRanges } from "@/lib/dates";
+import { STATUS_LABELS as ORDER_STATUS_LABELS } from "@/lib/orderStatus";
+import {
+  RESOURCE_STATUSES,
+  RESOURCE_STATUS_LABELS,
+  statusBadge,
+} from "@/lib/resourceStatus";
+import {
+  formStyle,
+  inputStyle,
+  selectStyle,
+  buttonStyle,
+  pageTitleStyle,
+  helpTextStyle,
+  rowStyle,
+  headerRowStyle,
+  cellStyle,
+  linkButtonStyle,
+  dangerLinkStyle,
+} from "@/lib/adminStyles";
+
+export const dynamic = "force-dynamic";
+
+function genderLabel(g?: string | null) {
+  return g === "male" ? "男" : g === "female" ? "女" : "-";
+}
+
+async function createResource(formData: FormData) {
+  "use server";
+  const providerId = formData.get("provider_id") as string;
+  if (!providerId) throw new Error("必须选一个 Provider");
+
+  const { error } = await supabase.from("resources").insert({
+    provider_id: providerId,
+    item_type: formData.get("item_type") as string,
+    holder_name: (formData.get("holder_name") as string)?.trim() || null,
+    holder_gender: (formData.get("holder_gender") as string) || null,
+    holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
+    date_range_start: formData.get("date_range_start") as string,
+    date_range_end: formData.get("date_range_end") as string,
+    status: "active",
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/resources");
+  revalidatePath("/admin/overview");
+}
+
+async function updateResource(formData: FormData) {
+  "use server";
+  const { error } = await supabase
+    .from("resources")
+    .update({
+      provider_id: formData.get("provider_id") as string,
+      item_type: formData.get("item_type") as string,
+      holder_name: (formData.get("holder_name") as string)?.trim() || null,
+      holder_gender: (formData.get("holder_gender") as string) || null,
+      holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
+      date_range_start: formData.get("date_range_start") as string,
+      date_range_end: formData.get("date_range_end") as string,
+      status: formData.get("status") as string,
+    })
+    .eq("id", formData.get("id") as string);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/resources");
+  revalidatePath("/admin/overview");
+  redirect("/admin/resources");
+}
+
+async function deleteResource(formData: FormData) {
+  "use server";
+  const { error } = await supabase
+    .from("resources")
+    .delete()
+    .eq("id", formData.get("id") as string);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/resources");
+  revalidatePath("/admin/overview");
+}
+
+export default async function ResourcesAdminPage({
+  searchParams,
+}: {
+  searchParams: { edit?: string };
+}) {
+  const [{ data: resources, error }, { data: providers }, { data: assignments }] =
+    await Promise.all([
+      supabase.from("resources").select("*").order("created_at", { ascending: false }),
+      supabase.from("providers").select("id, first_name, last_name"),
+      supabase
+        .from("order_assignments")
+        .select(
+          "resource_id, orders(id, location, demand_days, status, customers(first_name, last_name))"
+        ),
+    ]);
+
+  // 每个资源的排期历史：这个资源都被哪些订单、在哪几天、去哪个地点用过
+  const bookingsByResource = new Map<string, any[]>();
+  for (const a of assignments ?? []) {
+    const o: any = (a as any).orders;
+    if (!o) continue;
+    bookingsByResource.set(a.resource_id, [
+      ...(bookingsByResource.get(a.resource_id) ?? []),
+      o,
+    ]);
+  }
+
+  const editingId = searchParams.edit;
+  const providerName = (id: string) => {
+    const o = providers?.find((x: any) => x.id === id);
+    return o ? `${o.first_name ?? ""} ${o.last_name ?? ""}`.trim() : "-";
+  };
+
+  return (
+    <main>
+      <h1 style={pageTitleStyle}>Resource 管理</h1>
+      <p style={helpTextStyle}>
+        一个 Provider 可以挂多个人的资源，一个资源挂一行。
+      </p>
+
+      <form action={createResource} style={formStyle}>
+        <select name="provider_id" style={selectStyle} required defaultValue="">
+          <option value="" disabled>
+            选 Provider *
+          </option>
+          {providers?.map((o: any) => (
+            <option key={o.id} value={o.id}>
+              {o.first_name} {o.last_name}
+            </option>
+          ))}
+        </select>
+        <select name="item_type" style={selectStyle} defaultValue="beta">
+          <option value="beta">beta</option>
+          <option value="alpha">alpha</option>
+        </select>
+        <input name="holder_name" placeholder="持有人姓名" style={inputStyle} />
+        <select name="holder_gender" style={selectStyle} defaultValue="">
+          <option value="">持有人性别</option>
+          <option value="male">男</option>
+          <option value="female">女</option>
+        </select>
+        <input
+          name="holder_date_of_birth"
+          type="date"
+          title="持有人生日"
+          style={inputStyle}
+        />
+        <input name="date_range_start" type="date" required style={inputStyle} />
+        <input name="date_range_end" type="date" required style={inputStyle} />
+        <button type="submit" style={buttonStyle}>
+          新增 Resource
+        </button>
+      </form>
+
+      {error && <p style={{ color: "crimson" }}>{error.message}</p>}
+
+      <div style={headerRowStyle}>
+        <div style={{ ...cellStyle, flex: 1.1 }}>Provider</div>
+        <div style={{ ...cellStyle, width: 70 }}>资源类型</div>
+        <div style={{ ...cellStyle, flex: 1.1 }}>持有人</div>
+        <div style={{ ...cellStyle, width: 60 }}>性别</div>
+        <div style={{ ...cellStyle, width: 120 }}>持有人生日</div>
+        <div style={{ ...cellStyle, width: 50 }}>年龄</div>
+        <div style={{ ...cellStyle, width: 110 }}>有效期起</div>
+        <div style={{ ...cellStyle, width: 110 }}>有效期止</div>
+        <div style={{ ...cellStyle, flex: 1.8 }}>排期（去过/要去的地点）</div>
+        <div style={{ ...cellStyle, width: 110 }}>挂牌状态</div>
+        <div style={{ ...cellStyle, width: 110 }}>操作</div>
+      </div>
+
+      {resources?.map((s: any) =>
+        s.id === editingId ? (
+          <form key={s.id} action={updateResource} style={rowStyle}>
+            <input type="hidden" name="id" value={s.id} />
+            <div style={{ ...cellStyle, flex: 1.1 }}>
+              <select
+                name="provider_id"
+                defaultValue={s.provider_id}
+                style={{ ...selectStyle, width: "100%" }}
+              >
+                {providers?.map((o: any) => (
+                  <option key={o.id} value={o.id}>
+                    {o.first_name} {o.last_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ ...cellStyle, width: 70 }}>
+              <select
+                name="item_type"
+                defaultValue={s.item_type ?? "beta"}
+                style={{ ...selectStyle, width: "100%" }}
+              >
+                <option value="beta">beta</option>
+                <option value="alpha">alpha</option>
+              </select>
+            </div>
+            <div style={{ ...cellStyle, flex: 1.1 }}>
+              <input
+                name="holder_name"
+                defaultValue={s.holder_name ?? ""}
+                style={{ ...inputStyle, width: "100%" }}
+              />
+            </div>
+            <div style={{ ...cellStyle, width: 60 }}>
+              <select
+                name="holder_gender"
+                defaultValue={s.holder_gender ?? ""}
+                style={{ ...selectStyle, width: "100%" }}
+              >
+                <option value="">-</option>
+                <option value="male">男</option>
+                <option value="female">女</option>
+              </select>
+            </div>
+            <div style={{ ...cellStyle, width: 120 }}>
+              <input
+                name="holder_date_of_birth"
+                type="date"
+                defaultValue={s.holder_date_of_birth ?? ""}
+                style={{ ...inputStyle, width: "100%" }}
+              />
+            </div>
+            <div style={{ ...cellStyle, width: 50, color: "#999" }}>自动</div>
+            <div style={{ ...cellStyle, width: 110 }}>
+              <input
+                name="date_range_start"
+                type="date"
+                required
+                defaultValue={s.date_range_start ?? ""}
+                style={{ ...inputStyle, width: "100%" }}
+              />
+            </div>
+            <div style={{ ...cellStyle, width: 110 }}>
+              <input
+                name="date_range_end"
+                type="date"
+                required
+                defaultValue={s.date_range_end ?? ""}
+                style={{ ...inputStyle, width: "100%" }}
+              />
+            </div>
+            <div style={{ ...cellStyle, flex: 1.8, color: "#999", fontSize: 11 }}>
+              排期由订单决定，改不了
+            </div>
+            <div style={{ ...cellStyle, width: 110 }}>
+              <select
+                name="status"
+                defaultValue={s.status}
+                style={{ ...selectStyle, width: "100%" }}
+              >
+                {RESOURCE_STATUSES.map((st) => (
+                  <option key={st} value={st}>
+                    {RESOURCE_STATUS_LABELS[st]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ ...cellStyle, width: 110, display: "flex", gap: 8 }}>
+              <button type="submit" style={buttonStyle}>
+                保存
+              </button>
+              <Link href="/admin/resources" style={linkButtonStyle}>
+                取消
+              </Link>
+            </div>
+          </form>
+        ) : (
+          <div key={s.id} style={rowStyle}>
+            <div style={{ ...cellStyle, flex: 1.1 }}>{providerName(s.provider_id)}</div>
+            <div style={{ ...cellStyle, width: 70 }}>{s.item_type ?? "-"}</div>
+            <div style={{ ...cellStyle, flex: 1.1 }}>{s.holder_name ?? "-"}</div>
+            <div style={{ ...cellStyle, width: 60 }}>
+              {genderLabel(s.holder_gender)}
+            </div>
+            <div style={{ ...cellStyle, width: 120 }}>
+              {s.holder_date_of_birth ?? "-"}
+            </div>
+            <div style={{ ...cellStyle, width: 50 }}>
+              {calcAge(s.holder_date_of_birth) ?? "-"}
+            </div>
+            <div style={{ ...cellStyle, width: 110 }}>{s.date_range_start}</div>
+            <div style={{ ...cellStyle, width: 110 }}>{s.date_range_end}</div>
+            <div style={{ ...cellStyle, flex: 1.8 }}>
+              {(() => {
+                const bookings = (bookingsByResource.get(s.id) ?? []).sort(
+                  (a: any, b: any) =>
+                    (a.demand_days?.[0] ?? "") < (b.demand_days?.[0] ?? "") ? -1 : 1
+                );
+                return (
+                  <>
+                    {bookings.length === 0 ? (
+                      <span style={{ color: "#bbb", fontSize: 12 }}>还没排过</span>
+                    ) : (
+                      bookings.map((o: any) => (
+                        <div key={o.id} style={{ fontSize: 12, lineHeight: 1.5 }}>
+                          <span style={{ color: "#1c4e78" }}>
+                            {formatDayRanges(o.demand_days ?? [])}
+                          </span>{" "}
+                          {o.location ?? "?"}
+                          <span style={{ color: "#888" }}>
+                            {" "}
+                            · {o.customers?.first_name ?? "?"} ·{" "}
+                            {ORDER_STATUS_LABELS[o.status] ?? o.status}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+            <div style={{ ...cellStyle, width: 110, color: statusBadge(s).color }}>
+              {statusBadge(s).text}
+            </div>
+            <div style={{ ...cellStyle, width: 110, display: "flex", gap: 10 }}>
+              <Link href={`/admin/resources?edit=${s.id}`} style={linkButtonStyle}>
+                编辑
+              </Link>
+              <form action={deleteResource}>
+                <input type="hidden" name="id" value={s.id} />
+                <button type="submit" style={dangerLinkStyle}>
+                  删除
+                </button>
+              </form>
+            </div>
+          </div>
+        )
+      )}
+    </main>
+  );
+}
