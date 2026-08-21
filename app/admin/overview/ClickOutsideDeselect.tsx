@@ -3,16 +3,17 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-// 只要是"离开当前这单的编辑"——点外面空白、按 Esc、点了另一个订单、点了导航栏——
-// 都算确认：自动保存改过的字段（客人姓名/地点/男女人数/状态/总价）。不需要专门的
-// "存/更新"按钮。
+// 离开当前这单的编辑——点外面空白、点了另一个订单、点了导航栏——都算确认：
+// 自动保存改过的字段（客人姓名/地点/男女人数/状态/总价）。不需要专门的"存/更新"按钮。
+// 只有 Esc 是真正的"取消"：改过的字段不保存，退回编辑前的样子。
 //
-// 保存用 sendBeacon 打 save-field 这个 Route Handler，不等响应就直接跳转。
-// 之前用 Server Action + await 的做法："发出去就不管"会被 Next 的客户端路由在新
-// 导航开始时直接 abort 掉（亲测：请求发出去了，服务端函数体从没执行过）；等它
-// 写完再跳转又要等 1~3 秒，体验很资源。sendBeacon 是浏览器专门为这种"要跳走了但
-// 这个请求必须送达"场景设计的，两个问题一次解决——只是拿不到响应，出错了也不会
-// 有提示，这是可以接受的取舍。
+// 保存前先 await 这次 fetch 再跳转，不是 sendBeacon 那种发了不等的打法：
+// 之前用 Server Action 的做法，"发出去就不管"会被 Next 的客户端路由在新导航开始时
+// 直接 abort 掉（亲测：请求发出去了，服务端函数体从没执行过）；这里改成先等这个
+// Route Handler 真正写完库、revalidatePath 跑完，再 router.push 退出——这样退出后
+// 立刻看到的就是新值，不会有"存了但页面还显示老数据"的空档。save-field 是个轻量
+// Route Handler（不是 Server Action 那种要编译整个 action 的开销），这一下通常
+// 很快，不会像之前 Server Action 那样资源到一两秒。
 export default function ClickOutsideDeselect({
   exitHref,
   orderId,
@@ -24,7 +25,7 @@ export default function ClickOutsideDeselect({
 
   useEffect(() => {
     // 只把真的改过的字段存回去，没动过的就不放进这次请求
-    function saveChangedEdits() {
+    async function saveChangedEdits() {
       const block = document.getElementById("assign-active-block");
       const customerNameInput = block?.querySelector<HTMLInputElement>('input[name="customer_name"]');
       const locationInput = block?.querySelector<HTMLInputElement>('input[name="location"]');
@@ -62,10 +63,11 @@ export default function ClickOutsideDeselect({
 
       if (Object.keys(payload).length === 0) return;
       payload.order_id = orderId;
-      navigator.sendBeacon(
-        "/admin/overview/save-field",
-        new Blob([JSON.stringify(payload)], { type: "application/json" })
-      );
+      await fetch("/admin/overview/save-field", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
     }
 
     function handleClick(e: MouseEvent) {
@@ -77,22 +79,20 @@ export default function ClickOutsideDeselect({
       const link = target.closest("a") as HTMLAnchorElement | null;
       if (link) {
         // 点的是链接（另一个订单、导航栏……）：自己接管这次跳转，
-        // 保证保存的 beacon 在跳转前已经发出去
+        // 等保存真正写完再跳，退出后看到的就是新值
         e.preventDefault();
-        saveChangedEdits();
-        router.push(link.getAttribute("href") || exitHref);
+        saveChangedEdits().then(() => router.push(link.getAttribute("href") || exitHref));
         return;
       }
       if (target.closest("button, select, input, form")) return;
 
       // 点的是空白处：自己没有默认导航行为，手动退出分配模式
-      saveChangedEdits();
-      router.push(exitHref);
+      saveChangedEdits().then(() => router.push(exitHref));
     }
 
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
-      saveChangedEdits();
+      // Esc 是真取消：不保存，直接退出，退回编辑前的样子
       router.push(exitHref);
     }
 
