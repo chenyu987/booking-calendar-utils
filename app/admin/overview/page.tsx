@@ -2,6 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import ClickOutsideDeselect from "./ClickOutsideDeselect";
+import ZoomableCalendar from "./ZoomableCalendar";
+import ResizableOrderBlock from "./ResizableOrderBlock";
+import EnterToSubmit from "./EnterToSubmit";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
 import {
@@ -32,7 +36,9 @@ import {
 export const dynamic = "force-dynamic";
 
 const COL_WIDTH = 132;
-const ROW_HEIGHT = 52;
+const HEADER_ROW_HEIGHT = 52;
+// 固定高度要能装下分配模式的 4 行（标题/已分配/进度/状态），非分配模式的 3 行留白垫底，两种状态高度才会一样
+const ROW_HEIGHT = 84;
 const PANEL_WIDTH = 260;
 
 async function addAssignment(formData: FormData) {
@@ -41,13 +47,22 @@ async function addAssignment(formData: FormData) {
   const resourceId = formData.get("resource_id") as string;
 
   // 服务端也要校验：订单那几天资源必须有效，不能只靠界面藏按钮
-  const [{ data: ord }, { data: sup }] = await Promise.all([
-    supabase.from("orders").select("demand_days").eq("id", orderId).single(),
+  // 三个查询一次并发拿齐（校验用的 + 算配齐进度用的），插入后就不用再倒回去查一趟
+  const [{ data: ord }, { data: sup }, { data: existingRows }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("demand_days, male_count, female_count, status")
+      .eq("id", orderId)
+      .single(),
     supabase
       .from("resources")
-      .select("date_range_start, date_range_end, status, holder_name")
+      .select("date_range_start, date_range_end, status, holder_name, holder_gender")
       .eq("id", resourceId)
       .single(),
+    supabase
+      .from("order_assignments")
+      .select("resources(holder_gender)")
+      .eq("order_id", orderId),
   ]);
   if (!ord || !sup) throw new Error("订单或资源不存在");
   if (sup.status !== "active") throw new Error("这个资源不在出租中");
@@ -64,23 +79,12 @@ async function addAssignment(formData: FormData) {
 
   // 注意：不改 resources.status。资源被占了哪几天是算出来的，不是存出来的。
 
-  // 配齐了就把订单推进到 itemAssigned
-  const [{ data: order }, { data: rows }] = await Promise.all([
-    supabase
-      .from("orders")
-      .select("male_count, female_count, status")
-      .eq("id", orderId)
-      .single(),
-    supabase
-      .from("order_assignments")
-      .select("resources(holder_gender)")
-      .eq("order_id", orderId),
+  // 配齐了就把订单推进到 itemAssigned —— 用插入前已经查到的数据本地算，不用再查一次
+  const need = computeNeed(ord, [
+    ...(existingRows ?? []).map((r: any) => r.resources),
+    { holder_gender: sup.holder_gender },
   ]);
-  const need = computeNeed(
-    order,
-    (rows ?? []).map((r: any) => r.resources)
-  );
-  if (need.isComplete && order?.status === "created") {
+  if (need.isComplete && ord.status === "created") {
     await supabase
       .from("orders")
       .update({ status: "itemAssigned" })
@@ -90,6 +94,78 @@ async function addAssignment(formData: FormData) {
   revalidatePath("/admin/overview");
   revalidatePath("/admin/orders");
   redirect(`/admin/overview?assign=${orderId}`);
+}
+
+async function updateOrderStatus(formData: FormData) {
+  "use server";
+  const orderId = formData.get("order_id") as string;
+  const status = formData.get("status") as string;
+  if (!STATUS_LABELS[status]) throw new Error("不认识的状态");
+
+  const { error } = await supabase
+    .from("orders")
+    .update({ status })
+    .eq("id", orderId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/overview");
+  revalidatePath("/admin/orders");
+  redirect(`/admin/overview?assign=${orderId}`);
+}
+
+async function updateOrderAmount(formData: FormData) {
+  "use server";
+  const orderId = formData.get("order_id") as string;
+  const amount = Number(formData.get("amount"));
+  if (!Number.isFinite(amount) || amount < 0) throw new Error("总价不对");
+
+  const { error } = await supabase
+    .from("orders")
+    .update({ amount })
+    .eq("id", orderId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/overview");
+  revalidatePath("/admin/orders");
+  redirect(`/admin/overview?assign=${orderId}`);
+}
+
+async function resizeOrderRun(formData: FormData) {
+  "use server";
+  const orderId = formData.get("order_id") as string;
+  const oldRunStart = formData.get("run_start") as string;
+  const oldRunEnd = formData.get("run_end") as string;
+  const newStart = formData.get("new_start") as string;
+  const newEnd = formData.get("new_end") as string;
+
+  const { data: ord } = await supabase
+    .from("orders")
+    .select("demand_days, amount")
+    .eq("id", orderId)
+    .single();
+  if (!ord) throw new Error("订单不存在");
+
+  // 只替换被拖的这一段连续日期，订单里其它不连续的日期段保持不动
+  const oldRunDays = new Set(dateRangeToArray(oldRunStart, oldRunEnd));
+  const remaining = (ord.demand_days ?? []).filter((d: string) => !oldRunDays.has(d));
+  const newRunDays = dateRangeToArray(newStart, newEnd);
+  const merged = [...new Set([...remaining, ...newRunDays])].sort();
+
+  // 总价跟着天数按比例重算：改天数前的单价（总价/天数）不变，改完乘回新天数
+  const oldTotalDays = (ord.demand_days ?? []).length;
+  const newAmount =
+    oldTotalDays > 0 && ord.amount != null
+      ? Math.round((Number(ord.amount) / oldTotalDays) * merged.length * 100) / 100
+      : ord.amount;
+
+  const { error } = await supabase
+    .from("orders")
+    .update({ demand_days: merged, amount: newAmount })
+    .eq("id", orderId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/overview");
+  revalidatePath("/admin/orders");
 }
 
 async function removeAssignment(formData: FormData) {
@@ -266,90 +342,6 @@ export default async function OverviewPage({
         />
       </div>
 
-      {assigningOrder && assigningNeed && (
-        <div
-          style={{
-            padding: "10px 14px",
-            background: assigningNeed.isComplete ? "#e6f4e9" : "#e3f0fb",
-            border: `1px solid ${assigningNeed.isComplete ? "#a8d5b5" : "#a9cdeb"}`,
-            borderRadius: 6,
-            marginBottom: 12,
-            fontSize: 13,
-            color: assigningNeed.isComplete ? "#1f5c33" : "#1c4e78",
-          }}
-        >
-          <div>
-            正在分配：
-            <strong>
-              {(assigningOrder as any).customers?.first_name}{" "}
-              {formatParty(
-                (assigningOrder as any).male_count,
-                (assigningOrder as any).female_count
-              )}
-              {" · "}
-              {(assigningOrder as any).location}
-            </strong>
-            {" —— "}
-            {formatNeed(assigningNeed)}，{formatGap(assigningNeed)}
-            <Link href={qs({ assign: "" })} style={{ marginLeft: 12, color: "inherit" }}>
-              完成
-            </Link>
-          </div>
-
-          {(assignedTo.get((assigningOrder as any).id) ?? []).length > 0 && (
-            <div
-              style={{
-                marginTop: 8,
-                display: "flex",
-                gap: 8,
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <span style={{ fontSize: 12 }}>已配：</span>
-              {(assignedTo.get((assigningOrder as any).id) ?? []).map((s: any) => (
-                <span
-                  key={s.id}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    background: "#fff",
-                    border: "1px solid #cfd8e0",
-                    borderRadius: 4,
-                    padding: "2px 6px",
-                    fontSize: 12,
-                  }}
-                >
-                  {s.holder_gender === "male" ? "♂" : "♀"} {s.holder_name}
-                  <form action={removeAssignment}>
-                    <input
-                      type="hidden"
-                      name="order_id"
-                      value={(assigningOrder as any).id}
-                    />
-                    <input type="hidden" name="resource_id" value={s.id} />
-                    <button
-                      type="submit"
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "#a33",
-                        cursor: "pointer",
-                        padding: 0,
-                        fontSize: 12,
-                      }}
-                    >
-                      ×
-                    </button>
-                  </form>
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
         {Object.entries(STATUS_LABELS).map(([key, label]) => {
           const c = statusColor(key);
@@ -400,11 +392,13 @@ export default async function OverviewPage({
               还没有带日期的订单。去 <Link href="/admin/orders">Order 管理</Link> 建一个。
             </p>
           ) : (
+            <ZoomableCalendar>
             <div style={{ overflowX: "auto", paddingBottom: 12 }}>
               <div
                 style={{
                   display: "grid",
                   gridTemplateColumns: `repeat(${timeline.length}, ${COL_WIDTH}px)`,
+                  gridTemplateRows: `${HEADER_ROW_HEIGHT}px`,
                   gridAutoRows: `${ROW_HEIGHT}px`,
                   gap: 2,
                   minWidth: "min-content",
@@ -441,67 +435,236 @@ export default async function OverviewPage({
                     const start = colIndex.get(run[0]);
                     if (start === undefined) return null;
                     const c = statusColor(o.status);
+                    const blockStyle = {
+                      gridRow: (laneOf.get(o.id) ?? 0) + 2,
+                      gridColumn: `${start + 1} / span ${run.length}`,
+                      background: c.bg,
+                      border: isAssigning
+                        ? "2px solid #1c4e78"
+                        : `1px solid ${c.border}`,
+                      color: c.text,
+                      borderRadius: 4,
+                      padding: "3px 6px",
+                      fontSize: 12,
+                      overflow: "hidden",
+                      lineHeight: 1.3,
+                    } as const;
+                    const blockTitle = [
+                      `${o.customers?.first_name ?? ""} ${o.customers?.last_name ?? ""}`,
+                      `${o.location ?? "?"} · ${formatParty(o.male_count, o.female_count)} · ${o.demand_days.length}天`,
+                      `$${o.amount ?? "?"} · ${STATUS_LABELS[o.status] ?? o.status}`,
+                      `分配 ${formatNeed(need)}（${formatGap(need)}）`,
+                      ...cards.map(
+                        (s: any) =>
+                          `　${s.holder_gender === "male" ? "♂" : "♀"} ${s.holder_name}（${calcAge(s.holder_date_of_birth) ?? "?"}岁 ${s.item_type ?? ""}）`
+                      ),
+                    ].join("\n");
+
+                    if (!isAssigning) {
+                      return (
+                        <Link
+                          key={`${o.id}-${runIdx}`}
+                          href={qs({ assign: o.id })}
+                          style={{
+                            ...blockStyle,
+                            textDecoration: "none",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 3,
+                          }}
+                          title={blockTitle}
+                        >
+                          {runIdx === 0 && (
+                            <>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 4,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  {o.customers?.first_name ?? "?"}{" "}
+                                  {formatParty(o.male_count, o.female_count)}
+                                  {o.location ? ` · ${o.location}` : ""}
+                                </span>
+                                <span style={{ fontSize: 11, opacity: 0.8, flexShrink: 0 }}>
+                                  ${o.amount ?? "?"}
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  fontSize: 11,
+                                  opacity: 0.85,
+                                }}
+                              >
+                                {cards.length > 0
+                                  ? cards
+                                      .map(
+                                        (s: any) =>
+                                          `${s.holder_gender === "male" ? "♂" : "♀"}${s.holder_name}`
+                                      )
+                                      .join(" ")
+                                  : "未分配"}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  color: need.isComplete ? "#1f5c33" : "#a8620d",
+                                }}
+                              >
+                                {formatNeed(need)}
+                              </div>
+                            </>
+                          )}
+                        </Link>
+                      );
+                    }
+
+                    // 分配模式：点名字那行退出，已配的资源直接在色块里叉掉；左右边框可以拖，改这一段的起止日期
                     return (
-                      <Link
+                      <ResizableOrderBlock
                         key={`${o.id}-${runIdx}`}
-                        href={qs({ assign: isAssigning ? "" : o.id })}
+                        orderId={o.id}
+                        runStart={run[0]}
+                        runEnd={run[run.length - 1]}
+                        startIndex={start}
+                        length={run.length}
+                        timeline={timeline}
+                        laneRow={(laneOf.get(o.id) ?? 0) + 2}
+                        colWidth={COL_WIDTH}
+                        resizeAction={resizeOrderRun}
                         style={{
-                          gridRow: (laneOf.get(o.id) ?? 0) + 2,
-                          gridColumn: `${start + 1} / span ${run.length}`,
                           background: c.bg,
-                          border: isAssigning
-                            ? "2px solid #1c4e78"
-                            : `1px solid ${c.border}`,
+                          border: "2px solid #1c4e78",
                           color: c.text,
                           borderRadius: 4,
+                          overflow: "hidden",
+                        }}
+                      >
+                      <div
+                        id="assign-active-block"
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 3,
+                          height: "100%",
+                          boxSizing: "border-box",
                           padding: "3px 6px",
                           fontSize: 12,
-                          overflow: "hidden",
-                          textDecoration: "none",
-                          display: "block",
                           lineHeight: 1.3,
+                          overflow: "hidden",
                         }}
-                        title={[
-                          `${o.customers?.first_name ?? ""} ${o.customers?.last_name ?? ""}`,
-                          `${o.location ?? "?"} · ${formatParty(o.male_count, o.female_count)} · ${o.demand_days.length}天`,
-                          `$${o.amount ?? "?"} · ${STATUS_LABELS[o.status] ?? o.status}`,
-                          `分配 ${formatNeed(need)}（${formatGap(need)}）`,
-                          ...cards.map(
-                            (s: any) =>
-                              `　${s.holder_gender === "male" ? "♂" : "♀"} ${s.holder_name}（${calcAge(s.holder_date_of_birth) ?? "?"}岁 ${s.item_type ?? ""}）`
-                          ),
-                        ].join("\n")}
+                        title={blockTitle}
                       >
                         {runIdx === 0 && (
                           <>
                             <div
                               style={{
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                fontWeight: 500,
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "baseline",
+                                gap: 4,
                               }}
                             >
-                              {o.customers?.first_name ?? "?"}{" "}
-                              {formatParty(o.male_count, o.female_count)}
-                              {o.location ? ` · ${o.location}` : ""}
+                              <Link
+                                href={qs({ assign: "" })}
+                                style={{
+                                  display: "block",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  fontWeight: 500,
+                                  color: "inherit",
+                                  textDecoration: "none",
+                                }}
+                                title="点这里退出分配模式"
+                              >
+                                {o.customers?.first_name ?? "?"}{" "}
+                                {formatParty(o.male_count, o.female_count)}
+                                {o.location ? ` · ${o.location}` : ""}
+                              </Link>
+                              <EnterToSubmit>
+                                <form
+                                  action={updateOrderAmount}
+                                  style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}
+                                >
+                                  <input type="hidden" name="order_id" value={o.id} />
+                                  <span style={{ fontSize: 11 }}>$</span>
+                                  <input
+                                    name="amount"
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    defaultValue={o.amount ?? ""}
+                                    style={{ width: 52, fontSize: 11, padding: "0 2px", color: "#222" }}
+                                  />
+                                  <button
+                                    type="submit"
+                                    style={{ fontSize: 11, padding: "0 4px", cursor: "pointer" }}
+                                  >
+                                    存
+                                  </button>
+                                </form>
+                              </EnterToSubmit>
                             </div>
                             <div
                               style={{
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 4,
                                 fontSize: 11,
-                                opacity: 0.85,
+                                opacity: 0.9,
                               }}
                             >
                               {cards.length > 0
-                                ? cards
-                                    .map(
-                                      (s: any) =>
-                                        `${s.holder_gender === "male" ? "♂" : "♀"}${s.holder_name}`
-                                    )
-                                    .join(" ")
+                                ? cards.map((s: any) => (
+                                    <form
+                                      key={s.id}
+                                      action={removeAssignment}
+                                      style={{ display: "inline" }}
+                                    >
+                                      <input type="hidden" name="order_id" value={o.id} />
+                                      <input type="hidden" name="resource_id" value={s.id} />
+                                      <span
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: 2,
+                                        }}
+                                      >
+                                        {s.holder_gender === "male" ? "♂" : "♀"}
+                                        {s.holder_name}
+                                        <button
+                                          type="submit"
+                                          title="撤销这个资源"
+                                          style={{
+                                            background: "none",
+                                            border: "none",
+                                            padding: 0,
+                                            marginLeft: 1,
+                                            cursor: "pointer",
+                                            color: "inherit",
+                                            fontSize: 11,
+                                            lineHeight: 1,
+                                          }}
+                                        >
+                                          ×
+                                        </button>
+                                      </span>
+                                    </form>
+                                  ))
                                 : "未分配"}
                             </div>
                             <div
@@ -513,17 +676,67 @@ export default async function OverviewPage({
                             >
                               {formatNeed(need)}
                             </div>
+                            <EnterToSubmit>
+                              <form
+                                action={updateOrderStatus}
+                                style={{
+                                  display: "flex",
+                                  gap: 4,
+                                  marginTop: "auto",
+                                  alignSelf: "flex-end",
+                                }}
+                              >
+                                <input type="hidden" name="order_id" value={o.id} />
+                                <select
+                                  name="status"
+                                  defaultValue={o.status}
+                                  style={{
+                                    fontSize: 11,
+                                    padding: "1px 2px",
+                                    color: "#222",
+                                    minWidth: 0,
+                                  }}
+                                >
+                                  {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                                    <option key={key} value={key}>
+                                      {label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="submit"
+                                  style={{
+                                    fontSize: 11,
+                                    padding: "1px 6px",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  更新
+                                </button>
+                              </form>
+                            </EnterToSubmit>
                           </>
                         )}
-                      </Link>
+                      </div>
+                      </ResizableOrderBlock>
                     );
                   });
                 })}
               </div>
             </div>
+            </ZoomableCalendar>
           )}
         </div>
       </div>
+
+      {assigningOrder && (
+        <ClickOutsideDeselect
+          exitHref={qs({ assign: "" })}
+          orderId={(assigningOrder as any).id}
+          updateAmountAction={updateOrderAmount}
+          updateStatusAction={updateOrderStatus}
+        />
+      )}
     </main>
   );
 }
@@ -556,7 +769,7 @@ function ResourcePanel({
   );
 
   return (
-    <aside style={{ width: PANEL_WIDTH, flexShrink: 0 }}>
+    <aside id="resource-panel" style={{ width: PANEL_WIDTH, flexShrink: 0 }}>
       <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>
         资源 Resource（
         {resources.length === total ? total : `${resources.length} / ${total}`}）
