@@ -41,6 +41,7 @@ export default function NewOrderSelector({
   const [location, setLocation] = useState("");
   const [perDayPrice, setPerDayPrice] = useState("");
   const [totalPrice, setTotalPrice] = useState("");
+  const [error, setError] = useState("");
 
   function resetAll() {
     setPopupOpen(false);
@@ -52,6 +53,7 @@ export default function NewOrderSelector({
     setLocation("");
     setPerDayPrice("");
     setTotalPrice("");
+    setError("");
   }
 
   // 点了别的订单（或者退出了分配模式），之前拖出来的框就当没发生过
@@ -199,6 +201,7 @@ export default function NewOrderSelector({
   async function submit() {
     if (!selection || !name.trim() || submitting) return;
     setSubmitting(true);
+    setError("");
     const lo = Math.min(selection.start, selection.end);
     const hi = Math.max(selection.start, selection.end);
     const days = timeline.slice(lo, hi + 1);
@@ -211,9 +214,15 @@ export default function NewOrderSelector({
     fd.set("demand_days", JSON.stringify(days));
     fd.set("amount", totalPrice.trim());
 
-    await createOrderAction(fd);
-    resetAll();
-    router.refresh();
+    try {
+      await createOrderAction(fd);
+      resetAll();
+      router.refresh();
+    } catch {
+      // 建单失败（比如网络中断）：把状态退回去，让用户能重新点"创建"，而不是卡在"建单中…"
+      setSubmitting(false);
+      setError("建单失败，请重试");
+    }
   }
 
   if (timeline.length === 0) return null;
@@ -406,6 +415,7 @@ export default function NewOrderSelector({
               />
             </label>
           </div>
+          {error && <div style={{ fontSize: 12, color: "#c0392b" }}>{error}</div>}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button
               type="button"

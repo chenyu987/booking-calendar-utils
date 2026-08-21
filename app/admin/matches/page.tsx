@@ -2,7 +2,7 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { formatParty } from "@/lib/party";
 import { formatHolder } from "@/lib/age";
-import { computeNeed } from "@/lib/assignment";
+import { computeNeed, findConflictingDays } from "@/lib/assignment";
 import { coversOrder } from "@/lib/resourceStatus";
 import {
   formStyle,
@@ -52,7 +52,7 @@ async function updateMatchStatus(formData: FormData) {
   // chosen：把这个资源加到订单的分配里（一个订单可以配多张，1男1女要两张）
   if (newStatus === "chosen") {
     // 订单那几天资源必须有效
-    const [{ data: ord }, { data: sup }] = await Promise.all([
+    const [{ data: ord }, { data: sup }, { data: otherAssignments }] = await Promise.all([
       supabase
         .from("orders")
         .select("demand_days")
@@ -63,12 +63,25 @@ async function updateMatchStatus(formData: FormData) {
         .select("date_range_start, date_range_end, status, holder_name")
         .eq("id", match.resource_id)
         .single(),
+      supabase
+        .from("order_assignments")
+        .select("orders(demand_days)")
+        .eq("resource_id", match.resource_id)
+        .neq("order_id", match.order_id),
     ]);
     if (!ord || !sup) throw new Error("订单或资源不存在");
     if (sup.status !== "active") throw new Error("这个资源不在出租中");
     if (!coversOrder(sup, ord.demand_days)) {
       throw new Error(
         `${sup.holder_name ?? "这个资源"} 的有效期是 ${sup.date_range_start}~${sup.date_range_end}，覆盖不了这一单的日期`
+      );
+    }
+    // 同一个资源同一天不能配给两个订单
+    const bookedDays = (otherAssignments ?? []).flatMap((r: any) => r.orders?.demand_days ?? []);
+    const conflictDays = findConflictingDays(ord.demand_days ?? [], bookedDays);
+    if (conflictDays.length > 0) {
+      throw new Error(
+        `${sup.holder_name ?? "这个资源"} 在 ${conflictDays.join("、")} 已经配给别的订单了`
       );
     }
 

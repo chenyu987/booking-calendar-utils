@@ -142,4 +142,9 @@ describe("resizeIndices", () => {
     const { newStartIdx } = resizeIndices(1, 3, 10, "start", -10);
     expect(newStartIdx).toBe(0);
   });
+
+  it("终点不能拖过起点", () => {
+    const { newStartIdx, newEndIdx } = resizeIndices(3, 2, 10, "end", -10);
+    expect(newEndIdx).toBe(newStartIdx); // 最短 1 天
+  });
 });

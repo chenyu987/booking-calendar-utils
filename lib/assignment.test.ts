@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { computeNeed, formatNeed, formatGap } from "./assignment";
+import {
+  computeNeed,
+  findConflictingDays,
+  formatNeed,
+  formatGap,
+  syncedAssignmentStatus,
+} from "./assignment";
 
 describe("computeNeed", () => {
   it("1男1女订单，两个资源都配了就算配齐", () => {
@@ -60,5 +66,43 @@ describe("formatGap", () => {
   it("还差男女各一张", () => {
     const need = computeNeed({ male_count: 1, female_count: 1 }, []);
     expect(formatGap(need)).toBe("还差 1张男资源、1张女资源");
+  });
+});
+
+describe("findConflictingDays", () => {
+  it("返回订单日期和卡片已占日期的交集，并去重排序", () => {
+    expect(
+      findConflictingDays(
+        ["2026-09-12", "2026-09-10", "2026-09-12"],
+        ["2026-09-11", "2026-09-12", "2026-09-12"]
+      )
+    ).toEqual(["2026-09-12"]);
+  });
+
+  it("没有重叠日期时返回空数组", () => {
+    expect(
+      findConflictingDays(["2026-09-10"], ["2026-09-11"])
+    ).toEqual([]);
+  });
+});
+
+describe("syncedAssignmentStatus", () => {
+  it("配齐后把 created 推进到 itemAssigned", () => {
+    const need = computeNeed({ male_count: 1, female_count: 0 }, [
+      { holder_gender: "male" },
+    ]);
+    expect(syncedAssignmentStatus("created", need)).toBe("itemAssigned");
+  });
+
+  it("不再配齐时把 itemAssigned 回退到 created", () => {
+    const need = computeNeed({ male_count: 1, female_count: 0 }, []);
+    expect(syncedAssignmentStatus("itemAssigned", need)).toBe("created");
+  });
+
+  it("人工推进的后续状态不被分配重算覆盖", () => {
+    const need = computeNeed({ male_count: 1, female_count: 0 }, []);
+    expect(syncedAssignmentStatus("pendingPayment", need)).toBe(
+      "pendingPayment"
+    );
   });
 });

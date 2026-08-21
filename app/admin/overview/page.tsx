@@ -20,7 +20,13 @@ import {
 } from "@/lib/dates";
 import { rescaleAmount } from "@/lib/pricing";
 import { statusColor, STATUS_LABELS } from "@/lib/orderStatus";
-import { computeNeed, formatNeed, formatGap } from "@/lib/assignment";
+import {
+  computeNeed,
+  findConflictingDays,
+  syncedAssignmentStatus,
+  formatNeed,
+  formatGap,
+} from "@/lib/assignment";
 import {
   RESOURCE_STATUSES,
   RESOURCE_STATUS_LABELS,
@@ -103,28 +109,42 @@ async function addAssignment(formData: FormData) {
   const resourceId = formData.get("resource_id") as string;
 
   // 服务端也要校验：订单那几天资源必须有效，不能只靠界面藏按钮
-  // 三个查询一次并发拿齐（校验用的 + 算配齐进度用的），插入后就不用再倒回去查一趟
-  const [{ data: ord }, { data: sup }, { data: existingRows }] = await Promise.all([
-    supabase
-      .from("orders")
-      .select("demand_days, male_count, female_count, status")
-      .eq("id", orderId)
-      .single(),
-    supabase
-      .from("resources")
-      .select("date_range_start, date_range_end, status, holder_name, holder_gender")
-      .eq("id", resourceId)
-      .single(),
-    supabase
-      .from("order_assignments")
-      .select("resources(holder_gender)")
-      .eq("order_id", orderId),
-  ]);
+  // 四个查询一次并发拿齐（校验用的 + 算配齐进度用的），插入后就不用再倒回去查一趟
+  const [{ data: ord }, { data: sup }, { data: existingRows }, { data: otherAssignments }] =
+    await Promise.all([
+      supabase
+        .from("orders")
+        .select("demand_days, male_count, female_count, status")
+        .eq("id", orderId)
+        .single(),
+      supabase
+        .from("resources")
+        .select("date_range_start, date_range_end, status, holder_name, holder_gender")
+        .eq("id", resourceId)
+        .single(),
+      supabase
+        .from("order_assignments")
+        .select("resources(holder_gender)")
+        .eq("order_id", orderId),
+      supabase
+        .from("order_assignments")
+        .select("orders(demand_days)")
+        .eq("resource_id", resourceId)
+        .neq("order_id", orderId),
+    ]);
   if (!ord || !sup) throw new Error("订单或资源不存在");
   if (sup.status !== "active") throw new Error("这个资源不在出租中");
   if (!coversOrder(sup, ord.demand_days)) {
     throw new Error(
       `${sup.holder_name ?? "这个资源"} 的有效期是 ${sup.date_range_start}~${sup.date_range_end}，覆盖不了这一单的日期`
+    );
+  }
+  // 同一个资源同一天不能配给两个订单
+  const bookedDays = (otherAssignments ?? []).flatMap((r: any) => r.orders?.demand_days ?? []);
+  const conflictDays = findConflictingDays(ord.demand_days ?? [], bookedDays);
+  if (conflictDays.length > 0) {
+    throw new Error(
+      `${sup.holder_name ?? "这个资源"} 在 ${conflictDays.join("、")} 已经配给别的订单了`
     );
   }
 
@@ -200,6 +220,29 @@ async function removeAssignment(formData: FormData) {
   if (error) throw new Error(error.message);
 
   // 不用改 resources.status —— 删掉这条分配记录，那几天自然就空出来了
+
+  // 撤了这个资源可能就不配齐了，itemAssigned 要回退到 created（人工推进的后续状态不动）
+  const [{ data: ord }, { data: rows }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("male_count, female_count, status")
+      .eq("id", orderId)
+      .single(),
+    supabase
+      .from("order_assignments")
+      .select("resources(holder_gender)")
+      .eq("order_id", orderId),
+  ]);
+  if (ord) {
+    const need = computeNeed(
+      ord,
+      (rows ?? []).map((r: any) => r.resources)
+    );
+    const nextStatus = syncedAssignmentStatus(ord.status, need);
+    if (nextStatus !== ord.status) {
+      await supabase.from("orders").update({ status: nextStatus }).eq("id", orderId);
+    }
+  }
 
   revalidatePath("/admin/overview");
   revalidatePath("/admin/orders");

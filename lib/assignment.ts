@@ -37,6 +37,23 @@ export function computeNeed(order: any, assignedResources: any[]): Need {
   };
 }
 
+// 服务端和界面共用同一套日期冲突判断，避免只在按钮显示层拦截。
+export function findConflictingDays(
+  requestedDays: string[],
+  bookedDays: string[]
+): string[] {
+  const booked = new Set(bookedDays);
+  return [...new Set(requestedDays.filter((day) => booked.has(day)))].sort();
+}
+
+// 分配只自动维护 created/itemAssigned；已经进入取资源、付款等人工流程的状态不回退。
+export function syncedAssignmentStatus(currentStatus: string, need: Need): string {
+  if (currentStatus !== "created" && currentStatus !== "itemAssigned") {
+    return currentStatus;
+  }
+  return need.isComplete ? "itemAssigned" : "created";
+}
+
 // 显示成「男1/1 女0/1」
 export function formatNeed(n: Need): string {
   const parts: string[] = [];
