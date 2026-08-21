@@ -501,6 +501,18 @@ export default async function OverviewPage({
                   const cards = assignedTo.get(o.id) ?? [];
                   const need = computeNeed(o, cards);
                   const isAssigning = searchParams.assign === o.id;
+                  // 分配模式里那几个输入框用的是 defaultValue（不受控），React 只在挂载时读一次；
+                  // 撤销分配、拖拽改天数这些操作会在"还留在分配模式"的情况下改掉 o 的字段，
+                  // 光 router.refresh() 拿到新数据不够——同一个 key 下 React 不会重新套 defaultValue，
+                  // 输入框会继续显示改之前的老值。把这些字段拼进 key，值一变就强制重新挂载。
+                  const editStateKey = [
+                    o.amount,
+                    o.status,
+                    o.male_count,
+                    o.female_count,
+                    o.location,
+                    o.customers?.first_name,
+                  ].join("|");
                   return contiguousRuns(o.demand_days).map((run, runIdx) => {
                     const start = colIndex.get(run[0]);
                     if (start === undefined) return null;
@@ -536,7 +548,7 @@ export default async function OverviewPage({
                     if (!isAssigning) {
                       return (
                         <Link
-                          key={`${o.id}-${runIdx}`}
+                          key={`${o.id}-${runIdx}-${editStateKey}`}
                           href={qs({ assign: o.id })}
                           style={{
                             ...blockStyle,
@@ -608,7 +620,7 @@ export default async function OverviewPage({
                     // 分配模式：点名字那行退出，已配的资源直接在色块里叉掉；左右边框可以拖，改这一段的起止日期
                     return (
                       <ResizableOrderBlock
-                        key={`${o.id}-${runIdx}`}
+                        key={`${o.id}-${runIdx}-${editStateKey}`}
                         orderId={o.id}
                         runStart={run[0]}
                         runEnd={run[run.length - 1]}

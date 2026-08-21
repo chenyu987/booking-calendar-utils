@@ -34,6 +34,8 @@ export default function OptimisticEditForm({
           body: JSON.stringify(payload),
         });
         router.push(exitHref);
+        // staleTimes.dynamic=0 理论上够了，实测这个 Next 版本不总生效，补一个强制刷新
+        router.refresh();
       }}
     >
       {children}

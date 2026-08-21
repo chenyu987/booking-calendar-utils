@@ -10,10 +10,15 @@ import { useRouter } from "next/navigation";
 // 保存前先 await 这次 fetch 再跳转，不是 sendBeacon 那种发了不等的打法：
 // 之前用 Server Action 的做法，"发出去就不管"会被 Next 的客户端路由在新导航开始时
 // 直接 abort 掉（亲测：请求发出去了，服务端函数体从没执行过）；这里改成先等这个
-// Route Handler 真正写完库、revalidatePath 跑完，再 router.push 退出——这样退出后
-// 立刻看到的就是新值，不会有"存了但页面还显示老数据"的空档。save-field 是个轻量
+// Route Handler 真正写完库、revalidatePath 跑完，再退出。save-field 是个轻量
 // Route Handler（不是 Server Action 那种要编译整个 action 的开销），这一下通常
 // 很快，不会像之前 Server Action 那样资源到一两秒。
+//
+// 光 await 完还不够：next.config.js 里配了 staleTimes.dynamic=0，理论上客户端
+// 路由每次都该拿新数据，但实测这个实验性配置在这个 Next 版本里不总是生效——
+// 直接 curl 服务端能看到最新值，浏览器里 router.push 过去却还是旧值，说明是
+// 客户端路由缓存没失效，不是服务端没写进去。所以退出编辑（不管是保存还是
+// Esc 取消）之后都补一个 router.refresh()，强制这次跳转不吃缓存。
 export default function ClickOutsideDeselect({
   exitHref,
   orderId,
@@ -81,19 +86,26 @@ export default function ClickOutsideDeselect({
         // 点的是链接（另一个订单、导航栏……）：自己接管这次跳转，
         // 等保存真正写完再跳，退出后看到的就是新值
         e.preventDefault();
-        saveChangedEdits().then(() => router.push(link.getAttribute("href") || exitHref));
+        saveChangedEdits().then(() => {
+          router.push(link.getAttribute("href") || exitHref);
+          router.refresh();
+        });
         return;
       }
       if (target.closest("button, select, input, form")) return;
 
       // 点的是空白处：自己没有默认导航行为，手动退出分配模式
-      saveChangedEdits().then(() => router.push(exitHref));
+      saveChangedEdits().then(() => {
+        router.push(exitHref);
+        router.refresh();
+      });
     }
 
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       // Esc 是真取消：不保存，直接退出，退回编辑前的样子
       router.push(exitHref);
+      router.refresh();
     }
 
     document.addEventListener("click", handleClick, true);
