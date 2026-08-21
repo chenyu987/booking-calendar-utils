@@ -5,7 +5,8 @@ import { supabase } from "@/lib/supabase";
 import ClickOutsideDeselect from "./ClickOutsideDeselect";
 import ZoomableCalendar from "./ZoomableCalendar";
 import ResizableOrderBlock from "./ResizableOrderBlock";
-import EnterToSubmit from "./EnterToSubmit";
+import OptimisticEditForm from "./OptimisticEditForm";
+import NewOrderSelector from "./NewOrderSelector";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
 import {
@@ -15,7 +16,9 @@ import {
   shortLabel,
   contiguousRuns,
   formatDayRanges,
+  replaceDayRun,
 } from "@/lib/dates";
+import { rescaleAmount } from "@/lib/pricing";
 import { statusColor, STATUS_LABELS } from "@/lib/orderStatus";
 import { computeNeed, formatNeed, formatGap } from "@/lib/assignment";
 import {
@@ -38,8 +41,61 @@ export const dynamic = "force-dynamic";
 const COL_WIDTH = 132;
 const HEADER_ROW_HEIGHT = 52;
 // 固定高度要能装下分配模式的 4 行（标题/已分配/进度/状态），非分配模式的 3 行留白垫底，两种状态高度才会一样
-const ROW_HEIGHT = 84;
+const ROW_HEIGHT = 108;
 const PANEL_WIDTH = 260;
+
+async function createQuickOrder(formData: FormData) {
+  "use server";
+  const customerName = ((formData.get("customer_name") as string) ?? "").trim();
+  if (!customerName) throw new Error("客人姓名不能为空");
+
+  const location = ((formData.get("location") as string) ?? "").trim() || null;
+  const maleCount = Number(formData.get("male_count") ?? 0) || 0;
+  const femaleCount = Number(formData.get("female_count") ?? 0) || 0;
+  const demandDays = JSON.parse((formData.get("demand_days") as string) ?? "[]") as string[];
+  if (demandDays.length === 0) throw new Error("日期不能为空");
+  const amountRaw = ((formData.get("amount") as string) ?? "").trim();
+  const amount = amountRaw === "" ? null : Number(amountRaw);
+
+  // 同名客人复用，找不到就现建一个 —— 快速建单不打断流程去 Customer 页面
+  const { data: existingCustomer } = await supabase
+    .from("customers")
+    .select("id")
+    .ilike("first_name", customerName)
+    .limit(1)
+    .maybeSingle();
+
+  let customerId = existingCustomer?.id as string | undefined;
+  if (!customerId) {
+    const { data: created, error: customerError } = await supabase
+      .from("customers")
+      .insert({ first_name: customerName })
+      .select("id")
+      .single();
+    if (customerError) throw new Error(customerError.message);
+    customerId = created.id;
+  }
+
+  const { data: order, error } = await supabase
+    .from("orders")
+    .insert({
+      customer_id: customerId,
+      location,
+      male_count: maleCount,
+      female_count: femaleCount,
+      demand_days: demandDays,
+      amount,
+      status: "created",
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/overview");
+  revalidatePath("/admin/orders");
+  revalidatePath("/admin/customers");
+  redirect(`/admin/overview?assign=${order.id}`);
+}
 
 async function addAssignment(formData: FormData) {
   "use server";
@@ -96,40 +152,6 @@ async function addAssignment(formData: FormData) {
   redirect(`/admin/overview?assign=${orderId}`);
 }
 
-async function updateOrderStatus(formData: FormData) {
-  "use server";
-  const orderId = formData.get("order_id") as string;
-  const status = formData.get("status") as string;
-  if (!STATUS_LABELS[status]) throw new Error("不认识的状态");
-
-  const { error } = await supabase
-    .from("orders")
-    .update({ status })
-    .eq("id", orderId);
-  if (error) throw new Error(error.message);
-
-  revalidatePath("/admin/overview");
-  revalidatePath("/admin/orders");
-  redirect(`/admin/overview?assign=${orderId}`);
-}
-
-async function updateOrderAmount(formData: FormData) {
-  "use server";
-  const orderId = formData.get("order_id") as string;
-  const amount = Number(formData.get("amount"));
-  if (!Number.isFinite(amount) || amount < 0) throw new Error("总价不对");
-
-  const { error } = await supabase
-    .from("orders")
-    .update({ amount })
-    .eq("id", orderId);
-  if (error) throw new Error(error.message);
-
-  revalidatePath("/admin/overview");
-  revalidatePath("/admin/orders");
-  redirect(`/admin/overview?assign=${orderId}`);
-}
-
 async function resizeOrderRun(formData: FormData) {
   "use server";
   const orderId = formData.get("order_id") as string;
@@ -146,17 +168,14 @@ async function resizeOrderRun(formData: FormData) {
   if (!ord) throw new Error("订单不存在");
 
   // 只替换被拖的这一段连续日期，订单里其它不连续的日期段保持不动
-  const oldRunDays = new Set(dateRangeToArray(oldRunStart, oldRunEnd));
-  const remaining = (ord.demand_days ?? []).filter((d: string) => !oldRunDays.has(d));
-  const newRunDays = dateRangeToArray(newStart, newEnd);
-  const merged = [...new Set([...remaining, ...newRunDays])].sort();
+  const merged = replaceDayRun(ord.demand_days ?? [], oldRunStart, oldRunEnd, newStart, newEnd);
 
   // 总价跟着天数按比例重算：改天数前的单价（总价/天数）不变，改完乘回新天数
-  const oldTotalDays = (ord.demand_days ?? []).length;
-  const newAmount =
-    oldTotalDays > 0 && ord.amount != null
-      ? Math.round((Number(ord.amount) / oldTotalDays) * merged.length * 100) / 100
-      : ord.amount;
+  const newAmount = rescaleAmount(
+    ord.amount != null ? Number(ord.amount) : null,
+    (ord.demand_days ?? []).length,
+    merged.length
+  );
 
   const { error } = await supabase
     .from("orders")
@@ -404,6 +423,14 @@ export default async function OverviewPage({
                   minWidth: "min-content",
                 }}
               >
+                <NewOrderSelector
+                  timeline={timeline}
+                  colWidth={COL_WIDTH}
+                  rowHeight={ROW_HEIGHT}
+                  laneCount={Math.max(lanes.length, 1) + 2}
+                  assigningOrderId={assigningOrder ? (assigningOrder as any).id : null}
+                  createOrderAction={createQuickOrder}
+                />
                 {timeline.map((d, i) => {
                   const { date, weekday } = shortLabel(d);
                   const weekend = isWeekend(d);
@@ -448,6 +475,9 @@ export default async function OverviewPage({
                       fontSize: 12,
                       overflow: "hidden",
                       lineHeight: 1.3,
+                      // 空白处的新建选框也是这个 grid 的一员，没有这两条订单色块会被它盖住点不到
+                      position: "relative",
+                      zIndex: 1,
                     } as const;
                     const blockTitle = [
                       `${o.customers?.first_name ?? ""} ${o.customers?.last_name ?? ""}`,
@@ -578,46 +608,109 @@ export default async function OverviewPage({
                                 gap: 4,
                               }}
                             >
-                              <Link
-                                href={qs({ assign: "" })}
-                                style={{
-                                  display: "block",
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  fontWeight: 500,
-                                  color: "inherit",
-                                  textDecoration: "none",
-                                }}
-                                title="点这里退出分配模式"
+                              <OptimisticEditForm
+                                exitHref={qs({ assign: "" })}
+                                style={{ display: "flex", flex: 1, minWidth: 0 }}
                               >
-                                {o.customers?.first_name ?? "?"}{" "}
-                                {formatParty(o.male_count, o.female_count)}
-                                {o.location ? ` · ${o.location}` : ""}
-                              </Link>
-                              <EnterToSubmit>
-                                <form
-                                  action={updateOrderAmount}
-                                  style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}
-                                >
-                                  <input type="hidden" name="order_id" value={o.id} />
-                                  <span style={{ fontSize: 11 }}>$</span>
-                                  <input
-                                    name="amount"
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    defaultValue={o.amount ?? ""}
-                                    style={{ width: 52, fontSize: 11, padding: "0 2px", color: "#222" }}
-                                  />
-                                  <button
-                                    type="submit"
-                                    style={{ fontSize: 11, padding: "0 4px", cursor: "pointer" }}
-                                  >
-                                    存
-                                  </button>
-                                </form>
-                              </EnterToSubmit>
+                                <input type="hidden" name="order_id" value={o.id} />
+                                <input
+                                  name="customer_name"
+                                  defaultValue={o.customers?.first_name ?? ""}
+                                  data-original={o.customers?.first_name ?? ""}
+                                  style={{
+                                    width: "100%",
+                                    fontSize: 12,
+                                    fontWeight: 500,
+                                    padding: "0 2px",
+                                    color: "inherit",
+                                    background: "transparent",
+                                    border: "1px solid transparent",
+                                  }}
+                                />
+                              </OptimisticEditForm>
+                              <OptimisticEditForm
+                                exitHref={qs({ assign: "" })}
+                                style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}
+                              >
+                                <input type="hidden" name="order_id" value={o.id} />
+                                <span style={{ fontSize: 11 }}>$</span>
+                                <input
+                                  name="amount"
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  defaultValue={o.amount ?? ""}
+                                  data-original={o.amount ?? ""}
+                                  style={{ width: 52, fontSize: 11, padding: "0 2px", color: "#222" }}
+                                />
+                              </OptimisticEditForm>
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 3,
+                                fontSize: 11,
+                              }}
+                            >
+                              <OptimisticEditForm
+                                exitHref={qs({ assign: "" })}
+                                style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}
+                              >
+                                <input type="hidden" name="order_id" value={o.id} />
+                                ♂
+                                <input
+                                  name="male_count"
+                                  type="number"
+                                  min="0"
+                                  defaultValue={o.male_count}
+                                  data-original={o.male_count}
+                                  style={{
+                                    width: 22,
+                                    fontSize: 11,
+                                    padding: "0 1px",
+                                    color: "inherit",
+                                    background: "transparent",
+                                    border: "1px solid transparent",
+                                  }}
+                                />
+                                ♀
+                                <input
+                                  name="female_count"
+                                  type="number"
+                                  min="0"
+                                  defaultValue={o.female_count}
+                                  data-original={o.female_count}
+                                  style={{
+                                    width: 22,
+                                    fontSize: 11,
+                                    padding: "0 1px",
+                                    color: "inherit",
+                                    background: "transparent",
+                                    border: "1px solid transparent",
+                                  }}
+                                />
+                              </OptimisticEditForm>
+                              <OptimisticEditForm
+                                exitHref={qs({ assign: "" })}
+                                style={{ display: "flex", flex: 1, minWidth: 0 }}
+                              >
+                                <input type="hidden" name="order_id" value={o.id} />
+                                <input
+                                  name="location"
+                                  placeholder="地点"
+                                  defaultValue={o.location ?? ""}
+                                  data-original={o.location ?? ""}
+                                  style={{
+                                    width: "100%",
+                                    fontSize: 11,
+                                    padding: "0 2px",
+                                    color: "inherit",
+                                    background: "transparent",
+                                    border: "1px solid transparent",
+                                  }}
+                                />
+                              </OptimisticEditForm>
                             </div>
                             <div
                               style={{
@@ -676,45 +769,34 @@ export default async function OverviewPage({
                             >
                               {formatNeed(need)}
                             </div>
-                            <EnterToSubmit>
-                              <form
-                                action={updateOrderStatus}
+                            <OptimisticEditForm
+                              exitHref={qs({ assign: "" })}
+                              style={{
+                                display: "flex",
+                                gap: 4,
+                                marginTop: "auto",
+                                alignSelf: "flex-end",
+                              }}
+                            >
+                              <input type="hidden" name="order_id" value={o.id} />
+                              <select
+                                name="status"
+                                defaultValue={o.status}
+                                data-original={o.status}
                                 style={{
-                                  display: "flex",
-                                  gap: 4,
-                                  marginTop: "auto",
-                                  alignSelf: "flex-end",
+                                  fontSize: 11,
+                                  padding: "1px 2px",
+                                  color: "#222",
+                                  minWidth: 0,
                                 }}
                               >
-                                <input type="hidden" name="order_id" value={o.id} />
-                                <select
-                                  name="status"
-                                  defaultValue={o.status}
-                                  style={{
-                                    fontSize: 11,
-                                    padding: "1px 2px",
-                                    color: "#222",
-                                    minWidth: 0,
-                                  }}
-                                >
-                                  {Object.entries(STATUS_LABELS).map(([key, label]) => (
-                                    <option key={key} value={key}>
-                                      {label}
-                                    </option>
-                                  ))}
-                                </select>
-                                <button
-                                  type="submit"
-                                  style={{
-                                    fontSize: 11,
-                                    padding: "1px 6px",
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  更新
-                                </button>
-                              </form>
-                            </EnterToSubmit>
+                                {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                                  <option key={key} value={key}>
+                                    {label}
+                                  </option>
+                                ))}
+                              </select>
+                            </OptimisticEditForm>
                           </>
                         )}
                       </div>
@@ -733,8 +815,6 @@ export default async function OverviewPage({
         <ClickOutsideDeselect
           exitHref={qs({ assign: "" })}
           orderId={(assigningOrder as any).id}
-          updateAmountAction={updateOrderAmount}
-          updateStatusAction={updateOrderStatus}
         />
       )}
     </main>

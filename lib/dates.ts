@@ -75,3 +75,37 @@ export function dateRangeToArray(start: string, end: string): string[] {
   }
   return days;
 }
+
+// 排期总览拖拽改订单日期：把原来那一段连续日期从 demand_days 里摘掉，换成新的一段，
+// 订单里其它不连续的日期段（比如只用 24、25、27）保持不动
+export function replaceDayRun(
+  existingDays: string[],
+  oldRunStart: string,
+  oldRunEnd: string,
+  newStart: string,
+  newEnd: string
+): string[] {
+  const oldRunDays = new Set(dateRangeToArray(oldRunStart, oldRunEnd));
+  const remaining = existingDays.filter((d) => !oldRunDays.has(d));
+  const newRunDays = dateRangeToArray(newStart, newEnd);
+  return [...new Set([...remaining, ...newRunDays])].sort();
+}
+
+// 排期总览拖拽订单色块左右边框：根据拖动天数（delta）算出新的起止下标。
+// 拖左边框改起点（不能超过终点），拖右边框改终点（不能小于起点），两头都卡在时间轴范围内。
+export function resizeIndices(
+  startIndex: number,
+  length: number,
+  timelineLength: number,
+  edge: "start" | "end",
+  delta: number
+): { newStartIdx: number; newEndIdx: number } {
+  let newStartIdx = startIndex;
+  let newEndIdx = startIndex + length - 1;
+  if (edge === "start") {
+    newStartIdx = Math.min(Math.max(startIndex + delta, 0), newEndIdx);
+  } else {
+    newEndIdx = Math.max(Math.min(newEndIdx + delta, timelineLength - 1), newStartIdx);
+  }
+  return { newStartIdx, newEndIdx };
+}

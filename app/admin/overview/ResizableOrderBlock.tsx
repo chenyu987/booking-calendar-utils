@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { resizeIndices } from "@/lib/dates";
 
 // 分配模式下拖左右边框改订单的开始/结束日期，最短 1 天
 export default function ResizableOrderBlock({
@@ -62,13 +63,13 @@ export default function ResizableOrderBlock({
         }, 0);
         if (delta === 0) return;
 
-        let newStartIdx = startIndex;
-        let newEndIdx = startIndex + length - 1;
-        if (edge === "start") {
-          newStartIdx = Math.min(Math.max(startIndex + delta, 0), newEndIdx);
-        } else {
-          newEndIdx = Math.max(Math.min(newEndIdx + delta, timeline.length - 1), newStartIdx);
-        }
+        const { newStartIdx, newEndIdx } = resizeIndices(
+          startIndex,
+          length,
+          timeline.length,
+          edge,
+          delta
+        );
         const newStart = timeline[newStartIdx];
         const newEnd = timeline[newEndIdx];
         if (newStart === runStart && newEnd === runEnd) return;
@@ -109,6 +110,7 @@ export default function ResizableOrderBlock({
         gridRow: laneRow,
         gridColumn: `${previewStart + 1} / span ${previewLength}`,
         position: "relative",
+        zIndex: 1,
       }}
     >
       {children}
