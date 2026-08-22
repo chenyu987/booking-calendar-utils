@@ -49,7 +49,10 @@ export default function AdminLayout({
           </div>
         ))}
       </nav>
-      <div style={{ flex: 1, padding: 24 }}>{children}</div>
+      {/* minWidth:0 不能省：flex 子项默认 min-width:auto，不加的话排期总览那个很宽的
+          日历会把整个页面撑宽，横向滚动条跑到 body 上——侧边栏和统计区跟着一起滑走。
+          加上之后日历只在它自己那个 overflowX:auto 的容器里横滑，左边导航栏不动。 */}
+      <div style={{ flex: 1, minWidth: 0, padding: 24 }}>{children}</div>
     </div>
   );
 }

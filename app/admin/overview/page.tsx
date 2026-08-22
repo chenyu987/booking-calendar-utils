@@ -50,6 +50,15 @@ const HEADER_ROW_HEIGHT = 52;
 // 固定高度要能装下分配模式的 4 行（标题/已分配/进度/状态），非分配模式的 3 行留白垫底，两种状态高度才会一样
 const ROW_HEIGHT = 108;
 const PANEL_WIDTH = 260;
+// 一条时间轴拉到底横着能滑很久，改成每 4 周折一段往下排（跟 Excel 里那张排期表一个思路）。
+// 段的起点对齐到周一，所以每段正好是 4 个完整自然周。
+const DAYS_PER_BAND = 28;
+// 每段除了实际用到的泳道，底下再空几行：一是留位置拖拽建新单，二是跟下一段隔开
+const EXTRA_LANES = 2;
+// 最后一段底下留多一点：下面没有别的段接着了，往后加新单子都得在这儿拖
+const EXTRA_LANES_LAST = 5;
+// 段与段之间再补一点视觉间距，跟上面那几行空泳道加一起就是"隔几个单位"的效果
+const BAND_GAP = 12;
 
 async function createQuickOrder(formData: FormData) {
   "use server";
@@ -64,15 +73,23 @@ async function createQuickOrder(formData: FormData) {
   const amountRaw = ((formData.get("amount") as string) ?? "").trim();
   const amount = amountRaw === "" ? null : Number(amountRaw);
 
-  // 同名客人复用，找不到就现建一个 —— 快速建单不打断流程去 Customer 页面
-  const { data: existingCustomer } = await supabase
-    .from("customers")
-    .select("id")
-    .ilike("first_name", customerName)
-    .limit(1)
-    .maybeSingle();
+  // Supabase 一个来回要 0.4~2 秒（实测原生 fetch 也一样慢，不是客户端库的锅，
+  // 就是网络延迟），所以能少一次查询就少一次：客户端如果已经知道这个名字对应的
+  // customer_id（页面加载时把 customers 一起查出来了），就直接带过来，跳过这次查询。
+  const passedCustomerId = ((formData.get("customer_id") as string) ?? "").trim();
 
-  let customerId = existingCustomer?.id as string | undefined;
+  let customerId = passedCustomerId || undefined;
+  if (!customerId) {
+    // 同名客人复用，找不到就现建一个 —— 快速建单不打断流程去 Customer 页面
+    const { data: existingCustomer } = await supabase
+      .from("customers")
+      .select("id")
+      .ilike("first_name", customerName)
+      .limit(1)
+      .maybeSingle();
+    customerId = existingCustomer?.id as string | undefined;
+  }
+
   if (!customerId) {
     const { data: created, error: customerError } = await supabase
       .from("customers")
@@ -101,7 +118,10 @@ async function createQuickOrder(formData: FormData) {
   revalidatePath("/admin/overview");
   revalidatePath("/admin/orders");
   revalidatePath("/admin/customers");
-  redirect(`/admin/overview?assign=${order.id}`);
+  // 这里不 redirect：server action 里的 redirect 会顺带把跳转目标整页渲染完再返回，
+  // 客户端得一路等着（实测 3~5 秒，全程卡在"建单中…"）。改成把新单子 id 还回去，
+  // 让客户端自己跳——弹窗可以先关掉，不用对着按钮干等。
+  return order.id as string;
 }
 
 async function addAssignment(formData: FormData) {
@@ -264,7 +284,8 @@ async function deleteOrder(formData: FormData) {
   revalidatePath("/admin/customers");
   revalidatePath("/admin/payments");
   revalidatePath("/admin/matches");
-  redirect("/admin/overview");
+  // 同 createQuickOrder：不在这儿 redirect，那样会把跳转目标整页渲染完才返回，
+  // 白等一个来回。跳转交给客户端，它点完就能立刻退出分配模式。
 }
 
 export default async function OverviewPage({
@@ -282,6 +303,7 @@ export default async function OverviewPage({
     { data: orders, error },
     { data: allResources, error: resourceError },
     { data: assignments },
+    { data: allCustomers },
   ] = await Promise.all([
     supabase
       .from("orders")
@@ -295,7 +317,17 @@ export default async function OverviewPage({
       )
       .order("date_range_start", { ascending: true }),
     supabase.from("order_assignments").select("order_id, resource_id"),
+    // 建新单时用来在客户端直接把姓名换成 customer_id，省掉建单时的那次查询
+    // （跟上面几条并行，不额外增加页面加载时间）
+    supabase.from("customers").select("id, first_name"),
   ]);
+
+  // 姓名统一转小写当 key：原来服务端用的是 ilike，大小写不敏感，这里保持一致
+  const customerIdByName: Record<string, string> = {};
+  for (const r of allCustomers ?? []) {
+    const key = (r.first_name ?? "").trim().toLowerCase();
+    if (key && !customerIdByName[key]) customerIdByName[key] = r.id;
+  }
 
   const resourceById = new Map((allResources ?? []).map((s: any) => [s.id, s]));
   const orderById = new Map((orders ?? []).map((o: any) => [o.id, o]));
@@ -343,32 +375,88 @@ export default async function OverviewPage({
   );
 
   const allDays = withDays.flatMap((o: any) => o.demand_days).sort();
+
+  const shiftDay = (iso: string, delta: number) => {
+    const d = new Date(`${iso}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + delta);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const todayForTimeline = todayIso();
+
   let timeline: string[] = [];
   if (allDays.length > 0) {
-    const pad = (iso: string, delta: number) => {
-      const d = new Date(`${iso}T00:00:00Z`);
-      d.setUTCDate(d.getUTCDate() + delta);
-      return d.toISOString().slice(0, 10);
-    };
-    timeline = dateRangeToArray(
-      pad(allDays[0], -2),
-      pad(allDays[allDays.length - 1], 10)
-    );
-  }
-  const colIndex = new Map(timeline.map((d, i) => [d, i]));
+    // 时间轴必须盖住"今天"：不然九月的单子做完了、现在已经十二月的时候，日历上
+    // 压根没有十二月那几列，进来只能停在九月，也没法在今天附近拖新单子。
+    const earliest =
+      allDays[0] < todayForTimeline ? allDays[0] : todayForTimeline;
+    const latest =
+      allDays[allDays.length - 1] > todayForTimeline
+        ? allDays[allDays.length - 1]
+        : todayForTimeline;
 
-  const lanes: string[][] = [];
-  const laneOf = new Map<string, number>();
+    // 起点先往前留两天，再退到那一周的周一（getUTCDay：0=周日），这样每段都从周一开始
+    const firstPadded = shiftDay(earliest, -2);
+    const backToMonday = (new Date(`${firstPadded}T00:00:00Z`).getUTCDay() + 6) % 7;
+    const start = shiftDay(firstPadded, -backToMonday);
+    let end = shiftDay(latest, 10);
+    timeline = dateRangeToArray(start, end);
+    // 补齐最后一段，让每段都是完整的 4 周；末尾多出来的空白正好用来拖拽建新单
+    const remainder = timeline.length % DAYS_PER_BAND;
+    if (remainder !== 0) {
+      end = shiftDay(end, DAYS_PER_BAND - remainder);
+      timeline = dateRangeToArray(start, end);
+    }
+
+    // 最后一段必须是空的：留一整段空白在最底下，往后加新单子随时有地方拖。
+    // 最后一段里只要还有单子，就再往后接一段 4 周，直到接出一段完全空的。
+    while (
+      withDays.some((o: any) =>
+        (o.demand_days as string[]).some((d) =>
+          timeline.slice(timeline.length - DAYS_PER_BAND).includes(d)
+        )
+      )
+    ) {
+      end = shiftDay(end, DAYS_PER_BAND);
+      timeline = dateRangeToArray(start, end);
+    }
+  }
+
   const sorted = [...withDays].sort((a: any, b: any) =>
     a.demand_days[0] < b.demand_days[0] ? -1 : 1
   );
-  for (const o of sorted as any[]) {
-    let lane = 0;
-    while (lanes[lane] && lanes[lane].some((d) => o.demand_days.includes(d))) {
-      lane += 1;
+
+  // 每段单独排泳道：这一段只有一个单子就只占一行，段的高度自动跟着缩，
+  // 不会像以前那样所有段都被最挤的那一段撑高
+  type Band = {
+    days: string[];
+    colIndex: Map<string, number>;
+    laneOf: Map<string, number>;
+    laneCount: number;
+  };
+  const bands: Band[] = [];
+  for (let i = 0; i < timeline.length; i += DAYS_PER_BAND) {
+    const days = timeline.slice(i, i + DAYS_PER_BAND);
+    const inBand = new Set(days);
+    const bandLanes: string[][] = [];
+    const laneOf = new Map<string, number>();
+    for (const o of sorted as any[]) {
+      const daysHere = (o.demand_days as string[]).filter((d) => inBand.has(d));
+      if (daysHere.length === 0) continue;
+      let lane = 0;
+      while (bandLanes[lane] && bandLanes[lane].some((d) => daysHere.includes(d))) {
+        lane += 1;
+      }
+      bandLanes[lane] = [...(bandLanes[lane] ?? []), ...daysHere];
+      laneOf.set(o.id, lane);
     }
-    lanes[lane] = [...(lanes[lane] ?? []), ...o.demand_days];
-    laneOf.set(o.id, lane);
+    const isLastBand = i + DAYS_PER_BAND >= timeline.length;
+    bands.push({
+      days,
+      colIndex: new Map(days.map((d, j) => [d, j])),
+      laneOf,
+      laneCount: bandLanes.length + (isLastBand ? EXTRA_LANES_LAST : EXTRA_LANES),
+    });
   }
 
   const today = todayIso();
@@ -473,31 +561,36 @@ export default async function OverviewPage({
             </p>
           ) : (
             <ZoomableCalendar>
-            <div style={{ overflowX: "auto", paddingBottom: 12 }}>
+              {bands.map((band, bandIdx) => (
               <div
+                key={band.days[0]}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: `repeat(${timeline.length}, ${COL_WIDTH}px)`,
+                  gridTemplateColumns: `repeat(${band.days.length}, ${COL_WIDTH}px)`,
                   gridTemplateRows: `${HEADER_ROW_HEIGHT}px`,
                   gridAutoRows: `${ROW_HEIGHT}px`,
                   gap: 2,
                   minWidth: "min-content",
+                  marginBottom: bandIdx === bands.length - 1 ? 0 : BAND_GAP,
                 }}
               >
                 <NewOrderSelector
-                  timeline={timeline}
+                  timeline={band.days}
                   colWidth={COL_WIDTH}
                   rowHeight={ROW_HEIGHT}
-                  laneCount={Math.max(lanes.length, 1) + 2}
+                  laneCount={band.laneCount}
                   assigningOrderId={assigningOrder ? (assigningOrder as any).id : null}
                   createOrderAction={createQuickOrder}
+                  customerIdByName={customerIdByName}
                 />
-                {timeline.map((d, i) => {
+                {band.days.map((d, i) => {
                   const { date, weekday } = shortLabel(d);
                   const weekend = isWeekend(d);
                   return (
                     <div
                       key={d}
+                      // 新开标签页时用来定位到"今天"那一列
+                      data-today={d === today ? "1" : undefined}
                       style={{
                         gridRow: 1,
                         gridColumn: i + 1,
@@ -507,6 +600,11 @@ export default async function OverviewPage({
                           d === today ? "2px solid #333" : "1px solid #e5e5e5",
                         fontSize: 12,
                         color: weekend ? "#a8620d" : "#666",
+                        // 竖着滚的时候日期条黏在顶上，不然滚下去就不知道是哪天了。
+                        // zIndex 要压过订单色块（1）和空白选框（0）
+                        position: "sticky",
+                        top: 0,
+                        zIndex: 3,
                       }}
                     >
                       <div style={{ fontWeight: 500 }}>{date}</div>
@@ -516,6 +614,9 @@ export default async function OverviewPage({
                 })}
 
                 {(sorted as any[]).map((o) => {
+                  // 这一段（4 周）里没有这个单子的日子就整个跳过
+                  const bandLane = band.laneOf.get(o.id);
+                  if (bandLane === undefined) return null;
                   const cards = assignedTo.get(o.id) ?? [];
                   const need = computeNeed(o, cards);
                   const isAssigning = searchParams.assign === o.id;
@@ -531,13 +632,25 @@ export default async function OverviewPage({
                     o.location,
                     o.customers?.first_name,
                   ].join("|");
-                  return contiguousRuns(o.demand_days).map((run, runIdx) => {
-                    const start = colIndex.get(run[0]);
-                    if (start === undefined) return null;
+                  const allSorted = [...(o.demand_days as string[])].sort();
+                  const firstDayOverall = allSorted[0];
+                  const firstDayInBand = allSorted.find((d) => band.colIndex.has(d));
+                  return contiguousRuns(o.demand_days).flatMap((run) => {
+                    // 连续段跟"每 4 周一段"的边界不一定对齐，切出落在这一段里的那截
+                    const seg = run.filter((d) => band.colIndex.has(d));
+                    if (seg.length === 0) return [];
+                    const start = band.colIndex.get(seg[0])!;
+                    const segKey = `${o.id}-${seg[0]}-${editStateKey}`;
+                    // 整个连续段都在这一段里才给拖拽改天数的把手：被边界切开的话，
+                    // 拖出去那一头算不出正确日期，会把另一段的日子给抹掉
+                    const runFullyInBand = seg.length === run.length;
+                    // 摘要（姓名/价格/分配进度）每段显示一次，编辑控件全局只出现一次
+                    const showDetail = seg[0] === firstDayInBand;
+                    const showEdit = seg[0] === firstDayOverall;
                     const c = statusColor(o.status);
                     const blockStyle = {
-                      gridRow: (laneOf.get(o.id) ?? 0) + 2,
-                      gridColumn: `${start + 1} / span ${run.length}`,
+                      gridRow: bandLane + 2,
+                      gridColumn: `${start + 1} / span ${seg.length}`,
                       background: c.bg,
                       border: isAssigning
                         ? "2px solid #1c4e78"
@@ -566,7 +679,8 @@ export default async function OverviewPage({
                     if (!isAssigning) {
                       return (
                         <Link
-                          key={`${o.id}-${runIdx}-${editStateKey}`}
+                          key={segKey}
+                          data-order-id={o.id}
                           href={qs({ assign: o.id })}
                           style={{
                             ...blockStyle,
@@ -577,7 +691,7 @@ export default async function OverviewPage({
                           }}
                           title={blockTitle}
                         >
-                          {runIdx === 0 && (
+                          {showDetail && (
                             <>
                               <div
                                 style={{
@@ -635,26 +749,21 @@ export default async function OverviewPage({
                       );
                     }
 
+                    // 分配模式下这个单子的其它色块（不连续的、或者被段边界切开的那几截）：
+                    // 只跟着高亮，编辑控件不重复放，不然页面上会有多个 assign-active-block
+                    if (!showEdit) {
+                      return (
+                        <div
+                          key={segKey}
+                          data-order-id={o.id}
+                          style={blockStyle}
+                          title={blockTitle}
+                        />
+                      );
+                    }
+
                     // 分配模式：点名字那行退出，已配的资源直接在色块里叉掉；左右边框可以拖，改这一段的起止日期
-                    return (
-                      <ResizableOrderBlock
-                        key={`${o.id}-${runIdx}-${editStateKey}`}
-                        orderId={o.id}
-                        runStart={run[0]}
-                        runEnd={run[run.length - 1]}
-                        startIndex={start}
-                        length={run.length}
-                        timeline={timeline}
-                        laneRow={(laneOf.get(o.id) ?? 0) + 2}
-                        resizeAction={resizeOrderRun}
-                        style={{
-                          background: c.bg,
-                          border: "2px solid #1c4e78",
-                          color: c.text,
-                          borderRadius: 4,
-                          overflow: "hidden",
-                        }}
-                      >
+                    const editInner = (
                       <div
                         id="assign-active-block"
                         style={{
@@ -670,7 +779,7 @@ export default async function OverviewPage({
                         }}
                         title={blockTitle}
                       >
-                        {runIdx === 0 && (
+                        {showEdit && (
                           <>
                             <div
                               style={{
@@ -703,6 +812,7 @@ export default async function OverviewPage({
                               <DeleteOrderButton
                                 orderId={o.id}
                                 deleteAction={deleteOrder}
+                                exitHref={qs({ assign: "" })}
                                 style={{ flexShrink: 0 }}
                               />
                               <OptimisticEditForm
@@ -877,12 +987,47 @@ export default async function OverviewPage({
                           </>
                         )}
                       </div>
+                    );
+
+                    if (!runFullyInBand) {
+                      // 这一段被 4 周的边界切开了：不挂拖拽把手，只正常显示
+                      return (
+                        <div
+                          key={segKey}
+                          data-order-id={o.id}
+                          style={{ ...blockStyle, padding: 0 }}
+                        >
+                          {editInner}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <ResizableOrderBlock
+                        key={segKey}
+                        orderId={o.id}
+                        runStart={run[0]}
+                        runEnd={run[run.length - 1]}
+                        startIndex={start}
+                        length={seg.length}
+                        timeline={band.days}
+                        laneRow={bandLane + 2}
+                        resizeAction={resizeOrderRun}
+                        style={{
+                          background: c.bg,
+                          border: "2px solid #1c4e78",
+                          color: c.text,
+                          borderRadius: 4,
+                          overflow: "hidden",
+                        }}
+                      >
+                        {editInner}
                       </ResizableOrderBlock>
                     );
                   });
                 })}
               </div>
-            </div>
+              ))}
             </ZoomableCalendar>
           )}
         </div>

@@ -20,13 +20,15 @@ export default function NewOrderSelector({
   laneCount,
   assigningOrderId,
   createOrderAction,
+  customerIdByName,
 }: {
   timeline: string[];
   colWidth: number;
   rowHeight: number;
   laneCount: number;
   assigningOrderId: string | null;
-  createOrderAction: (formData: FormData) => Promise<void>;
+  createOrderAction: (formData: FormData) => Promise<string>;
+  customerIdByName: Record<string, string>;
 }) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -47,6 +49,14 @@ export default function NewOrderSelector({
   const [perDayPrice, setPerDayPrice] = useState("");
   const [totalPrice, setTotalPrice] = useState("");
   const [error, setError] = useState("");
+  // 建单失败的提示：弹窗这时候已经关了，得有个独立的地方告诉用户没建成
+  const [failed, setFailed] = useState(false);
+  // 建单在跑的时候先按填的内容画一个占位色块：Supabase 一个来回就要一两秒，
+  // 不这样的话点完"创建"要等好几秒日历上才冒出这个单子，像没反应一样
+  const [pending, setPending] = useState<
+    | { start: number; end: number; row: number; label: string; amount: string }
+    | null
+  >(null);
 
   function resetAll() {
     setPopupOpen(false);
@@ -61,6 +71,9 @@ export default function NewOrderSelector({
     setPerDayPrice("");
     setTotalPrice("");
     setError("");
+    // 这个也要清：漏了的话建单那一下把它设成 true 之后就再没人改回来，
+    // 下次开弹窗按钮会一直显示"建单中…"并且是禁用的
+    setSubmitting(false);
   }
 
   // 点了别的订单（或者退出了分配模式），之前拖出来的框就当没发生过
@@ -236,17 +249,39 @@ export default function NewOrderSelector({
     fd.set("female_count", String(female || 0));
     fd.set("demand_days", JSON.stringify(days));
     fd.set("amount", totalPrice.trim());
+    // 这个名字页面加载时已经查到过 id 的话就直接带上，服务端能少查一次库（省一两秒）
+    const knownCustomerId = customerIdByName[name.trim().toLowerCase()];
+    if (knownCustomerId) fd.set("customer_id", knownCustomerId);
+
+    // 先把弹窗关掉、同时在日历上画一个占位色块再等服务端：写库要一两秒，
+    // 让人对着"建单中…"干等、或者点完日历上半天不出现，都像卡住了。
+    const startIdx = timeline.indexOf(days[0]);
+    const endIdx = timeline.indexOf(days[days.length - 1]);
+    const row = selection ? selection.row : 0;
+    const label = `${name.trim()}${location.trim() ? " · " + location.trim() : ""}`;
+    const amountLabel = totalPrice.trim();
+    resetAll();
+    // 拖出来的这一段可能横跨两个 4 周段，只有落在本段里的才画得出占位块
+    if (startIdx !== -1 && endIdx !== -1) {
+      setPending({ start: startIdx, end: endIdx, row, label, amount: amountLabel });
+    }
 
     try {
-      await createOrderAction(fd);
-      resetAll();
-      router.refresh();
+      const newOrderId = await createOrderAction(fd);
+      // 只 push 不 refresh：action 里已经 revalidatePath 过了，这次跳转拿到的就是
+      // 新数据。多加一个 refresh 等于白等一次服务端来回（一个来回将近 1 秒）。
+      router.push(`/admin/overview?assign=${newOrderId}`);
     } catch {
-      // 建单失败（比如网络中断）：把状态退回去，让用户能重新点"创建"，而不是卡在"建单中…"
-      setSubmitting(false);
-      setError("建单失败，请重试");
+      // 弹窗已经关了，错误得单独提示一下，不然建单失败会悄无声息
+      setPending(null);
+      setFailed(true);
     }
   }
+
+  // 真实色块渲染出来之后（订单数变了会重新渲染），占位块就该撤掉
+  useEffect(() => {
+    setPending(null);
+  }, [assigningOrderId]);
 
   if (timeline.length === 0) return null;
 
@@ -272,6 +307,30 @@ export default function NewOrderSelector({
       }}
       title="拖动选日期，双击建新单"
     >
+      {failed &&
+        createPortal(
+          <div
+            onClick={() => setFailed(false)}
+            style={{
+              position: "fixed",
+              top: 16,
+              left: "50%",
+              transform: "translateX(-50%)",
+              background: "#c0392b",
+              color: "#fff",
+              fontSize: 13,
+              padding: "8px 14px",
+              borderRadius: 4,
+              boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
+              cursor: "pointer",
+              zIndex: 50,
+            }}
+          >
+            建单失败，请重试（点这里关掉）
+          </div>,
+          document.body
+        )}
+
       {selection && (
         <div
           style={{
@@ -286,6 +345,48 @@ export default function NewOrderSelector({
             pointerEvents: "none",
           }}
         />
+      )}
+
+      {pending && (
+        <div
+          style={{
+            position: "absolute",
+            top: pending.row * (rowHeight + GAP),
+            left: Math.min(pending.start, pending.end) * (colWidth + GAP),
+            width:
+              (Math.abs(pending.end - pending.start) + 1) * colWidth +
+              Math.abs(pending.end - pending.start) * GAP,
+            height: rowHeight,
+            background: "#f3f4f6",
+            border: "1px solid #bbb",
+            borderRadius: 4,
+            padding: "3px 6px",
+            boxSizing: "border-box",
+            fontSize: 12,
+            lineHeight: 1.3,
+            color: "#666",
+            overflow: "hidden",
+            pointerEvents: "none",
+            opacity: 0.75,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}>
+            <span
+              style={{
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                fontWeight: 500,
+              }}
+            >
+              {pending.label}
+            </span>
+            {pending.amount && (
+              <span style={{ fontSize: 11, flexShrink: 0 }}>${pending.amount}</span>
+            )}
+          </div>
+          <div style={{ fontSize: 11 }}>建单中…</div>
+        </div>
       )}
 
       {popupOpen &&
