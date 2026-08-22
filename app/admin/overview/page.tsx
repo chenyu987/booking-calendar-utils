@@ -7,6 +7,7 @@ import ZoomableCalendar from "./ZoomableCalendar";
 import ResizableOrderBlock from "./ResizableOrderBlock";
 import OptimisticEditForm from "./OptimisticEditForm";
 import NewOrderSelector from "./NewOrderSelector";
+import DeleteOrderButton from "./DeleteOrderButton";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
 import {
@@ -249,6 +250,23 @@ async function removeAssignment(formData: FormData) {
   redirect(`/admin/overview?assign=${orderId}`);
 }
 
+async function deleteOrder(formData: FormData) {
+  "use server";
+  const orderId = formData.get("order_id") as string;
+
+  // order_assignments/payments/order_notes/matches 对 orders 都是 on delete cascade，
+  // 删这一条订单会自动把它们清掉，不用手动一张张删
+  const { error } = await supabase.from("orders").delete().eq("id", orderId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/overview");
+  revalidatePath("/admin/orders");
+  revalidatePath("/admin/customers");
+  revalidatePath("/admin/payments");
+  revalidatePath("/admin/matches");
+  redirect("/admin/overview");
+}
+
 export default async function OverviewPage({
   searchParams,
 }: {
@@ -334,7 +352,7 @@ export default async function OverviewPage({
     };
     timeline = dateRangeToArray(
       pad(allDays[0], -2),
-      pad(allDays[allDays.length - 1], 2)
+      pad(allDays[allDays.length - 1], 10)
     );
   }
   const colIndex = new Map(timeline.map((d, i) => [d, i]));
@@ -628,7 +646,6 @@ export default async function OverviewPage({
                         length={run.length}
                         timeline={timeline}
                         laneRow={(laneOf.get(o.id) ?? 0) + 2}
-                        colWidth={COL_WIDTH}
                         resizeAction={resizeOrderRun}
                         style={{
                           background: c.bg,
@@ -683,6 +700,11 @@ export default async function OverviewPage({
                                   }}
                                 />
                               </OptimisticEditForm>
+                              <DeleteOrderButton
+                                orderId={o.id}
+                                deleteAction={deleteOrder}
+                                style={{ flexShrink: 0 }}
+                              />
                               <OptimisticEditForm
                                 exitHref={qs({ assign: "" })}
                                 style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}

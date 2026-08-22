@@ -13,7 +13,6 @@ export default function ResizableOrderBlock({
   length,
   timeline,
   laneRow,
-  colWidth,
   resizeAction,
   style,
   children,
@@ -25,27 +24,34 @@ export default function ResizableOrderBlock({
   length: number;
   timeline: string[];
   laneRow: number;
-  colWidth: number;
   resizeAction: (formData: FormData) => Promise<void>;
   style: React.CSSProperties;
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const blockRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ edge: "start" | "end"; delta: number } | null>(null);
-  const dragRef = useRef<{ edge: "start" | "end"; originX: number } | null>(null);
+  const dragRef = useRef<{ edge: "start" | "end"; originX: number; colWidth: number } | null>(
+    null
+  );
 
   function beginDrag(edge: "start" | "end") {
     return (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      dragRef.current = { edge, originX: e.clientX };
+      // 缩放（CSS zoom）会整体缩放这个色块的渲染尺寸，但 clientX 和 colWidth 常量
+      // 不会跟着变——直接拿常量除会在非 100% 缩放下算错格数。用色块自己此刻的实际
+      // 渲染宽度除以它横跨的天数，反推出"现在"每格多宽，缩放到多少都对得上。
+      const rect = blockRef.current!.getBoundingClientRect();
+      const effectiveColWidth = rect.width / length;
+      dragRef.current = { edge, originX: e.clientX, colWidth: effectiveColWidth };
       setDrag({ edge, delta: 0 });
       // 拖拽结束时浏览器会在鼠标松开处补一个 click，标记一下让"点外面退出"忽略这一下
       document.body.dataset.resizingOrder = "1";
 
       function onMove(ev: MouseEvent) {
         if (!dragRef.current) return;
-        const delta = Math.round((ev.clientX - dragRef.current.originX) / colWidth);
+        const delta = Math.round((ev.clientX - dragRef.current.originX) / dragRef.current.colWidth);
         setDrag({ edge: dragRef.current.edge, delta });
       }
 
@@ -53,8 +59,8 @@ export default function ResizableOrderBlock({
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
         if (!dragRef.current) return;
-        const { edge } = dragRef.current;
-        const delta = Math.round((ev.clientX - dragRef.current.originX) / colWidth);
+        const { edge, colWidth: dragColWidth } = dragRef.current;
+        const delta = Math.round((ev.clientX - dragRef.current.originX) / dragColWidth);
         dragRef.current = null;
         setDrag(null);
         // click 事件跟 mouseup 同步派发，下一轮宏任务再摘掉标记，这样"点外面退出"能读到它
@@ -105,6 +111,7 @@ export default function ResizableOrderBlock({
 
   return (
     <div
+      ref={blockRef}
       style={{
         ...style,
         gridRow: laneRow,

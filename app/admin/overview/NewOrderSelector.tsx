@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { shortLabel } from "@/lib/dates";
+import { dateRangeToArray } from "@/lib/dates";
 import { computeTotalFromPerDay } from "@/lib/pricing";
 
 const GAP = 2;
@@ -32,6 +32,11 @@ export default function NewOrderSelector({
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startIdx: number; row: number } | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
+  // 弹窗里实际提交用的日期范围，跟 selection 分开：selection 只是画那个虚线预览框用的
+  // 时间轴下标，弹窗打开之后用户应该能像 Google 日历一样直接选任意日期，不受当前
+  // 时间轴渲染范围（timeline）限制——哪怕选的日子还没有任何单子覆盖到那也行
+  const [dateStart, setDateStart] = useState("");
+  const [dateEnd, setDateEnd] = useState("");
   const [popupOpen, setPopupOpen] = useState(false);
   const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -46,6 +51,8 @@ export default function NewOrderSelector({
   function resetAll() {
     setPopupOpen(false);
     setSelection(null);
+    setDateStart("");
+    setDateEnd("");
     setPopupPos(null);
     setName("");
     setMale(0);
@@ -99,6 +106,18 @@ export default function NewOrderSelector({
     return () => document.removeEventListener("click", onDocClick, true);
   }, [selection, popupOpen]);
 
+  // 缩放（ZoomableCalendar 用的是 CSS zoom）会整体缩放这个容器的渲染尺寸，但鼠标
+  // 事件的 clientX/Y 和 getBoundingClientRect() 拿到的都是缩放之后的可视像素——
+  // 只有拿来算格子宽高的 colWidth/rowHeight 是没跟着缩放变的 JS 常量。直接拿常量
+  // 做除法在 100% 之外的缩放比例下会算错格子，所以改成从容器实际渲染尺寸反推每格
+  // 多宽多高，这样不管缩放到多少都对得上。
+  function effectiveColUnit() {
+    return containerRef.current!.getBoundingClientRect().width / timeline.length;
+  }
+  function effectiveRowUnit() {
+    return containerRef.current!.getBoundingClientRect().height / laneCount;
+  }
+
   // 弹窗位置在挂载之后按视口尺寸算，避免跟渲染时机的 window 尺寸读数赛跑；
   // 优先放选框右下方，放不下就翻到上面/左边，保证整个窗口都在可视区里
   useLayoutEffect(() => {
@@ -107,28 +126,30 @@ export default function NewOrderSelector({
       return;
     }
     const rect = containerRef.current.getBoundingClientRect();
-    const rowTop = rect.top + selection.row * (rowHeight + GAP);
-    const dayLeft = rect.left + Math.min(selection.start, selection.end) * (colWidth + GAP);
+    const colUnit = rect.width / timeline.length;
+    const rowUnit = rect.height / laneCount;
+    const rowTop = rect.top + selection.row * rowUnit;
+    const dayLeft = rect.left + Math.min(selection.start, selection.end) * colUnit;
 
-    const belowY = rowTop + rowHeight + 4;
+    const belowY = rowTop + rowUnit + 4;
     const spaceBelow = window.innerHeight - belowY;
     const top =
       spaceBelow >= POPUP_EST_HEIGHT ? belowY : Math.max(rowTop - POPUP_EST_HEIGHT - 4, 8);
     const left = Math.max(8, Math.min(dayLeft, window.innerWidth - POPUP_WIDTH - 8));
     setPopupPos({ top, left });
-  }, [popupOpen, selection, rowHeight, colWidth]);
+  }, [popupOpen, selection, laneCount]);
 
   function dayIndexAt(clientX: number) {
     const rect = containerRef.current!.getBoundingClientRect();
     const x = clientX - rect.left;
-    const idx = Math.floor(x / (colWidth + GAP));
+    const idx = Math.floor(x / effectiveColUnit());
     return Math.min(Math.max(idx, 0), timeline.length - 1);
   }
 
   function rowIndexAt(clientY: number) {
     const rect = containerRef.current!.getBoundingClientRect();
     const y = clientY - rect.top;
-    const idx = Math.floor(y / (rowHeight + GAP));
+    const idx = Math.floor(y / effectiveRowUnit());
     return Math.min(Math.max(idx, 0), laneCount - 1);
   }
 
@@ -168,43 +189,45 @@ export default function NewOrderSelector({
 
   function handleDoubleClick(e: React.MouseEvent) {
     if (assigningOrderId) return;
-    if (!selection) {
+    let sel = selection;
+    if (!sel) {
       const idx = dayIndexAt(e.clientX);
       const row = rowIndexAt(e.clientY);
-      setSelection({ start: idx, end: idx, row });
+      sel = { start: idx, end: idx, row };
+      setSelection(sel);
     }
+    setDateStart(timeline[Math.min(sel.start, sel.end)]);
+    setDateEnd(timeline[Math.max(sel.start, sel.end)]);
     setPopupOpen(true);
   }
 
   // 弹窗里改了日期范围（天数变了），已经填过的每天单价要跟着重新算一次总价
   useEffect(() => {
-    if (!selection || perDayPrice.trim() === "") return;
+    if (!dateStart || !dateEnd || perDayPrice.trim() === "") return;
     const rate = Number(perDayPrice);
     if (!Number.isFinite(rate)) return;
-    const days = Math.abs(selection.end - selection.start) + 1;
+    const days = dateEnd >= dateStart ? dateRangeToArray(dateStart, dateEnd).length : 0;
     const partySize = (male || 0) + (female || 0);
     setTotalPrice(String(computeTotalFromPerDay(rate, days, partySize)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection]);
+  }, [dateStart, dateEnd]);
 
   // 填每天单价的时候顺手把总价算出来（单价 × 天数 × 人数），总价框自己也能再改
   function handlePerDayChange(value: string) {
     setPerDayPrice(value);
     const rate = Number(value);
     if (value.trim() === "" || !Number.isFinite(rate)) return;
-    if (!selection) return;
-    const days = Math.abs(selection.end - selection.start) + 1;
+    if (!dateStart || !dateEnd || dateEnd < dateStart) return;
+    const days = dateRangeToArray(dateStart, dateEnd).length;
     const partySize = (male || 0) + (female || 0);
     setTotalPrice(String(computeTotalFromPerDay(rate, days, partySize)));
   }
 
   async function submit() {
-    if (!selection || !name.trim() || submitting) return;
+    if (!dateStart || !dateEnd || dateEnd < dateStart || !name.trim() || submitting) return;
     setSubmitting(true);
     setError("");
-    const lo = Math.min(selection.start, selection.end);
-    const hi = Math.max(selection.start, selection.end);
-    const days = timeline.slice(lo, hi + 1);
+    const days = dateRangeToArray(dateStart, dateEnd);
 
     const fd = new FormData();
     fd.set("customer_name", name.trim());
@@ -226,6 +249,8 @@ export default function NewOrderSelector({
   }
 
   if (timeline.length === 0) return null;
+
+  const formInvalid = submitting || !name.trim() || !dateStart || !dateEnd || dateEnd < dateStart;
 
   const lo = selection ? Math.min(selection.start, selection.end) : 0;
   const hi = selection ? Math.max(selection.start, selection.end) : 0;
@@ -309,37 +334,31 @@ export default function NewOrderSelector({
               gap: 4,
             }}
           >
-            <span>新单子 ·</span>
-            <select
-              value={lo}
+            <input
+              type="date"
+              value={dateStart}
               onChange={(e) => {
-                const newLo = Number(e.target.value);
-                setSelection({ start: newLo, end: Math.max(newLo, hi), row: selection.row });
+                const v = e.target.value;
+                setDateStart(v);
+                if (dateEnd < v) setDateEnd(v);
               }}
               style={{ fontSize: 12, color: "#222" }}
-            >
-              {timeline.map((d, i) => (
-                <option key={i} value={i}>
-                  {shortLabel(d).date}
-                </option>
-              ))}
-            </select>
+            />
             <span>~</span>
-            <select
-              value={hi}
+            <input
+              type="date"
+              value={dateEnd}
+              min={dateStart || undefined}
               onChange={(e) => {
-                const newHi = Number(e.target.value);
-                setSelection({ start: Math.min(lo, newHi), end: newHi, row: selection.row });
+                const v = e.target.value;
+                setDateEnd(v);
+                if (v < dateStart) setDateStart(v);
               }}
               style={{ fontSize: 12, color: "#222" }}
-            >
-              {timeline.map((d, i) => (
-                <option key={i} value={i}>
-                  {shortLabel(d).date}
-                </option>
-              ))}
-            </select>
-            <span>（{hi - lo + 1}天）</span>
+            />
+            {dateStart && dateEnd && dateEnd >= dateStart && (
+              <span>（{dateRangeToArray(dateStart, dateEnd).length}天）</span>
+            )}
           </div>
           <input
             autoFocus
@@ -426,11 +445,11 @@ export default function NewOrderSelector({
             </button>
             <button
               type="submit"
-              disabled={submitting || !name.trim()}
+              disabled={formInvalid}
               style={{
                 fontSize: 13,
                 padding: "4px 10px",
-                cursor: submitting || !name.trim() ? "default" : "pointer",
+                cursor: formInvalid ? "default" : "pointer",
                 background: "#1f5c33",
                 color: "#fff",
                 border: "none",
