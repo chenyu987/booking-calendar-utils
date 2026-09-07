@@ -62,33 +62,30 @@ export default function CollapsibleResourcePanel({
           ›
         </button>
       ) : (
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
+        <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+          {/* 绝对定位贴右上角，跟「资源 Resource（N）」那行标题并排。
+              单独占一行的话左边一大片是空的，白白浪费一行高度 */}
+          <button
+            type="button"
+            onClick={toggle}
+            title="收起资源面板"
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "flex-end",
-              marginBottom: 2,
+              position: "absolute",
+              top: 0,
+              right: 0,
+              zIndex: 1,
+              fontSize: 12,
+              lineHeight: 1,
+              padding: "2px 6px",
+              cursor: "pointer",
+              border: "1px solid #ddd",
+              borderRadius: 4,
+              background: "#fafafa",
+              color: "#666",
             }}
           >
-            <button
-              type="button"
-              onClick={toggle}
-              title="收起资源面板"
-              style={{
-                fontSize: 12,
-                lineHeight: 1,
-                padding: "2px 6px",
-                cursor: "pointer",
-                border: "1px solid #ddd",
-                borderRadius: 4,
-                background: "#fafafa",
-                color: "#666",
-              }}
-            >
-              ‹ 收起
-            </button>
-          </div>
+            ‹ 收起
+          </button>
           {children}
         </div>
       )}
