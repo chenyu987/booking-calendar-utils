@@ -119,6 +119,10 @@ export default function CalendarScroller({
       className="cal-scroll"
       style={{
         overflow: "auto",
+        // 日历滑到最左/最右之后，别让这一下继续冒泡成浏览器的「返回上一页」手势。
+        // <html> 上也设了一层兜底，但手势多半发生在鼠标悬在日历上的时候，
+        // 这里挡住最直接。contain 保留自身的回弹手感，只是不把手势往外传。
+        overscrollBehaviorX: "contain",
         // 具体高度挂载后按视口算（见上面的 fit），这里给个兜底值防止首帧太高
         maxHeight: "70vh",
         // 不留 paddingBottom：横向滚动条本来就在容器内部，再垫一层等于内容和

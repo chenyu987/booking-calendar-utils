@@ -10,16 +10,19 @@ import { useRouter } from "next/navigation";
 export default function OptimisticEditForm({
   exitHref,
   style,
+  className,
   children,
 }: {
   exitHref: string;
   style?: React.CSSProperties;
+  className?: string;
   children: React.ReactNode;
 }) {
   const router = useRouter();
 
   return (
     <form
+      className={className}
       style={style}
       onSubmit={async (e) => {
         e.preventDefault();

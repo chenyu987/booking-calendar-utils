@@ -58,11 +58,25 @@ export const dynamic = "force-dynamic";
 
 const COL_WIDTH = 132;
 const HEADER_ROW_HEIGHT = 52;
-// 固定高度要能装下分配模式那 5 行（姓名+金额 / 男女+地点 / 已分配 / 进度 / 状态），
-// 非分配模式的 3 行留白垫底，两种状态高度才一样。
-// 实测这 5 行内容占 79px，配上下面的 2px 内边距和 2px 行间距，最少要 95px 才不被裁掉
-// （色块还有上下各 2px 边框）——96 是压扁的下限，再小「女」那类输入框就会被切。
-const ROW_HEIGHT = 80;
+// 所有行统一这个高度。**不要改成 auto/minmax** —— 那样分配的那一行会比别的行高，
+// 每次进出编辑模式色块都跳一下，看久了很晃眼（试过，被否了）。
+//
+// 两个状态排成一一对应的 3 行，位置一样，所以进出编辑不跳、也看得出哪个字段对哪个框：
+//   1 姓名 · 地点 | 金额   ←→  姓名框 | 地点框 | 删除叉 | 金额框
+//   2 已配的资源             ←→  已配的资源（带撤销叉）
+//   3 男1/1 女1/1          ←→  男1/[框] 女1/[框] | 状态下拉框
+//
+// 第 3 行是「分配进度」和「几男几女」合并的结果：进度的分母本来就是要几个人，
+// 两行是同一份信息，所以分配模式把 male_count/female_count 的输入框直接摆在分母位置。
+// 高度取决于最高的那个状态（分配模式，输入框和下拉框比纯文字高）。
+const ROW_HEIGHT = 62;
+
+// Chrome 123+ 的 field-sizing:content——输入框跟着内容宽窄走。
+// 分配模式的「姓名 · 地点」靠它才能像平时状态那样紧挨着；否则两个 flex:1 的框
+// 各占一半，名字短的时候中间空一大截，看着很散。
+// TS 的 CSSProperties 还没收这个属性，所以断言一下；不支持的浏览器退回默认宽度，
+// 只是没那么紧凑，不会坏。
+const FIELD_SIZING_CONTENT = { fieldSizing: "content" } as React.CSSProperties;
 const PANEL_WIDTH = 260;
 // 一条时间轴拉到底横着能滑很久，改成每 4 周折一段往下排（跟 Excel 里那张排期表一个思路）。
 // 段的起点对齐到周一，所以每段正好是 4 个完整自然周。
@@ -519,6 +533,32 @@ export default async function OverviewPage({
 
       {error && <p style={{ color: "crimson" }}>{error.message}</p>}
 
+      {/* 色块里的数字框不要那对上下箭头：一个箭头组要十几像素，三个框（男/女/金额）
+          加起来将近 50——一天的单子色块只有一列宽，就是这 50px 让金额被挤出去。
+          反正这几个数都是直接敲的，没人会去点箭头。
+          Firefox 走 appearance:textfield（写在 style 里），Chrome/Safari 得干掉
+          ::-webkit-*-spin-button 这个伪元素，只能用 CSS 写。 */}
+      <style>{`
+        #assign-active-block input[type="number"]::-webkit-outer-spin-button,
+        #assign-active-block input[type="number"]::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          appearance: none;
+          margin: 0;
+        }
+        /* 一天的单子色块只有一列宽（132px），第 3 行放不下「男x/y 女x/y + 状态 + 金额」。
+           这时候把状态下拉框藏掉：三者里它最不要紧——色块本身的颜色就是状态，
+           Order 列表页也能改。留下分配进度和金额，这两个数才是排期时要看的。
+           用容器查询而不是媒体查询：判断依据是这个色块自己有多宽（几天的单子），
+           跟浏览器窗口多宽没关系。180 这个数落在「一天」(内容宽 120) 和
+           「两天」(252) 中间，判得干脆。 */
+        #assign-active-block { container-type: inline-size; }
+        @container (max-width: 180px) {
+          /* !important 不能省：表单的 display:flex 是内联样式，
+             选择器再具体也压不过它 */
+          #assign-active-block .assign-status { display: none !important; }
+        }
+      `}</style>
+
       {/* 统计 / 状态图例 / 缩放 / 资源面板 / 日历 全交给 ZoomableCalendar 排版。
           缩放状态在客户端、统计是服务端渲染的，两者要挤在同一行就得由同一个
           客户端组件来渲染——所以统计行和资源面板当 props 传进去。 */}
@@ -594,6 +634,9 @@ export default async function OverviewPage({
                   display: "grid",
                   gridTemplateColumns: `repeat(${band.days.length}, ${COL_WIDTH}px)`,
                   gridTemplateRows: `${HEADER_ROW_HEIGHT}px`,
+                  // 行高写死，不用 auto：auto 会让分配的那一行比别的行高，
+                  // 每次进出编辑模式整块都跳一下，看久了很晃眼。
+                  // 两个状态排成同样的 4 行，写死高度就不会有跳变。
                   gridAutoRows: `${ROW_HEIGHT}px`,
                   gap: 2,
                   minWidth: "min-content",
@@ -719,28 +762,23 @@ export default async function OverviewPage({
                         >
                           {showDetail && (
                             <>
+                              {/* 第 1 行整行都给「姓名 · 地点」：金额挪到第 3 行右下角了。
+                                  格子窄的时候（一天的单子只有一列宽）名字后面的地点名
+                                  原来经常被金额挤掉，现在挤掉的先是名字本身。 */}
                               <div
                                 style={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  gap: 4,
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  fontWeight: 500,
                                 }}
                               >
-                                <span
-                                  style={{
-                                    whiteSpace: "nowrap",
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    fontWeight: 500,
-                                  }}
-                                >
-                                  {o.customers?.first_name ?? "?"}{" "}
-                                  {formatParty(o.male_count, o.female_count)}
-                                  {o.location ? ` · ${o.location}` : ""}
-                                </span>
-                                <span style={{ fontSize: 11, opacity: 0.8, flexShrink: 0 }}>
-                                  ${o.amount ?? "?"}
-                                </span>
+                                {o.customers?.first_name ?? "?"}
+                                {o.location ? (
+                                  <span style={{ fontWeight: 400, opacity: 0.7 }}>
+                                    {` · ${o.location}`}
+                                  </span>
+                                ) : null}
                               </div>
                               <div
                                 style={{
@@ -762,12 +800,27 @@ export default async function OverviewPage({
                               </div>
                               <div
                                 style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "baseline",
+                                  gap: 4,
                                   fontSize: 11,
-                                  fontWeight: 500,
-                                  color: need.isComplete ? "#1f5c33" : "#a8620d",
                                 }}
                               >
-                                {formatNeed(need)}
+                                <span
+                                  style={{
+                                    fontWeight: 500,
+                                    color: need.isComplete ? "#1f5c33" : "#a8620d",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
+                                  {formatNeed(need)}
+                                </span>
+                                <span style={{ opacity: 0.8, flexShrink: 0 }}>
+                                  ${o.amount ?? "?"}
+                                </span>
                               </div>
                             </>
                           )}
@@ -811,14 +864,14 @@ export default async function OverviewPage({
                             <div
                               style={{
                                 display: "flex",
-                                justifyContent: "space-between",
                                 alignItems: "baseline",
-                                gap: 4,
+                                gap: 2,
+                                overflow: "hidden",
                               }}
                             >
                               <OptimisticEditForm
                                 exitHref={qs({ assign: "" })}
-                                style={{ display: "flex", flex: 1, minWidth: 0 }}
+                                style={{ display: "flex", minWidth: 0, flexShrink: 1 }}
                               >
                                 <input type="hidden" name="order_id" value={o.id} />
                                 <input
@@ -826,7 +879,9 @@ export default async function OverviewPage({
                                   defaultValue={o.customers?.first_name ?? ""}
                                   data-original={o.customers?.first_name ?? ""}
                                   style={{
-                                    width: "100%",
+                                    ...FIELD_SIZING_CONTENT,
+                                    minWidth: 28,
+                                    maxWidth: "100%",
                                     fontSize: 12,
                                     fontWeight: 500,
                                     padding: "0 2px",
@@ -836,78 +891,10 @@ export default async function OverviewPage({
                                   }}
                                 />
                               </OptimisticEditForm>
-                              <DeleteOrderButton
-                                orderId={o.id}
-                                deleteAction={deleteOrder}
-                                exitHref={qs({ assign: "" })}
-                                style={{ flexShrink: 0 }}
-                              />
+                              <span style={{ fontSize: 11, opacity: 0.45, flexShrink: 0 }}>·</span>
                               <OptimisticEditForm
                                 exitHref={qs({ assign: "" })}
-                                style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}
-                              >
-                                <input type="hidden" name="order_id" value={o.id} />
-                                <span style={{ fontSize: 11 }}>$</span>
-                                <input
-                                  name="amount"
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  defaultValue={o.amount ?? ""}
-                                  data-original={o.amount ?? ""}
-                                  style={{ width: 52, fontSize: 11, padding: "0 2px", color: "#222" }}
-                                />
-                              </OptimisticEditForm>
-                            </div>
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 3,
-                                fontSize: 11,
-                              }}
-                            >
-                              <OptimisticEditForm
-                                exitHref={qs({ assign: "" })}
-                                style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}
-                              >
-                                <input type="hidden" name="order_id" value={o.id} />
-                                ♂
-                                <input
-                                  name="male_count"
-                                  type="number"
-                                  min="0"
-                                  defaultValue={o.male_count}
-                                  data-original={o.male_count}
-                                  style={{
-                                    width: 22,
-                                    fontSize: 11,
-                                    padding: "0 1px",
-                                    color: "inherit",
-                                    background: "transparent",
-                                    border: "1px solid transparent",
-                                  }}
-                                />
-                                ♀
-                                <input
-                                  name="female_count"
-                                  type="number"
-                                  min="0"
-                                  defaultValue={o.female_count}
-                                  data-original={o.female_count}
-                                  style={{
-                                    width: 22,
-                                    fontSize: 11,
-                                    padding: "0 1px",
-                                    color: "inherit",
-                                    background: "transparent",
-                                    border: "1px solid transparent",
-                                  }}
-                                />
-                              </OptimisticEditForm>
-                              <OptimisticEditForm
-                                exitHref={qs({ assign: "" })}
-                                style={{ display: "flex", flex: 1, minWidth: 0 }}
+                                style={{ display: "flex", minWidth: 0, flexShrink: 1 }}
                               >
                                 <input type="hidden" name="order_id" value={o.id} />
                                 <input
@@ -916,7 +903,9 @@ export default async function OverviewPage({
                                   defaultValue={o.location ?? ""}
                                   data-original={o.location ?? ""}
                                   style={{
-                                    width: "100%",
+                                    ...FIELD_SIZING_CONTENT,
+                                    minWidth: 22,
+                                    maxWidth: "100%",
                                     fontSize: 11,
                                     padding: "0 2px",
                                     color: "inherit",
@@ -925,14 +914,26 @@ export default async function OverviewPage({
                                   }}
                                 />
                               </OptimisticEditForm>
+                              {/* 撑开的空隙，把删除叉顶到最右边 */}
+                              <span style={{ flex: 1, minWidth: 2 }} />
+                              <DeleteOrderButton
+                                orderId={o.id}
+                                deleteAction={deleteOrder}
+                                exitHref={qs({ assign: "" })}
+                                style={{ flexShrink: 0 }}
+                              />
                             </div>
+                            {/* nowrap：格子只有一列宽（一天的单子）时卡片名会换行，
+                                把写死高度的色块顶爆、底下那行被裁掉。宁可横着截断 */}
                             <div
                               style={{
                                 display: "flex",
-                                flexWrap: "wrap",
+                                flexWrap: "nowrap",
+                                overflow: "hidden",
                                 gap: 4,
                                 fontSize: 11,
                                 opacity: 0.9,
+                                whiteSpace: "nowrap",
                               }}
                             >
                               {cards.length > 0
@@ -982,25 +983,103 @@ export default async function OverviewPage({
                                 alignItems: "center",
                                 justifyContent: "space-between",
                                 gap: 4,
-                                marginTop: "auto",
+                                // 一天的单子只有一列宽，六个输入框本来就塞不下；
+                                // 让它横着截断，别把色块顶高（高度是写死的，顶高就被裁）
+                                overflow: "hidden",
                               }}
                             >
-                              <span
+                              {/* 分配进度和「几男几女」合成一个控件：分母本来就是要几个人，
+                                  所以直接把 male_count/female_count 的输入框摆在分母的位置上。
+                                  平时状态那一行显示的是同一个「男1/1 女1/1」，进出编辑不换位置。
+                                  这里两个性别都画出来（formatNeed 会把 0 的那个藏掉），
+                                  不然想给纯男单加一个女生就没有框可以填。 */}
+                              <OptimisticEditForm
+                                exitHref={qs({ assign: "" })}
                                 style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 3,
                                   fontSize: 11,
                                   fontWeight: 500,
-                                  color: need.isComplete ? "#1f5c33" : "#a8620d",
                                   whiteSpace: "nowrap",
+                                  flexShrink: 0,
                                 }}
                               >
-                                {formatNeed(need)}
-                              </span>
+                                <input type="hidden" name="order_id" value={o.id} />
+                                <span
+                                  style={{
+                                    color: need.maleGap === 0 ? "#1f5c33" : "#a8620d",
+                                    flexShrink: 0,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  男{need.maleFilled}/
+                                  <input
+                                    name="male_count"
+                                    type="number"
+                                    min="0"
+                                    defaultValue={o.male_count}
+                                    data-original={o.male_count}
+                                    style={{
+                                      ...FIELD_SIZING_CONTENT,
+                                      appearance: "textfield",
+                                      width: 16,
+                                      minWidth: 14,
+                                      fontSize: 11,
+                                      fontWeight: 500,
+                                      padding: "0 1px",
+                                      color: "inherit",
+                                      background: "transparent",
+                                      border: "1px solid transparent",
+                                    }}
+                                  />
+                                </span>
+                                <span
+                                  style={{
+                                    color: need.femaleGap === 0 ? "#1f5c33" : "#a8620d",
+                                    flexShrink: 0,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  女{need.femaleFilled}/
+                                  <input
+                                    name="female_count"
+                                    type="number"
+                                    min="0"
+                                    defaultValue={o.female_count}
+                                    data-original={o.female_count}
+                                    style={{
+                                      ...FIELD_SIZING_CONTENT,
+                                      appearance: "textfield",
+                                      width: 16,
+                                      minWidth: 14,
+                                      fontSize: 11,
+                                      fontWeight: 500,
+                                      padding: "0 1px",
+                                      color: "inherit",
+                                      background: "transparent",
+                                      border: "1px solid transparent",
+                                    }}
+                                  />
+                                </span>
+                              </OptimisticEditForm>
+                            {/* 状态框和金额框都靠右下角：平时状态右下角显示的就是金额，
+                                两边位置对得上 */}
+                            {/* marginLeft:auto 把这一组顶到右边，**不能用 justifyContent:flex-end**：
+                                那个在装不下的时候会往左边溢出去，压在分配进度上面（一天的单子
+                                只有一列宽，正好会遇到）。auto margin 装不下时自动变 0，
+                                多出来的部分往右边溢出，被上一层的 overflow:hidden 干净地切掉 */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0, marginLeft: "auto" }}>
                             <OptimisticEditForm
                               exitHref={qs({ assign: "" })}
+                              className="assign-status"
                               style={{
                                 display: "flex",
                                 gap: 4,
-                                flexShrink: 0,
+                                // 跟里面 select 的 minWidth 保持一致：只给 0 的话外层
+                                // 缩到 0、里面的 select 撑出来，就压到金额上去了
+                                minWidth: 24,
+                                flexShrink: 1,
                               }}
                             >
                               <input type="hidden" name="order_id" value={o.id} />
@@ -1010,9 +1089,18 @@ export default async function OverviewPage({
                                 data-original={o.status}
                                 style={{
                                   fontSize: 11,
-                                  padding: "1px 2px",
+                                  // 高度写死 16：浏览器给 select 的默认行高比 11px 字号
+                                  // 需要的多 3px，不压掉的话这几行正好撑出格子。
+                                  // boxSizing 不能省，不然 padding 又加回去了。
+                                  height: 16,
+                                  lineHeight: "14px",
+                                  padding: "0 2px",
+                                  boxSizing: "border-box",
                                   color: "#222",
-                                  minWidth: 0,
+                                  // 允许被挤扁，但留 24px 的底：再窄就只剩一条缝，
+                                  // 看不出那是个下拉框、也点不中
+                                  width: "100%",
+                                  minWidth: 24,
                                 }}
                               >
                                 {Object.entries(STATUS_LABELS).map(([key, label]) => (
@@ -1022,6 +1110,35 @@ export default async function OverviewPage({
                                 ))}
                               </select>
                             </OptimisticEditForm>
+                            <OptimisticEditForm
+                              exitHref={qs({ assign: "" })}
+                              style={{ display: "flex", alignItems: "center", flexShrink: 0 }}
+                            >
+                              <input type="hidden" name="order_id" value={o.id} />
+                              <span style={{ fontSize: 11, opacity: 0.8, flexShrink: 0 }}>$</span>
+                              <input
+                                name="amount"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                defaultValue={o.amount ?? ""}
+                                data-original={o.amount ?? ""}
+                                style={{
+                                  ...FIELD_SIZING_CONTENT,
+                                  appearance: "textfield",
+                                  // 不写死宽度：让 field-sizing 跟着金额位数走，
+                                  // 三位数的单子就只占三位数的地方
+                                  minWidth: 26,
+                                  maxWidth: 64,
+                                  fontSize: 11,
+                                  padding: "0 1px",
+                                  color: "inherit",
+                                  background: "transparent",
+                                  border: "1px solid transparent",
+                                }}
+                              />
+                            </OptimisticEditForm>
+                            </div>
                             </div>
                           </>
                         )}
