@@ -47,8 +47,11 @@ export const dynamic = "force-dynamic";
 
 const COL_WIDTH = 132;
 const HEADER_ROW_HEIGHT = 52;
-// 固定高度要能装下分配模式的 4 行（标题/已分配/进度/状态），非分配模式的 3 行留白垫底，两种状态高度才会一样
-const ROW_HEIGHT = 108;
+// 固定高度要能装下分配模式那 5 行（姓名+金额 / 男女+地点 / 已分配 / 进度 / 状态），
+// 非分配模式的 3 行留白垫底，两种状态高度才一样。
+// 实测这 5 行内容占 79px，配上下面的 2px 内边距和 2px 行间距，最少要 95px 才不被裁掉
+// （色块还有上下各 2px 边框）——96 是压扁的下限，再小「女」那类输入框就会被切。
+const ROW_HEIGHT = 80;
 const PANEL_WIDTH = 260;
 // 一条时间轴拉到底横着能滑很久，改成每 4 周折一段往下排（跟 Excel 里那张排期表一个思路）。
 // 段的起点对齐到周一，所以每段正好是 4 个完整自然周。
@@ -657,7 +660,7 @@ export default async function OverviewPage({
                         : `1px solid ${c.border}`,
                       color: c.text,
                       borderRadius: 4,
-                      padding: "3px 6px",
+                      padding: "2px 6px",
                       fontSize: 12,
                       overflow: "hidden",
                       lineHeight: 1.3,
@@ -687,7 +690,7 @@ export default async function OverviewPage({
                             textDecoration: "none",
                             display: "flex",
                             flexDirection: "column",
-                            gap: 3,
+                            gap: 2,
                           }}
                           title={blockTitle}
                         >
@@ -769,10 +772,11 @@ export default async function OverviewPage({
                         style={{
                           display: "flex",
                           flexDirection: "column",
-                          gap: 3,
+                          // 行间距和上下内边距都收到 2px：色块压扁之后这 5 行才塞得下
+                          gap: 2,
                           height: "100%",
                           boxSizing: "border-box",
-                          padding: "3px 6px",
+                          padding: "2px 6px",
                           fontSize: 12,
                           lineHeight: 1.3,
                           overflow: "hidden",
@@ -947,22 +951,33 @@ export default async function OverviewPage({
                                   ))
                                 : "未分配"}
                             </div>
+                            {/* 进度和状态并排放一行：进度字很短，右边本来就空着。
+                                分成两行的话色块压到 80px 高就装不下，状态框会被裁掉 */}
                             <div
                               style={{
-                                fontSize: 11,
-                                fontWeight: 500,
-                                color: need.isComplete ? "#1f5c33" : "#a8620d",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 4,
+                                marginTop: "auto",
                               }}
                             >
-                              {formatNeed(need)}
-                            </div>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  color: need.isComplete ? "#1f5c33" : "#a8620d",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {formatNeed(need)}
+                              </span>
                             <OptimisticEditForm
                               exitHref={qs({ assign: "" })}
                               style={{
                                 display: "flex",
                                 gap: 4,
-                                marginTop: "auto",
-                                alignSelf: "flex-end",
+                                flexShrink: 0,
                               }}
                             >
                               <input type="hidden" name="order_id" value={o.id} />
@@ -984,6 +999,7 @@ export default async function OverviewPage({
                                 ))}
                               </select>
                             </OptimisticEditForm>
+                            </div>
                           </>
                         )}
                       </div>

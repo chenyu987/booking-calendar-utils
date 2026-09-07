@@ -41,7 +41,13 @@ export const tdStyle: CSSProperties = {
   fontSize: 14,
   verticalAlign: "top",
 };
-export const pageTitleStyle: CSSProperties = { fontSize: 20, marginBottom: 4 };
+// marginTop 显式清零：<h1> 浏览器默认带 0.67em 上边距（这里约 13px），
+// 白白把标题往下推一截
+export const pageTitleStyle: CSSProperties = {
+  fontSize: 20,
+  marginTop: 0,
+  marginBottom: 4,
+};
 export const helpTextStyle: CSSProperties = { color: "#666", fontSize: 13 };
 
 // 可编辑列表用 flex 行而不是 <table>，因为 HTML 不允许 <form> 直接包住 <tr>
