@@ -517,17 +517,39 @@ export default async function OverviewPage({
     <main>
       <h1 style={pageTitleStyle}>排期总览</h1>
 
-      {/* 统计和状态图例并成一行：说明文字对自己人是废话，图例单独占一行也浪费，
-          挤在统计右边正好，省出两行给日历 */}
-      <div
-        style={{
-          display: "flex",
-          gap: 24,
-          alignItems: "center",
-          margin: "8px 0 10px",
-          flexWrap: "wrap",
-        }}
-      >
+      {error && <p style={{ color: "crimson" }}>{error.message}</p>}
+
+      {/* 统计 / 状态图例 / 缩放 / 资源面板 / 日历 全交给 ZoomableCalendar 排版。
+          缩放状态在客户端、统计是服务端渲染的，两者要挤在同一行就得由同一个
+          客户端组件来渲染——所以统计行和资源面板当 props 传进去。 */}
+      <ZoomableCalendar
+        panel={
+          <ResourcePanel
+            // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
+            initialCollapsed={cookies().get("resource_panel_collapsed")?.value === "1"}
+            // 筛选默认收起：平时都是直接看资源列表，筛选是偶尔为之
+            filtersCollapsed={cookies().get("resource_filters_collapsed")?.value !== "0"}
+            resources={resources}
+            filters={f}
+            hasFilter={hasFilter}
+            total={resourceTotal}
+            loadError={resourceError?.message}
+            bookedDays={bookedDays}
+            assigningOrder={assigningOrder}
+            assigningNeed={assigningNeed}
+            alreadyAssigned={
+              assigningOrder
+                ? new Set(
+                    (assignedTo.get((assigningOrder as any).id) ?? []).map(
+                      (s: any) => s.id
+                    )
+                  )
+                : new Set<string>()
+            }
+          />
+        }
+        toolbar={
+          <>
         <Stat label="本周订单数" value={String(weekOrderCount)} />
         <Stat label="本周流水" value={`$${weekRevenue.toLocaleString()}`} />
         <Stat label="本月流水" value={`$${monthRevenue.toLocaleString()}`} />
@@ -557,45 +579,15 @@ export default async function OverviewPage({
             );
           })}
         </div>
-      </div>
-
-      {error && <p style={{ color: "crimson" }}>{error.message}</p>}
-
-      {/* 间距不放这儿放到面板自己身上：收起之后那 20px 就没必要了，
-          得由知道收起状态的客户端组件来决定留多少 */}
-      <div style={{ display: "flex", gap: 0, alignItems: "flex-start" }}>
-        <ResourcePanel
-          // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
-          initialCollapsed={cookies().get("resource_panel_collapsed")?.value === "1"}
-          // 筛选默认收起：平时都是直接看资源列表，筛选是偶尔为之
-          filtersCollapsed={cookies().get("resource_filters_collapsed")?.value !== "0"}
-          resources={resources}
-          filters={f}
-          hasFilter={hasFilter}
-          total={resourceTotal}
-          loadError={resourceError?.message}
-          bookedDays={bookedDays}
-          assigningOrder={assigningOrder}
-          assigningNeed={assigningNeed}
-          alreadyAssigned={
-            assigningOrder
-              ? new Set(
-                  (assignedTo.get((assigningOrder as any).id) ?? []).map(
-                    (s: any) => s.id
-                  )
-                )
-              : new Set<string>()
-          }
-        />
-
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {timeline.length === 0 ? (
-            <p style={{ color: "#666" }}>
-              还没有带日期的订单。去 <Link href="/admin/orders">Order 管理</Link> 建一个。
-            </p>
-          ) : (
-            <ZoomableCalendar>
-              {bands.map((band, bandIdx) => (
+          </>
+        }
+      >
+        {timeline.length === 0 ? (
+          <p style={{ color: "#666" }}>
+            还没有带日期的订单。去 <Link href="/admin/orders">Order 管理</Link> 建一个。
+          </p>
+        ) : (
+              bands.map((band, bandIdx) => (
               <div
                 key={band.days[0]}
                 style={{
@@ -1074,11 +1066,9 @@ export default async function OverviewPage({
                   });
                 })}
               </div>
-              ))}
-            </ZoomableCalendar>
-          )}
-        </div>
-      </div>
+              ))
+        )}
+      </ZoomableCalendar>
 
       {assigningOrder && (
         <ClickOutsideDeselect

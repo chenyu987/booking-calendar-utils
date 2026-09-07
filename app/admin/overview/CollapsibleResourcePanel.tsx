@@ -32,10 +32,10 @@ export default function CollapsibleResourcePanel({
     <aside
       id="resource-panel"
       style={{
-        width: collapsed ? 16 : expandedWidth,
+        width: collapsed ? 14 : expandedWidth,
         // 跟日历之间的间距由这儿控制（外层 flex 的 gap 设成 0 了）：
         // 收起之后只留一点点，那 20px 全让给日历
-        marginRight: collapsed ? 6 : 20,
+        marginRight: collapsed ? 4 : 20,
         flexShrink: 0,
         display: "flex",
         alignItems: "flex-start",
@@ -48,7 +48,7 @@ export default function CollapsibleResourcePanel({
           onClick={toggle}
           title="展开资源面板"
           style={{
-            width: 16,
+            width: 14,
             padding: "6px 0",
             fontSize: 12,
             lineHeight: 1,
