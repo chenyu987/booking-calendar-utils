@@ -10,6 +10,7 @@ import NewOrderSelector from "./NewOrderSelector";
 import DeleteOrderButton from "./DeleteOrderButton";
 import PanelScroller from "./PanelScroller";
 import CollapsibleResourcePanel from "./CollapsibleResourcePanel";
+import CollapsibleFilters from "./CollapsibleFilters";
 import { cookies } from "next/headers";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
@@ -23,6 +24,14 @@ import {
   replaceDayRun,
 } from "@/lib/dates";
 import { rescaleAmount } from "@/lib/pricing";
+import {
+  weekBounds,
+  monthFirstDay,
+  countInRange,
+  sumInRange,
+  startsInRange,
+  countsTowardRevenue,
+} from "@/lib/revenue";
 import { statusColor, STATUS_LABELS } from "@/lib/orderStatus";
 import {
   computeNeed,
@@ -465,15 +474,22 @@ export default async function OverviewPage({
   }
 
   const today = todayIso();
-  const totalRevenue = withDays.reduce(
-    (sum: number, o: any) =>
-      o.status === "cancelled" || o.status === "refunded"
-        ? sum
-        : sum + Number(o.amount ?? 0),
-    0
-  );
-  const notFullyAssigned = withDays.filter(
-    (o: any) => !computeNeed(o, assignedTo.get(o.id) ?? []).isComplete
+
+  // 顶上那几个数字。口径见 lib/revenue.ts：单子按最早那天归属（跨周不拆），
+  // 三个流水的结束点都是本周日，所以月和季的数里包含完整的本周。
+  const { start: weekStart, end: weekEnd } = weekBounds(today);
+  const weekOrderCount = countInRange(withDays, weekStart, weekEnd);
+  const weekRevenue = sumInRange(withDays, weekStart, weekEnd);
+  const monthRevenue = sumInRange(withDays, monthFirstDay(today), weekEnd);
+  const seasonRevenue = sumInRange(withDays, null, weekEnd);
+
+  // 本周未配齐：跟上面几个数字同一套归属规则（按最早那天算本周），
+  // 取消/退款的单子不用分配所以排除掉
+  const weekNotFullyAssigned = withDays.filter(
+    (o: any) =>
+      startsInRange(o, weekStart, weekEnd) &&
+      countsTowardRevenue(o.status) &&
+      !computeNeed(o, assignedTo.get(o.id) ?? []).isComplete
   ).length;
 
   const assigningOrder = searchParams.assign
@@ -512,12 +528,14 @@ export default async function OverviewPage({
           flexWrap: "wrap",
         }}
       >
-        <Stat label="订单数" value={String(withDays.length)} />
-        <Stat label="流水（不含取消/退款）" value={`$${totalRevenue.toLocaleString()}`} />
+        <Stat label="本周订单数" value={String(weekOrderCount)} />
+        <Stat label="本周流水" value={`$${weekRevenue.toLocaleString()}`} />
+        <Stat label="本月流水" value={`$${monthRevenue.toLocaleString()}`} />
+        <Stat label="本季流水" value={`$${seasonRevenue.toLocaleString()}`} />
         <Stat
-          label="未配齐"
-          value={String(notFullyAssigned)}
-          highlight={notFullyAssigned > 0}
+          label="本周未配齐"
+          value={String(weekNotFullyAssigned)}
+          highlight={weekNotFullyAssigned > 0}
         />
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {Object.entries(STATUS_LABELS).map(([key, label]) => {
@@ -549,6 +567,8 @@ export default async function OverviewPage({
         <ResourcePanel
           // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
           initialCollapsed={cookies().get("resource_panel_collapsed")?.value === "1"}
+          // 筛选默认收起：平时都是直接看资源列表，筛选是偶尔为之
+          filtersCollapsed={cookies().get("resource_filters_collapsed")?.value !== "0"}
           resources={resources}
           filters={f}
           hasFilter={hasFilter}
@@ -1081,6 +1101,7 @@ function ResourcePanel({
   assigningNeed,
   alreadyAssigned,
   initialCollapsed,
+  filtersCollapsed,
 }: {
   resources: any[];
   filters: { item: string; gender: string; sstatus: string; q: string };
@@ -1092,12 +1113,28 @@ function ResourcePanel({
   assigningNeed: any;
   alreadyAssigned: Set<string>;
   initialCollapsed: boolean;
+  filtersCollapsed: boolean;
 }) {
   const male = resources.filter((s) => s.holder_gender === "male");
   const female = resources.filter((s) => s.holder_gender === "female");
   const other = resources.filter(
     (s) => s.holder_gender !== "male" && s.holder_gender !== "female"
   );
+
+  // 筛选收起时显示的摘要：只列跟默认不一样的那几项，
+  // 不然收起来之后根本看不出物品为什么少了一半
+  const filterSummary = [
+    filters.q ? `"${filters.q}"` : null,
+    filters.item || null,
+    filters.gender === "male" ? "男资源" : filters.gender === "female" ? "女资源" : null,
+    filters.sstatus !== "active"
+      ? filters.sstatus === "all"
+        ? "全部挂牌"
+        : RESOURCE_STATUS_LABELS[filters.sstatus]
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <CollapsibleResourcePanel
@@ -1124,9 +1161,15 @@ function ResourcePanel({
         </p>
       )}
 
+      <CollapsibleFilters
+        initialCollapsed={filtersCollapsed}
+        hasFilter={hasFilter}
+        summary={filterSummary}
+        clearHref="/admin/overview"
+      >
       <form
         method="GET"
-        style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}
+        style={{ display: "flex", flexDirection: "column", gap: 6 }}
       >
         {assigningOrder && (
           <input type="hidden" name="assign" value={assigningOrder.id} />
@@ -1183,6 +1226,7 @@ function ResourcePanel({
           )}
         </div>
       </form>
+      </CollapsibleFilters>
 
       {resources.length === 0 ? (
         <p style={{ color: "#888", fontSize: 13 }}>
