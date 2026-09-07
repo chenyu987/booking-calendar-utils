@@ -39,7 +39,6 @@ import {
 } from "@/lib/resourceStatus";
 import {
   pageTitleStyle,
-  helpTextStyle,
   inputStyle,
   selectStyle,
   buttonStyle,
@@ -501,12 +500,18 @@ export default async function OverviewPage({
   return (
     <main>
       <h1 style={pageTitleStyle}>排期总览</h1>
-      <p style={helpTextStyle}>
-        一人一个资源，男的配男资源、女的配女资源。点订单色块开始分配。
-        <span style={{ color: "#c47712" }}>橙色列是周末</span>。
-      </p>
 
-      <div style={{ display: "flex", gap: 24, margin: "16px 0", flexWrap: "wrap" }}>
+      {/* 统计和状态图例并成一行：说明文字对自己人是废话，图例单独占一行也浪费，
+          挤在统计右边正好，省出两行给日历 */}
+      <div
+        style={{
+          display: "flex",
+          gap: 24,
+          alignItems: "center",
+          margin: "8px 0 10px",
+          flexWrap: "wrap",
+        }}
+      >
         <Stat label="订单数" value={String(withDays.length)} />
         <Stat label="流水（不含取消/退款）" value={`$${totalRevenue.toLocaleString()}`} />
         <Stat
@@ -514,27 +519,26 @@ export default async function OverviewPage({
           value={String(notFullyAssigned)}
           highlight={notFullyAssigned > 0}
         />
-      </div>
-
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
-        {Object.entries(STATUS_LABELS).map(([key, label]) => {
-          const c = statusColor(key);
-          return (
-            <span
-              key={key}
-              style={{
-                fontSize: 12,
-                padding: "3px 8px",
-                borderRadius: 4,
-                background: c.bg,
-                border: `1px solid ${c.border}`,
-                color: c.text,
-              }}
-            >
-              {label}
-            </span>
-          );
-        })}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {Object.entries(STATUS_LABELS).map(([key, label]) => {
+            const c = statusColor(key);
+            return (
+              <span
+                key={key}
+                style={{
+                  fontSize: 12,
+                  padding: "3px 8px",
+                  borderRadius: 4,
+                  background: c.bg,
+                  border: `1px solid ${c.border}`,
+                  color: c.text,
+                }}
+              >
+                {label}
+              </span>
+            );
+          })}
+        </div>
       </div>
 
       {error && <p style={{ color: "crimson" }}>{error.message}</p>}
