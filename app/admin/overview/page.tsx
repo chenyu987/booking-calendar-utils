@@ -8,6 +8,9 @@ import ResizableOrderBlock from "./ResizableOrderBlock";
 import OptimisticEditForm from "./OptimisticEditForm";
 import NewOrderSelector from "./NewOrderSelector";
 import DeleteOrderButton from "./DeleteOrderButton";
+import PanelScroller from "./PanelScroller";
+import CollapsibleResourcePanel from "./CollapsibleResourcePanel";
+import { cookies } from "next/headers";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
 import {
@@ -536,8 +539,12 @@ export default async function OverviewPage({
 
       {error && <p style={{ color: "crimson" }}>{error.message}</p>}
 
-      <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+      {/* 间距不放这儿放到面板自己身上：收起之后那 20px 就没必要了，
+          得由知道收起状态的客户端组件来决定留多少 */}
+      <div style={{ display: "flex", gap: 0, alignItems: "flex-start" }}>
         <ResourcePanel
+          // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
+          initialCollapsed={cookies().get("resource_panel_collapsed")?.value === "1"}
           resources={resources}
           filters={f}
           hasFilter={hasFilter}
@@ -1069,6 +1076,7 @@ function ResourcePanel({
   assigningOrder,
   assigningNeed,
   alreadyAssigned,
+  initialCollapsed,
 }: {
   resources: any[];
   filters: { item: string; gender: string; sstatus: string; q: string };
@@ -1079,6 +1087,7 @@ function ResourcePanel({
   assigningOrder: any;
   assigningNeed: any;
   alreadyAssigned: Set<string>;
+  initialCollapsed: boolean;
 }) {
   const male = resources.filter((s) => s.holder_gender === "male");
   const female = resources.filter((s) => s.holder_gender === "female");
@@ -1087,7 +1096,10 @@ function ResourcePanel({
   );
 
   return (
-    <aside id="resource-panel" style={{ width: PANEL_WIDTH, flexShrink: 0 }}>
+    <CollapsibleResourcePanel
+      initialCollapsed={initialCollapsed}
+      expandedWidth={PANEL_WIDTH}
+    >
       <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>
         资源 Resource（
         {resources.length === total ? total : `${resources.length} / ${total}`}）
@@ -1119,7 +1131,10 @@ function ResourcePanel({
           name="q"
           defaultValue={filters.q}
           placeholder="搜持有人姓名"
-          style={{ ...inputStyle, width: "100%" }}
+          // boxSizing 不能少：inputStyle 带 6px 内边距 + 1px 边框，<input> 默认按
+          // content-box 算，width:100% 会比下面那几个 <select>（浏览器默认 border-box）
+          // 宽出 14px，右边就对不齐了
+          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
         />
         <div style={{ display: "flex", gap: 6 }}>
           <select
@@ -1170,7 +1185,7 @@ function ResourcePanel({
           {hasFilter ? "没有符合条件的资源。" : "还没挂资源。"}
         </p>
       ) : (
-        <>
+        <PanelScroller>
           <ResourceGroup
             title="男资源"
             symbol="♂"
@@ -1200,9 +1215,9 @@ function ResourcePanel({
               alreadyAssigned={alreadyAssigned}
             />
           )}
-        </>
+        </PanelScroller>
       )}
-    </aside>
+    </CollapsibleResourcePanel>
   );
 }
 

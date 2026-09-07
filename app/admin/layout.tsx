@@ -53,8 +53,9 @@ export default function AdminLayout({
       {/* minWidth:0 不能省：flex 子项默认 min-width:auto，不加的话排期总览那个很宽的
           日历会把整个页面撑宽，横向滚动条跑到 body 上——侧边栏和统计区跟着一起滑走。
           加上之后日历只在它自己那个 overflowX:auto 的容器里横滑，左边导航栏不动。 */}
-      {/* 上边距单独收窄：标题上方那块空白太占地方，横向和底部保持原样 */}
-      <div style={{ flex: 1, minWidth: 0, padding: "10px 24px 24px" }}>{children}</div>
+      {/* 四边分别给：左边 24 是跟侧边栏拉开距离，其余都收窄——排期总览那张日历
+          要尽量多的面积，右边和底部留 24 等于白白挤掉一列多的宽度 */}
+      <div style={{ flex: 1, minWidth: 0, padding: "10px 8px 8px 24px" }}>{children}</div>
     </div>
   );
 }

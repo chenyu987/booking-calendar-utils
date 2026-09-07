@@ -52,12 +52,19 @@ export default function CalendarScroller({
     const el = ref.current;
     if (!el) return;
     function fit() {
+      const h = window.innerHeight;
+      // 视口偶尔会短暂读成 0（还没布局完），这时候算出来是错的，跳过等下一次回调
+      if (!h) return;
       const top = el!.getBoundingClientRect().top + window.scrollY;
-      el!.style.maxHeight = `${Math.max(240, window.innerHeight - top - 24)}px`;
+      // 减掉的这点是 layout 底部内边距（8）+ 一点余量，别让整页被顶出滚动条
+      el!.style.maxHeight = `${Math.max(240, h - top - 10)}px`;
     }
     fit();
-    window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
+    // 用 ResizeObserver 而不是 window 的 resize 事件：上面那块高度变了、或者
+    // 视口是被程序化改的时候，resize 事件不一定会发
+    const ro = new ResizeObserver(fit);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
   }, []);
 
   useEffect(() => {
@@ -93,7 +100,7 @@ export default function CalendarScroller({
       {/* 滚动条平时透明、滚的时候才显出来。槽的宽度始终不变（只改 thumb 的颜色），
           这样显示/隐藏不会挤动内容，不会一滚就跳一下。 */}
       <style>{`
-        .cal-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+        .cal-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
         .cal-scroll::-webkit-scrollbar-track { background: transparent; }
         .cal-scroll::-webkit-scrollbar-thumb {
           background: transparent;
@@ -114,9 +121,8 @@ export default function CalendarScroller({
         overflow: "auto",
         // 具体高度挂载后按视口算（见上面的 fit），这里给个兜底值防止首帧太高
         maxHeight: "70vh",
-        paddingBottom: 12,
-        // 不加这条的话 maxHeight 只管内容区，下面这 12px padding 会额外撑出去，
-        // 正好把整页顶出一条滚动条
+        // 不留 paddingBottom：横向滚动条本来就在容器内部，再垫一层等于内容和
+        // 滚动条之间白空一条，纯浪费高度
         boxSizing: "border-box",
       }}
     >
