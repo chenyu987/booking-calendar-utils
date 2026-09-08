@@ -538,7 +538,16 @@ export default async function OverviewPage({
           反正这几个数都是直接敲的，没人会去点箭头。
           Firefox 走 appearance:textfield（写在 style 里），Chrome/Safari 得干掉
           ::-webkit-*-spin-button 这个伪元素，只能用 CSS 写。 */}
-      <style>{`
+      {/* 这段 CSS 必须用 dangerouslySetInnerHTML，不能写成 <style>{`...`}</style>。
+          React 把 <style> 的文本子节点当普通文本转义，服务端会把 " 变成 &quot;；
+          而 <style> 在 HTML 里是 raw text 元素，浏览器**不会**把 &quot; 还原回引号。
+          结果两头对不上（hydration 报 "Text content does not match server-rendered
+          HTML"），而且更要命的是选择器变成了 input[type=&quot;number&quot;]，
+          什么都匹配不到——这条规则曾经整个是死的，上下箭头一直还在。
+          dangerouslySetInnerHTML 原样输出，不转义。这里是写死的字符串，没有注入面。 */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         #assign-active-block input[type="number"]::-webkit-outer-spin-button,
         #assign-active-block input[type="number"]::-webkit-inner-spin-button {
           -webkit-appearance: none;
@@ -557,7 +566,9 @@ export default async function OverviewPage({
              选择器再具体也压不过它 */
           #assign-active-block .assign-status { display: none !important; }
         }
-      `}</style>
+`,
+        }}
+      />
 
       {/* 统计 / 状态图例 / 缩放 / 资源面板 / 日历 全交给 ZoomableCalendar 排版。
           缩放状态在客户端、统计是服务端渲染的，两者要挤在同一行就得由同一个
