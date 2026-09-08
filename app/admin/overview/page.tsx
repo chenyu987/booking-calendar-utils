@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import ClickOutsideDeselect from "./ClickOutsideDeselect";
@@ -13,6 +12,7 @@ import CollapsibleResourcePanel from "./CollapsibleResourcePanel";
 import CollapsibleFilters from "./CollapsibleFilters";
 import BulkSelect from "./BulkSelect";
 import CardsRowScroll from "./CardsRowScroll";
+import { AssignResourceButton, UnassignButton } from "./AssignActions";
 import { cookies } from "next/headers";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
@@ -38,8 +38,6 @@ import {
 import { statusColor, STATUS_LABELS } from "@/lib/orderStatus";
 import {
   computeNeed,
-  findConflictingDays,
-  syncedAssignmentStatus,
   formatNeed,
   formatGap,
 } from "@/lib/assignment";
@@ -155,75 +153,6 @@ async function createQuickOrder(formData: FormData) {
   return order.id as string;
 }
 
-async function addAssignment(formData: FormData) {
-  "use server";
-  const orderId = formData.get("order_id") as string;
-  const resourceId = formData.get("resource_id") as string;
-
-  // 服务端也要校验：订单那几天资源必须有效，不能只靠界面藏按钮
-  // 四个查询一次并发拿齐（校验用的 + 算配齐进度用的），插入后就不用再倒回去查一趟
-  const [{ data: ord }, { data: sup }, { data: existingRows }, { data: otherAssignments }] =
-    await Promise.all([
-      supabase
-        .from("orders")
-        .select("demand_days, male_count, female_count, status")
-        .eq("id", orderId)
-        .single(),
-      supabase
-        .from("resources")
-        .select("date_range_start, date_range_end, status, holder_name, holder_gender")
-        .eq("id", resourceId)
-        .single(),
-      supabase
-        .from("order_assignments")
-        .select("resources(holder_gender)")
-        .eq("order_id", orderId),
-      supabase
-        .from("order_assignments")
-        .select("orders(demand_days)")
-        .eq("resource_id", resourceId)
-        .neq("order_id", orderId),
-    ]);
-  if (!ord || !sup) throw new Error("订单或资源不存在");
-  if (sup.status !== "active") throw new Error("这个资源不在出租中");
-  if (!coversOrder(sup, ord.demand_days)) {
-    throw new Error(
-      `${sup.holder_name ?? "这个资源"} 的有效期是 ${sup.date_range_start}~${sup.date_range_end}，覆盖不了这一单的日期`
-    );
-  }
-  // 同一个资源同一天不能配给两个订单
-  const bookedDays = (otherAssignments ?? []).flatMap((r: any) => r.orders?.demand_days ?? []);
-  const conflictDays = findConflictingDays(ord.demand_days ?? [], bookedDays);
-  if (conflictDays.length > 0) {
-    throw new Error(
-      `${sup.holder_name ?? "这个资源"} 在 ${conflictDays.join("、")} 已经配给别的订单了`
-    );
-  }
-
-  const { error } = await supabase
-    .from("order_assignments")
-    .insert({ order_id: orderId, resource_id: resourceId });
-  if (error) throw new Error(error.message);
-
-  // 注意：不改 resources.status。资源被占了哪几天是算出来的，不是存出来的。
-
-  // 配齐了就把订单推进到 itemAssigned —— 用插入前已经查到的数据本地算，不用再查一次
-  const need = computeNeed(ord, [
-    ...(existingRows ?? []).map((r: any) => r.resources),
-    { holder_gender: sup.holder_gender },
-  ]);
-  if (need.isComplete && ord.status === "created") {
-    await supabase
-      .from("orders")
-      .update({ status: "itemAssigned" })
-      .eq("id", orderId);
-  }
-
-  revalidatePath("/admin/overview");
-  revalidatePath("/admin/orders");
-  redirect(`/admin/overview?assign=${orderId}`);
-}
-
 async function resizeOrderRun(formData: FormData) {
   "use server";
   const orderId = formData.get("order_id") as string;
@@ -257,48 +186,6 @@ async function resizeOrderRun(formData: FormData) {
 
   revalidatePath("/admin/overview");
   revalidatePath("/admin/orders");
-}
-
-async function removeAssignment(formData: FormData) {
-  "use server";
-  const orderId = formData.get("order_id") as string;
-  const resourceId = formData.get("resource_id") as string;
-
-  const { error } = await supabase
-    .from("order_assignments")
-    .delete()
-    .eq("order_id", orderId)
-    .eq("resource_id", resourceId);
-  if (error) throw new Error(error.message);
-
-  // 不用改 resources.status —— 删掉这条分配记录，那几天自然就空出来了
-
-  // 撤了这个资源可能就不配齐了，itemAssigned 要回退到 created（人工推进的后续状态不动）
-  const [{ data: ord }, { data: rows }] = await Promise.all([
-    supabase
-      .from("orders")
-      .select("male_count, female_count, status")
-      .eq("id", orderId)
-      .single(),
-    supabase
-      .from("order_assignments")
-      .select("resources(holder_gender)")
-      .eq("order_id", orderId),
-  ]);
-  if (ord) {
-    const need = computeNeed(
-      ord,
-      (rows ?? []).map((r: any) => r.resources)
-    );
-    const nextStatus = syncedAssignmentStatus(ord.status, need);
-    if (nextStatus !== ord.status) {
-      await supabase.from("orders").update({ status: nextStatus }).eq("id", orderId);
-    }
-  }
-
-  revalidatePath("/admin/overview");
-  revalidatePath("/admin/orders");
-  redirect(`/admin/overview?assign=${orderId}`);
 }
 
 async function deleteOrder(formData: FormData) {
@@ -978,50 +865,37 @@ export default async function OverviewPage({
                             >
                               {cards.length > 0
                                 ? cards.map((s: any) => (
-                                    <form
+                                    <span
                                       key={s.id}
-                                      action={removeAssignment}
-                                      style={{ display: "inline" }}
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 2,
+                                      }}
                                     >
-                                      <input type="hidden" name="order_id" value={o.id} />
-                                      <input type="hidden" name="resource_id" value={s.id} />
-                                      <span
+                                      {s.holder_gender === "male" ? "♂" : "♀"}
+                                      {s.holder_name}
+                                      <UnassignButton
+                                        orderId={o.id}
+                                        resourceId={s.id}
                                         style={{
+                                          background: "none",
+                                          border: "none",
+                                          padding: "0 3px",
+                                          margin: 0,
+                                          width: 14,
+                                          height: 14,
+                                          boxSizing: "border-box",
                                           display: "inline-flex",
                                           alignItems: "center",
-                                          gap: 2,
+                                          justifyContent: "center",
+                                          borderRadius: 3,
+                                          color: "inherit",
+                                          fontSize: 12,
+                                          lineHeight: 1,
                                         }}
-                                      >
-                                        {s.holder_gender === "male" ? "♂" : "♀"}
-                                        {s.holder_name}
-                                        <button
-                                          type="submit"
-                                          title="撤销这个资源"
-                                          // 原来是 6×11 的点击区，那个 × 基本点不中。
-                                          // 这一行现在能横着滚了，不差这几像素，
-                                          // 撑到 14×14 才是个正常的按钮大小。
-                                          style={{
-                                            background: "none",
-                                            border: "none",
-                                            padding: "0 3px",
-                                            margin: 0,
-                                            width: 14,
-                                            height: 14,
-                                            boxSizing: "border-box",
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            borderRadius: 3,
-                                            cursor: "pointer",
-                                            color: "inherit",
-                                            fontSize: 12,
-                                            lineHeight: 1,
-                                          }}
-                                        >
-                                          ×
-                                        </button>
-                                      </span>
-                                    </form>
+                                      />
+                                    </span>
                                   ))
                                 : "未分配"}
                             </div>
@@ -1556,21 +1430,16 @@ function ResourceGroup({
                   {isAssigned ? (
                     <span style={{ fontSize: 11, color: "#1f5c33" }}>✓ 已配给这单</span>
                   ) : canAssign ? (
-                    <form action={addAssignment}>
-                      <input type="hidden" name="order_id" value={assigningOrder.id} />
-                      <input type="hidden" name="resource_id" value={s.id} />
-                      <button
-                        type="submit"
-                        style={{
-                          ...buttonStyle,
-                          padding: "3px 10px",
-                          fontSize: 11,
-                          background: "#1f5c33",
-                        }}
-                      >
-                        配这单
-                      </button>
-                    </form>
+                    <AssignResourceButton
+                      orderId={assigningOrder.id}
+                      resourceId={s.id}
+                      style={{
+                        ...buttonStyle,
+                        padding: "3px 10px",
+                        fontSize: 11,
+                        background: "#1f5c33",
+                      }}
+                    />
                   ) : (
                     <span style={{ fontSize: 11, color: "#bbb" }}>
                       {!listingOk
