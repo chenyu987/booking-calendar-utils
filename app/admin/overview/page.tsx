@@ -11,6 +11,7 @@ import DeleteOrderButton from "./DeleteOrderButton";
 import PanelScroller from "./PanelScroller";
 import CollapsibleResourcePanel from "./CollapsibleResourcePanel";
 import CollapsibleFilters from "./CollapsibleFilters";
+import BulkSelect from "./BulkSelect";
 import { cookies } from "next/headers";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
@@ -31,6 +32,7 @@ import {
   sumInRange,
   startsInRange,
   countsTowardRevenue,
+  orderStartDay,
 } from "@/lib/revenue";
 import { statusColor, STATUS_LABELS } from "@/lib/orderStatus";
 import {
@@ -570,6 +572,10 @@ export default async function OverviewPage({
         }}
       />
 
+      {/* 多选 + 批量改状态。它不渲染色块，只是全局听点击、注入一条高亮的 CSS，
+          所以放在哪一层都行——放这儿是为了让浮动工具条脱离日历的滚动容器。 */}
+      <BulkSelect />
+
       {/* 统计 / 状态图例 / 缩放 / 资源面板 / 日历 全交给 ZoomableCalendar 排版。
           缩放状态在客户端、统计是服务端渲染的，两者要挤在同一行就得由同一个
           客户端组件来渲染——所以统计行和资源面板当 props 传进去。 */}
@@ -761,6 +767,7 @@ export default async function OverviewPage({
                         <Link
                           key={segKey}
                           data-order-id={o.id}
+                          data-order-start={orderStartDay(o) ?? ""}
                           href={qs({ assign: o.id })}
                           style={{
                             ...blockStyle,
@@ -846,6 +853,7 @@ export default async function OverviewPage({
                         <div
                           key={segKey}
                           data-order-id={o.id}
+                          data-order-start={orderStartDay(o) ?? ""}
                           style={blockStyle}
                           title={blockTitle}
                         />
@@ -1162,6 +1170,7 @@ export default async function OverviewPage({
                         <div
                           key={segKey}
                           data-order-id={o.id}
+                          data-order-start={orderStartDay(o) ?? ""}
                           style={{ ...blockStyle, padding: 0 }}
                         >
                           {editInner}
@@ -1173,6 +1182,7 @@ export default async function OverviewPage({
                       <ResizableOrderBlock
                         key={segKey}
                         orderId={o.id}
+                        orderStart={orderStartDay(o) ?? ""}
                         runStart={run[0]}
                         runEnd={run[run.length - 1]}
                         startIndex={start}

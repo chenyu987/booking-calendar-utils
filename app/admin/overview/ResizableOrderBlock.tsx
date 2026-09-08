@@ -7,6 +7,7 @@ import { resizeIndices } from "@/lib/dates";
 // 分配模式下拖左右边框改订单的开始/结束日期，最短 1 天
 export default function ResizableOrderBlock({
   orderId,
+  orderStart,
   runStart,
   runEnd,
   startIndex,
@@ -18,6 +19,7 @@ export default function ResizableOrderBlock({
   children,
 }: {
   orderId: string;
+  orderStart: string;
   runStart: string;
   runEnd: string;
   startIndex: number;
@@ -113,6 +115,7 @@ export default function ResizableOrderBlock({
     <div
       ref={blockRef}
       data-order-id={orderId}
+      data-order-start={orderStart}
       style={{
         ...style,
         gridRow: laneRow,
