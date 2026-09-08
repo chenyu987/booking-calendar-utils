@@ -12,6 +12,7 @@ import PanelScroller from "./PanelScroller";
 import CollapsibleResourcePanel from "./CollapsibleResourcePanel";
 import CollapsibleFilters from "./CollapsibleFilters";
 import BulkSelect from "./BulkSelect";
+import CardsRowScroll from "./CardsRowScroll";
 import { cookies } from "next/headers";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
@@ -562,6 +563,21 @@ export default async function OverviewPage({
            用容器查询而不是媒体查询：判断依据是这个色块自己有多宽（几天的单子），
            跟浏览器窗口多宽没关系。180 这个数落在「一天」(内容宽 120) 和
            「两天」(252) 中间，判得干脆。 */
+        /* 分配模式下「已配的资源」这一行可以横着滚，把够不着的人划出来撤销。
+           只给编辑中的这个色块开：日历最主要的手势就是左右拖，要是每个色块
+           都吃掉横向滑动，整张表就没法平移了。
+           滚动条要藏掉——这一行只有 14px 高，一条横向滚动条就把它吃没了。
+           右边缘做一点淡出，当作「后面还有」的提示（本来是省略号的活儿，
+           但省略号跟 overflow:auto 不能共存）；没溢出时那 10px 是空的，看不出来。 */
+        #assign-active-block .cards-row {
+          overflow-x: auto;
+          overflow-y: hidden;
+          scrollbar-width: none;
+          -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 10px), rgba(0,0,0,0.25));
+          mask-image: linear-gradient(to right, #000 calc(100% - 10px), rgba(0,0,0,0.25));
+        }
+        #assign-active-block .cards-row::-webkit-scrollbar { display: none; }
+
         #assign-active-block { container-type: inline-size; }
         @container (max-width: 180px) {
           /* !important 不能省：表单的 display:flex 是内联样式，
@@ -575,6 +591,8 @@ export default async function OverviewPage({
       {/* 多选 + 批量改状态。它不渲染色块，只是全局听点击、注入一条高亮的 CSS，
           所以放在哪一层都行——放这儿是为了让浮动工具条脱离日历的滚动容器。 */}
       <BulkSelect />
+      {/* 让分配模式那一行的「已配的资源」能用纵向滚轮横着滚，够到后面的人 */}
+      <CardsRowScroll />
 
       {/* 统计 / 状态图例 / 缩放 / 资源面板 / 日历 全交给 ZoomableCalendar 排版。
           缩放状态在客户端、统计是服务端渲染的，两者要挤在同一行就得由同一个
@@ -943,12 +961,15 @@ export default async function OverviewPage({
                               />
                             </div>
                             {/* nowrap：格子只有一列宽（一天的单子）时卡片名会换行，
-                                把写死高度的色块顶爆、底下那行被裁掉。宁可横着截断 */}
+                                把写死高度的色块顶爆、底下那行被裁掉。宁可横着截断。
+                                截断之后后面的人够不着，所以这一行做成可以横着滚的
+                                （.cards-row，样式在上面那段 CSS 里）：触控板左右划、
+                                Shift+滚轮是浏览器原生的，纵向滚轮由 CardsRowScroll 接管。 */}
                             <div
+                              className="cards-row"
                               style={{
                                 display: "flex",
                                 flexWrap: "nowrap",
-                                overflow: "hidden",
                                 gap: 4,
                                 fontSize: 11,
                                 opacity: 0.9,
@@ -976,14 +997,24 @@ export default async function OverviewPage({
                                         <button
                                           type="submit"
                                           title="撤销这个资源"
+                                          // 原来是 6×11 的点击区，那个 × 基本点不中。
+                                          // 这一行现在能横着滚了，不差这几像素，
+                                          // 撑到 14×14 才是个正常的按钮大小。
                                           style={{
                                             background: "none",
                                             border: "none",
-                                            padding: 0,
-                                            marginLeft: 1,
+                                            padding: "0 3px",
+                                            margin: 0,
+                                            width: 14,
+                                            height: 14,
+                                            boxSizing: "border-box",
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            borderRadius: 3,
                                             cursor: "pointer",
                                             color: "inherit",
-                                            fontSize: 11,
+                                            fontSize: 12,
                                             lineHeight: 1,
                                           }}
                                         >
