@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import LocationDatalist, { LOCATION_LIST_ID } from "@/components/LocationDatalist";
+import { isUnknownLocation, locationHintFor } from "@/lib/locations";
 import { formatParty } from "@/lib/party";
 import { computeNeed, formatNeed } from "@/lib/assignment";
 import { STATUS_LABELS } from "@/lib/orderStatus";
@@ -195,6 +197,7 @@ export default async function OrdersAdminPage({
   });
   return (
     <main>
+      <LocationDatalist />
       <h1 style={pageTitleStyle}>Order 管理</h1>
       <p style={helpTextStyle}>
         新增时金额按「单价 × 天数 × 人数」自动算。编辑时日期用逗号分隔，不连续的天也能填，
@@ -212,7 +215,7 @@ export default async function OrdersAdminPage({
             </option>
           ))}
         </select>
-        <input name="location" placeholder="地点" style={inputStyle} />
+        <input name="location" list={LOCATION_LIST_ID} placeholder="地点" style={inputStyle} />
         <input
           name="male_count"
           type="number"
@@ -271,6 +274,7 @@ export default async function OrdersAdminPage({
             <div style={{ ...cellStyle, flex: 1 }}>
               <input
                 name="location"
+                list={LOCATION_LIST_ID}
                 defaultValue={filters.location}
                 placeholder="地点"
                 style={filterInputStyle}
@@ -402,6 +406,7 @@ export default async function OrdersAdminPage({
             <div style={{ ...cellStyle, flex: 1 }}>
               <input
                 name="location"
+                list={LOCATION_LIST_ID}
                 defaultValue={o.location ?? ""}
                 style={{ ...inputStyle, width: "100%" }}
               />
@@ -470,7 +475,14 @@ export default async function OrdersAdminPage({
         ) : (
           <div key={o.id} style={rowStyle}>
             <div style={{ ...cellStyle, flex: 1 }}>{customerName(o.customer_id)}</div>
-            <div style={{ ...cellStyle, flex: 1 }}>{o.location ?? "-"}</div>
+            <div style={{ ...cellStyle, flex: 1 }}>
+              {o.location ? (
+                // 库里认不出来就标红 —— 跟排期总览一个规则，**不自动改**
+                <LocationCell value={o.location} />
+              ) : (
+                "-"
+              )}
+            </div>
             <div style={{ ...cellStyle, width: 70 }}>
               {formatParty(o.male_count, o.female_count)}
             </div>
@@ -529,5 +541,24 @@ export default async function OrdersAdminPage({
         )
       )}
     </main>
+  );
+}
+
+/** 地点名单元格：库里认不出来就标红并提示，改不改是人的事 */
+function LocationCell({ value }: { value: string }) {
+  if (!isUnknownLocation(value)) return <>{value}</>;
+  return (
+    <span
+      title={locationHintFor(value)}
+      style={{
+        color: "#c0392b",
+        fontWeight: 600,
+        textDecoration: "underline wavy #c0392b",
+        textUnderlineOffset: 2,
+        cursor: "help",
+      }}
+    >
+      {value}
+    </span>
   );
 }

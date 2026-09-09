@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { coversOrder, isExpired, statusBadge, abnormalBadge } from "./resourceStatus";
+import {
+  coversOrder,
+  isExpired,
+  statusBadge,
+  abnormalBadge,
+  itemConflictReason,
+} from "./resourceStatus";
 
 describe("coversOrder", () => {
   const resource = { date_range_start: "2026-07-30", date_range_end: "2026-09-20" };
@@ -54,5 +60,34 @@ describe("statusBadge / abnormalBadge", () => {
   it("过期的资源有 abnormalBadge", () => {
     const resource = { status: "active", date_range_end: "2000-01-01" };
     expect(abnormalBadge(resource)?.text).toBe("已过期");
+  });
+});
+
+describe("itemConflictReason（第四条校验：类型要能进这个地点）", () => {
+  const alphaCard = { item_type: "alpha", holder_name: "A" };
+  const betaCard = { item_type: "beta", holder_name: "B" };
+
+  it("alpha 资源配 Alpha 的地点 → 放行", () => {
+    expect(itemConflictReason(alphaCard, "locbg")).toBeNull();
+    expect(itemConflictReason(alphaCard, "locbe")).toBeNull();
+  });
+
+  it("beta 资源配 Alpha 的地点 → 拦住，并说清楚为什么", () => {
+    const reason = itemConflictReason(betaCard, "locbh");
+    expect(reason).toContain("locbh");
+    expect(reason).toContain("alpha");
+    expect(reason).toContain("beta");
+    expect(reason).toContain("B");
+  });
+
+  it("地点名判断不了就不拦 —— 漏拦好过错拦", () => {
+    expect(itemConflictReason(betaCard, null)).toBeNull();      // 没填地点
+    expect(itemConflictReason(betaCard, "")).toBeNull();
+    expect(itemConflictReason(betaCard, "111")).toBeNull();      // 库里没有
+    expect(itemConflictReason(betaCard, "hiddenvalley")).toBeNull(); // 有歧义
+  });
+
+  it("类型没填也不拦", () => {
+    expect(itemConflictReason({ item_type: null, holder_name: "C" }, "locbg")).toBeNull();
   });
 });

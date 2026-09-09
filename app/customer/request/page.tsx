@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
 import { claimCustomer } from "@/lib/accountClaim";
 import { dateRangeToArray } from "@/lib/dates";
+import LocationDatalist, { LOCATION_LIST_ID } from "@/components/LocationDatalist";
 
 export const dynamic = "force-dynamic";
 
@@ -113,6 +114,7 @@ export default async function CustomerRequestPage({
         </div>
       )}
 
+      <LocationDatalist />
       <form
         action={submitRequest}
         style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 16 }}
@@ -121,7 +123,8 @@ export default async function CustomerRequestPage({
           想去哪个地点
           <input
             name="location"
-            placeholder="比如 Whistler"
+            list={LOCATION_LIST_ID}
+            placeholder="比如 locbe（打字会有提示）"
             required
             style={inputStyle}
           />

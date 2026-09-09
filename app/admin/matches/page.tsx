@@ -3,7 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { formatParty } from "@/lib/party";
 import { formatHolder } from "@/lib/age";
 import { computeNeed, findConflictingDays } from "@/lib/assignment";
-import { coversOrder } from "@/lib/resourceStatus";
+import { coversOrder, itemConflictReason } from "@/lib/resourceStatus";
 import {
   formStyle,
   selectStyle,
@@ -55,12 +55,12 @@ async function updateMatchStatus(formData: FormData) {
     const [{ data: ord }, { data: sup }, { data: otherAssignments }] = await Promise.all([
       supabase
         .from("orders")
-        .select("demand_days")
+        .select("demand_days, location")
         .eq("id", match.order_id)
         .single(),
       supabase
         .from("resources")
-        .select("date_range_start, date_range_end, status, holder_name")
+        .select("date_range_start, date_range_end, status, holder_name, item_type")
         .eq("id", match.resource_id)
         .single(),
       supabase
@@ -71,6 +71,9 @@ async function updateMatchStatus(formData: FormData) {
     ]);
     if (!ord || !sup) throw new Error("订单或资源不存在");
     if (sup.status !== "active") throw new Error("这个资源不在出租中");
+    // 类型要能进这个地点，跟排期总览那条路径同一个判断
+    const itemConflict = itemConflictReason(sup, ord.location);
+    if (itemConflict) throw new Error(itemConflict);
     if (!coversOrder(sup, ord.demand_days)) {
       throw new Error(
         `${sup.holder_name ?? "这个资源"} 的有效期是 ${sup.date_range_start}~${sup.date_range_end}，覆盖不了这一单的日期`

@@ -9,7 +9,7 @@ import {
 
 const base: FilterableOrder = {
   customerName: "laura kim",
-  location: "Perisher",
+  location: "Locbg",
   maleCount: 1,
   femaleCount: 1,
   demandDays: ["2026-09-10", "2026-09-11"],
@@ -57,8 +57,8 @@ describe("matchesOrderFilters", () => {
     expect(matchesOrderFilters(base, f({ customer: "zhang" }))).toBe(false);
   });
 
-  it("地点不分大小写——perisher 和 Perisher 是一个地方", () => {
-    expect(matchesOrderFilters(base, f({ location: "perisher" }))).toBe(true);
+  it("地点不分大小写——locbg 和 Locbg 是一个地方", () => {
+    expect(matchesOrderFilters(base, f({ location: "locbg" }))).toBe(true);
   });
 
   it("地点没填的单子，一按地点筛就不出现", () => {

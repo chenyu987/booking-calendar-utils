@@ -74,7 +74,7 @@ export type FilterableOrder = {
   isComplete: boolean;
 };
 
-// 大小写不敏感的包含匹配。中文没有大小写，但地点和英文名有（perisher / Perisher）
+// 大小写不敏感的包含匹配。中文没有大小写，但地点和英文名有（locbg / Locbg）
 function contains(haystack: string | null, needle: string): boolean {
   if (!needle) return true;
   return (haystack ?? "").toLowerCase().includes(needle.toLowerCase());

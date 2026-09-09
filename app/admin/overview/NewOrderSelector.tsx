@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { dateRangeToArray } from "@/lib/dates";
 import { computeTotalFromPerDay } from "@/lib/pricing";
+import LocationDatalist, { LOCATION_LIST_ID } from "@/components/LocationDatalist";
 
 const GAP = 2;
 const POPUP_WIDTH = 260;
@@ -507,7 +508,9 @@ export default function NewOrderSelector({
             </datalist>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
+            <LocationDatalist />
             <input
+              list={LOCATION_LIST_ID}
               placeholder="去哪个地点（选填）"
               value={location}
               onChange={(e) => setLocation(e.target.value)}

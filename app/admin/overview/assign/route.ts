@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
-import { coversOrder } from "@/lib/resourceStatus";
+import { coversOrder, itemConflictReason } from "@/lib/resourceStatus";
 import {
   computeNeed,
   findConflictingDays,
@@ -56,12 +56,12 @@ async function addAssignment(orderId: string, resourceId: string) {
     await Promise.all([
       supabase
         .from("orders")
-        .select("demand_days, male_count, female_count, status")
+        .select("demand_days, male_count, female_count, status, location")
         .eq("id", orderId)
         .single(),
       supabase
         .from("resources")
-        .select("date_range_start, date_range_end, status, holder_name, holder_gender")
+        .select("date_range_start, date_range_end, status, holder_name, holder_gender, item_type")
         .eq("id", resourceId)
         .single(),
       supabase
@@ -77,8 +77,11 @@ async function addAssignment(orderId: string, resourceId: string) {
 
   if (!ord || !sup) throw new Error("订单或资源不存在");
 
-  // 三条校验，跟匹配台那条路径必须一致
+  // 四条校验，跟匹配台那条路径必须一致
   if (sup.status !== "active") throw new Error("这个资源不在出租中");
+  // 类型要能进这个地点。地点名认不出来就不拦 —— 判断不了不等于不合法
+  const itemConflict = itemConflictReason(sup, ord.location);
+  if (itemConflict) throw new Error(itemConflict);
   if (!coversOrder(sup, ord.demand_days)) {
     throw new Error(
       `${sup.holder_name ?? "这个资源"} 的有效期是 ${sup.date_range_start}~${sup.date_range_end}，覆盖不了这一单的日期`

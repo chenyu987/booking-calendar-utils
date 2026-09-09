@@ -42,11 +42,20 @@ import {
   formatNeed,
   formatGap,
 } from "@/lib/assignment";
+import { isUnknownLocation, locationHintFor } from "@/lib/locations";
+import LocationDatalist, { LOCATION_LIST_ID } from "@/components/LocationDatalist";
+import {
+  recommendResources,
+  explain,
+  type PastUse,
+  type Scored,
+} from "@/lib/recommend";
 import {
   RESOURCE_STATUSES,
   RESOURCE_STATUS_LABELS,
   abnormalBadge,
   coversOrder,
+  itemConflictReason,
 } from "@/lib/resourceStatus";
 import {
   pageTitleStyle,
@@ -240,12 +249,14 @@ export default async function OverviewPage({
     supabase
       .from("orders")
       .select(
-        "id, location, amount, status, demand_days, male_count, female_count, customers(first_name, last_name)"
+        // customer_id / 生日是推荐分配要用的：认「这个客人以前用的哪个资源」和年龄
+        "id, customer_id, location, amount, status, demand_days, male_count, female_count, customers(first_name, last_name, date_of_birth)"
       ),
     supabase
       .from("resources")
       .select(
-        "id, holder_name, holder_gender, holder_date_of_birth, item_type, date_range_start, date_range_end, status"
+        // provider_id 是推荐要用的：同一单的两个资源如果同一个物主，取还跑一趟就够
+        "id, provider_id, holder_name, holder_gender, holder_date_of_birth, item_type, date_range_start, date_range_end, status"
       )
       .order("date_range_start", { ascending: true }),
     supabase.from("order_assignments").select("order_id, resource_id"),
@@ -290,6 +301,21 @@ export default async function OverviewPage({
         ...o.demand_days,
       ]);
     }
+  }
+
+  // 推荐分配要看的历史：每个资源以前被配给过哪些单、那些单去了哪、走到哪一步了。
+  // 这些数据上面已经查出来了，这里只是换个形状，不额外查库。
+  const assignHistory: PastUse[] = [];
+  for (const a of assignments ?? []) {
+    const o: any = orderById.get(a.order_id);
+    if (!o) continue;
+    assignHistory.push({
+      resourceId: a.resource_id,
+      customerId: o.customer_id ?? null,
+      location: o.location ?? null,
+      status: o.status,
+      days: o.demand_days ?? [],
+    });
   }
 
   // 左边卡片清单的筛选
@@ -519,6 +545,8 @@ export default async function OverviewPage({
       <BulkSelect />
       {/* 让分配模式那一行的「已配的资源」能用纵向滚轮横着滚，够到后面的人 */}
       <CardsRowScroll />
+      {/* 填地点名的输入框共用这一份补全列表 */}
+      <LocationDatalist />
 
       {/* 统计 / 状态图例 / 缩放 / 资源面板 / 日历 全交给 ZoomableCalendar 排版。
           缩放状态在客户端、统计是服务端渲染的，两者要挤在同一行就得由同一个
@@ -526,6 +554,7 @@ export default async function OverviewPage({
       <ZoomableCalendar
         panel={
           <ResourcePanel
+            assignHistory={assignHistory}
             // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
             initialCollapsed={cookies().get("resource_panel_collapsed")?.value === "1"}
             // 筛选默认收起：平时都是直接看资源列表，筛选是偶尔为之
@@ -649,6 +678,10 @@ export default async function OverviewPage({
                   if (bandLane === undefined) return null;
                   const cards = assignedTo.get(o.id) ?? [];
                   const note = noteByOrder.get(o.id) ?? "";
+                  // 地点名库里认不出来 —— 标红提醒去改，**不自动改**。
+                  // 名字对不上，推荐分配那条线就是断的，而且断得无声无息
+                  const badLocation = isUnknownLocation(o.location);
+                  const locationHint = badLocation ? locationHintFor(o.location!) : "";
                   const need = computeNeed(o, cards);
                   const isAssigning = searchParams.assign === o.id;
                   // 分配模式里那几个输入框用的是 defaultValue（不受控），React 只在挂载时读一次；
@@ -705,6 +738,7 @@ export default async function OverviewPage({
                       `$${o.amount ?? "?"} · ${STATUS_LABELS[o.status] ?? o.status}`,
                       `分配 ${formatNeed(need)}（${formatGap(need)}）`,
                       ...(note ? [`备注：${note}`] : []),
+                      ...(badLocation ? [`⚠ ${locationHint}`] : []),
                       ...cards.map(
                         (s: any) =>
                           `　${s.holder_gender === "male" ? "♂" : "♀"} ${s.holder_name}（${calcAge(s.holder_date_of_birth) ?? "?"}岁 ${s.item_type ?? ""}）`
@@ -750,7 +784,19 @@ export default async function OverviewPage({
                                 >
                                   {o.customers?.first_name ?? "?"}
                                   {o.location ? (
-                                    <span style={{ fontWeight: 400, opacity: 0.7 }}>
+                                    <span
+                                      title={locationHint || undefined}
+                                      style={
+                                        badLocation
+                                          ? {
+                                              fontWeight: 500,
+                                              color: "#c0392b",
+                                              textDecoration: "underline wavy #c0392b",
+                                              textUnderlineOffset: 2,
+                                            }
+                                          : { fontWeight: 400, opacity: 0.7 }
+                                      }
+                                    >
                                       {` · ${o.location}`}
                                     </span>
                                   ) : null}
@@ -906,15 +952,19 @@ export default async function OverviewPage({
                                 <input
                                   name="location"
                                   placeholder="地点"
+                                  list={LOCATION_LIST_ID}
                                   defaultValue={o.location ?? ""}
                                   data-original={o.location ?? ""}
+                                  title={locationHint || undefined}
                                   style={{
                                     ...FIELD_SIZING_CONTENT,
                                     minWidth: 22,
                                     maxWidth: "100%",
                                     fontSize: 11,
                                     padding: "0 3px",
-                                    color: "inherit",
+                                    // 地点名库里认不出来就标红。这里正好是能当场改掉的地方
+                                    color: badLocation ? "#c0392b" : "inherit",
+                                    fontWeight: badLocation ? 600 : 400,
                                     background: "transparent",
                                     // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
                                     // 就比普通态的 <span> 低几像素。行高对齐色块的 1.3。
@@ -1276,6 +1326,7 @@ export default async function OverviewPage({
 }
 
 function ResourcePanel({
+  assignHistory,
   resources,
   filters,
   hasFilter,
@@ -1288,6 +1339,7 @@ function ResourcePanel({
   initialCollapsed,
   filtersCollapsed,
 }: {
+  assignHistory: PastUse[];
   resources: any[];
   filters: { item: string; gender: string; sstatus: string; q: string };
   hasFilter: boolean;
@@ -1427,6 +1479,8 @@ function ResourcePanel({
             assigningOrder={assigningOrder}
             gap={assigningNeed?.maleGap ?? 0}
             alreadyAssigned={alreadyAssigned}
+            assignHistory={assignHistory}
+            allResources={resources}
           />
           <ResourceGroup
             title="女资源"
@@ -1436,6 +1490,8 @@ function ResourcePanel({
             assigningOrder={assigningOrder}
             gap={assigningNeed?.femaleGap ?? 0}
             alreadyAssigned={alreadyAssigned}
+            assignHistory={assignHistory}
+            allResources={resources}
           />
           {other.length > 0 && (
             <ResourceGroup
@@ -1446,6 +1502,8 @@ function ResourcePanel({
               assigningOrder={null}
               gap={0}
               alreadyAssigned={alreadyAssigned}
+              assignHistory={assignHistory}
+              allResources={resources}
             />
           )}
         </PanelScroller>
@@ -1462,6 +1520,8 @@ function ResourceGroup({
   assigningOrder,
   gap,
   alreadyAssigned,
+  assignHistory,
+  allResources,
 }: {
   title: string;
   symbol: string;
@@ -1470,8 +1530,49 @@ function ResourceGroup({
   assigningOrder: any;
   gap: number;
   alreadyAssigned: Set<string>;
+  assignHistory: PastUse[];
+  allResources: any[];
 }) {
   if (list.length === 0) return null;
+
+  // 这个资源现在能不能配给这一单 —— 三条硬校验，跟服务端那份是同一套。
+  // 推荐只在通过校验的资源里排序，绝不放宽任何一条。
+  const canAssignResource = (s: any) => {
+    if (!assigningOrder || alreadyAssigned.has(s.id) || gap <= 0) return false;
+    if (s.status !== "active") return false;
+    if (itemConflictReason(s, assigningOrder.location)) return false;
+    if (!coversOrder(s, assigningOrder.demand_days)) return false;
+    const booked = new Set(bookedDays.get(s.id) ?? []);
+    return !assigningOrder.demand_days.some((d: string) => booked.has(d));
+  };
+
+  // 推荐按性别分组各算各的：一单要一张男资源加一张女资源，
+  // 两边各自挑自己的最优，不能混在一起比
+  const recommendations = new Map<string, Scored>();
+  if (assigningOrder) {
+    const assignedProviderIds = allResources
+      .filter((s: any) => alreadyAssigned.has(s.id))
+      .map((s: any) => s.provider_id);
+    const scored = recommendResources({
+      order: {
+        customerId: assigningOrder.customer_id ?? null,
+        location: assigningOrder.location ?? null,
+        demandDays: assigningOrder.demand_days ?? [],
+      },
+      // 客户生日基本没人填（CLAUDE.md 待决定 #4），拿不到年龄这条就自动不参与
+      customerAge: calcAge(assigningOrder.customers?.date_of_birth),
+      candidates: list.filter(canAssignResource).map((s: any) => ({
+        id: s.id,
+        itemType: s.item_type ?? null,
+        holderDateOfBirth: s.holder_date_of_birth ?? null,
+        providerId: s.provider_id ?? null,
+        bookedDays: bookedDays.get(s.id) ?? [],
+      })),
+      history: assignHistory,
+      assignedProviderIds,
+    });
+    for (const x of scored) recommendations.set(x.resourceId, x);
+  }
 
   return (
     <div style={{ marginBottom: 14 }}>
@@ -1501,16 +1602,22 @@ function ResourceGroup({
           // 卡在「订单那几天」有效即可，跟今天过没过期无关
           const covers =
             assigningOrder && coversOrder(s, assigningOrder.demand_days);
+          // 第四条校验：类型要能进这个地点。地点名认不出来就不拦
+          const itemConflict = assigningOrder
+            ? itemConflictReason(s, assigningOrder.location)
+            : null;
           // 同一个资源同一天不能给两个订单用
           const conflictDays = assigningOrder
             ? assigningOrder.demand_days.filter((d: string) => booked.includes(d))
             : [];
+          const rec = recommendations.get(s.id);
           const canAssign =
             assigningOrder &&
             !isAssigned &&
             listingOk &&
             gap > 0 &&
             covers &&
+            !itemConflict &&
             conflictDays.length === 0;
 
           return (
@@ -1578,7 +1685,15 @@ function ResourceGroup({
               </Link>
 
               {assigningOrder && (
-                <div style={{ marginTop: 6 }}>
+                <div
+                  style={{
+                    marginTop: 6,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 6,
+                  }}
+                >
                   {isAssigned ? (
                     <span style={{ fontSize: 11, color: "#1f5c33" }}>✓ 已配给这单</span>
                   ) : canAssign ? (
@@ -1593,14 +1708,37 @@ function ResourceGroup({
                       }}
                     />
                   ) : (
-                    <span style={{ fontSize: 11, color: "#bbb" }}>
+                    <span
+                      title={itemConflict || undefined}
+                      style={{ fontSize: 11, color: itemConflict ? "#c0392b" : "#bbb" }}
+                    >
                       {!listingOk
                         ? (badge?.text ?? "不可用")
                         : gap === 0
                           ? "这个性别已配齐"
-                          : !covers
-                            ? `订单日期超出有效期（${s.date_range_start}~${s.date_range_end}）`
-                            : `${formatDayRanges(conflictDays)} 已被占用`}
+                          : itemConflict
+                            ? `类型不对：${s.item_type} 进不了这个地点`
+                            : !covers
+                              ? `订单日期超出有效期（${s.date_range_start}~${s.date_range_end}）`
+                              : `${formatDayRanges(conflictDays)} 已被占用`}
+                    </span>
+                  )}
+
+                  {/* 推荐标记贴右下角。理由挂在 title 上：分配最后是人拍板，
+                      说不出理由的推荐没人敢用 */}
+                  {rec && rec.signals.length > 0 && (
+                    <span
+                      title={explain(rec)}
+                      style={{
+                        flexShrink: 0,
+                        fontSize: 11,
+                        cursor: "help",
+                        color: rec.top ? "#a8620d" : "#bbb",
+                        fontWeight: rec.top ? 600 : 400,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {rec.top ? "★ 推荐" : rec.score > 0 ? "☆" : "⚠"}
                     </span>
                   )}
                 </div>
