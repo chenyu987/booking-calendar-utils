@@ -11,7 +11,7 @@ const adminLinks = [
 ];
 
 const publicLinks = [
-  { href: "/customer/request", label: "我要租借", desc: "Customer 发布需求" },
+  { href: "/customer", label: "我要租借", desc: "Customer 登录后发需求、看自己的订单" },
   { href: "/provider/listing", label: "挂出资源", desc: "Provider 上架额度" },
   { href: "/provider/matches", label: "Provider 匹配台", desc: "看需求、提出匹配" },
 ];

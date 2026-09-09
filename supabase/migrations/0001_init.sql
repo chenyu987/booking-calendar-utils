@@ -13,8 +13,13 @@ create table customers (
   chat text,
   status text not null default 'active',
   note text,
+  -- 客户登录后对应的 Supabase Auth 用户。unique：一个 auth 用户只认领一行，
+  -- 免得同一个人在库里裂成两条（0007）
+  auth_user_id uuid unique references auth.users(id) on delete set null,
   created_at timestamptz not null default now()
 );
+create index on customers (auth_user_id);
+create index on customers (lower(email));
 
 -- Provider 物主（账号层面。一个 Provider 可以持多个人的资源，
 -- 所以资源本身的信息 —— 资源类型、持有人姓名/性别/生日 —— 都在 resources 上）
