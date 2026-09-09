@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { claimFor, homeFor, parseRole, type Role } from "@/lib/accountClaim";
 import BackToHome from "@/components/BackToHome";
@@ -78,14 +79,42 @@ async function signUp(formData: FormData) {
   redirect(homeFor(role));
 }
 
+// 忘记密码：发一封重置邮件。**这条路要真能发信才有用** —— 内置发信服务额度
+// 极小，所以在接自己的 SMTP 之前它大概率会撞限流，页面上会如实说。
+async function sendReset(formData: FormData) {
+  "use server";
+  const role = parseRole(formData.get("as") as string);
+  const email = ((formData.get("email") as string) ?? "").trim();
+  if (!email) redirect(loginPath(role, "mode=forgot&error=empty"));
+
+  const host = headers().get("host");
+  const proto = host?.startsWith("localhost") ? "http" : "https";
+
+  const supabase = createSupabaseServerClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    // 邮件里的链接先落 /auth/callback 换 session，再被送去设新密码那一页
+    redirectTo: `${proto}://${host}/auth/callback?as=${role}&next=/reset-password`,
+  });
+  if (error) {
+    console.error("[login] resetPasswordForEmail 失败", error.code, error.message);
+    if (error.code === "over_email_send_rate_limit" || error.status === 429) {
+      redirect(loginPath(role, "mode=forgot&error=ratelimit"));
+    }
+    redirect(loginPath(role, "mode=forgot&error=save"));
+  }
+  // 不因为「这个邮箱没注册过」给不同提示 —— 那等于把「谁注册过」告诉了任何人
+  redirect(loginPath(role, "mode=forgot&sent=1"));
+}
+
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { as?: string; mode?: string; error?: string };
+  searchParams: { as?: string; mode?: string; error?: string; sent?: string };
 }) {
   const role: Role = parseRole(searchParams.as);
   const isProvider = role === "provider";
   const isSignup = searchParams.mode === "signup";
+  const isForgot = searchParams.mode === "forgot";
 
   // 已经登录了就别停在登录页
   const supabase = createSupabaseServerClient();
@@ -100,8 +129,58 @@ export default async function LoginPage({
     exists: "这个邮箱已经注册过了，直接登录就行",
     needconfirm:
       "注册成功了，但这个项目还开着邮箱确认 —— 去收一下确认邮件，或者让管理员把 Confirm email 关掉",
-    save: "注册没成功，稍后再试",
+    save: "没成功，稍后再试",
+    ratelimit: "发得太频繁了，被邮件服务限流了 —— 等几分钟再试",
+    resetexpired: "重置链接已经用过或者过期了，重新发一封",
   };
+
+  if (isForgot) {
+    return (
+      <main style={{ padding: 24, maxWidth: 420, margin: "0 auto" }}>
+        <BackToHome />
+        <h1 style={{ fontSize: 20 }}>重置密码</h1>
+        {searchParams.sent ? (
+          <p style={{ color: "#1f5c33", fontSize: 13, lineHeight: 1.7 }}>
+            如果这个邮箱注册过，重置链接已经发过去了。去邮箱点那条链接就能设新密码。
+            没看到的话翻一下垃圾邮件。
+          </p>
+        ) : (
+          <>
+            <p style={{ color: "#666", fontSize: 13 }}>
+              填注册用的邮箱，我们发一条重置链接给你。
+            </p>
+            {searchParams.error && (
+              <p style={{ color: "#c0392b", fontSize: 13, margin: "8px 0 0" }}>
+                {errorText[searchParams.error] ?? "出了点问题，再试一次"}
+              </p>
+            )}
+            <form
+              action={sendReset}
+              style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}
+            >
+              <input type="hidden" name="as" value={role} />
+              <input
+                name="email"
+                type="email"
+                required
+                autoComplete="email"
+                placeholder="邮箱"
+                style={inputStyle}
+              />
+              <button type="submit" style={buttonStyle}>
+                发送重置链接
+              </button>
+            </form>
+          </>
+        )}
+        <p style={{ fontSize: 13, marginTop: 14 }}>
+          <Link href={loginPath(role)} style={linkStyle}>
+            ← 回登录
+          </Link>
+        </p>
+      </main>
+    );
+  }
 
   return (
     <main style={{ padding: 24, maxWidth: 420, margin: "0 auto" }}>
@@ -171,8 +250,10 @@ export default async function LoginPage({
       </p>
 
       {!isSignup && (
-        <p style={{ fontSize: 12, color: "#999", marginTop: 10, lineHeight: 1.7 }}>
-          忘了密码暂时得找管理员重置 —— 邮件找回要等接上发信服务。
+        <p style={{ fontSize: 13, marginTop: 8 }}>
+          <Link href={loginPath(role, "mode=forgot")} style={linkStyle}>
+            忘了密码？
+          </Link>
         </p>
       )}
     </main>

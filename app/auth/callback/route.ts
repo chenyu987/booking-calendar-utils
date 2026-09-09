@@ -37,5 +37,14 @@ export async function GET(req: NextRequest) {
     // 认领失败不该把人挡在门外：session 已经建好了，/customer 那边会再兜一次底
   }
 
+  // 重置密码的邮件把用户送到这里换 session，然后要接着去设新密码那一页。
+  // 只认站内路径：next 是从 URL 来的，放任它跳外站就是个开放重定向漏洞。
+  const next = req.nextUrl.searchParams.get("next");
+  if (next && next.startsWith("/") && !next.startsWith("//")) {
+    const target = new URL(next, req.url);
+    if (role === "provider") target.searchParams.set("as", "provider");
+    return NextResponse.redirect(target);
+  }
+
   return NextResponse.redirect(new URL(homeFor(role), req.url));
 }
