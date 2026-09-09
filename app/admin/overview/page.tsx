@@ -1362,7 +1362,7 @@ function ResourcePanel({
         <input
           name="q"
           defaultValue={filters.q}
-          placeholder="搜持有人姓名"
+          placeholder="搜物主姓名"
           // boxSizing 不能少：inputStyle 带 6px 内边距 + 1px 边框，<input> 默认按
           // content-box 算，width:100% 会比下面那几个 <select>（浏览器默认 border-box）
           // 宽出 14px，右边就对不齐了
@@ -1544,7 +1544,7 @@ function ResourceGroup({
                       textOverflow: "ellipsis",
                     }}
                   >
-                    {s.holder_name ?? "（未填持有人）"}
+                    {s.holder_name ?? "（未填物主）"}
                   </span>
                   <span style={{ fontSize: 11, color: "#888", flexShrink: 0 }}>
                     {s.item_type ?? "?"}
