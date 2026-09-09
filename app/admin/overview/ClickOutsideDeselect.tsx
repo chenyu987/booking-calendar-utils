@@ -37,6 +37,7 @@ export default function ClickOutsideDeselect({
       const maleInput = block?.querySelector<HTMLInputElement>('input[name="male_count"]');
       const femaleInput = block?.querySelector<HTMLInputElement>('input[name="female_count"]');
       const amountInput = block?.querySelector<HTMLInputElement>('input[name="amount"]');
+      const noteInput = block?.querySelector<HTMLInputElement>('input[name="note"]');
       const statusSelect = block?.querySelector<HTMLSelectElement>('select[name="status"]');
 
       const payload: Record<string, string> = {};
@@ -61,6 +62,13 @@ export default function ClickOutsideDeselect({
       }
       if (amountInput && amountInput.value !== amountInput.dataset.original) {
         payload.amount = amountInput.value;
+      }
+      // 备注框在窄色块上会被容器查询 display:none 掉（一列宽的单子塞不下）。
+      // 藏起来的元素还在 DOM 里、照样能被 querySelector 找到，但既然点不进去也打不了字，
+      // 它的 value 就等于 data-original，会被下面这个"只存改过的"判断自然跳过，
+      // 不会把备注误清空。
+      if (noteInput && noteInput.value !== noteInput.dataset.original) {
+        payload.note = noteInput.value;
       }
       if (statusSelect && statusSelect.value !== statusSelect.dataset.original) {
         payload.status = statusSelect.value;

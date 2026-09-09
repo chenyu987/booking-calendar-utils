@@ -73,6 +73,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 备注存在 order_notes（跟 orders 一对一，order_id 上有 unique 约束），
+    // 所以直接 upsert，不用先查一次有没有。清空就把这一列置成 null，不删整行——
+    // 那行上还有 pickup_method / sales_channel 之类的列（暂时没 UI 在用）。
+    //
+    // 注意：这一列里可能躺着「取消原因」功能写进去的 JSON 信封，界面上显示的是
+    // readNoteText 拆出来的纯文本。所以一旦有人在这儿改了备注，信封就会被纯文本
+    // 覆盖掉——这正是想要的，顺手把那条孤儿数据规整了。
+    if (typeof body.note === "string") {
+      const note = body.note.trim();
+      const { error } = await supabase
+        .from("order_notes")
+        .upsert(
+          { order_id: orderId, internal_note: note || null },
+          { onConflict: "order_id" }
+        );
+      if (error) throw new Error(error.message);
+    }
+
     if (typeof body.status === "string" && STATUS_LABELS[body.status]) {
       const { error } = await supabase
         .from("orders")

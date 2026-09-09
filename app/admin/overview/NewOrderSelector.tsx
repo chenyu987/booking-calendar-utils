@@ -46,6 +46,7 @@ export default function NewOrderSelector({
   const [male, setMale] = useState(0);
   const [female, setFemale] = useState(0);
   const [location, setLocation] = useState("");
+  const [note, setNote] = useState("");
   const [perDayPrice, setPerDayPrice] = useState("");
   const [totalPrice, setTotalPrice] = useState("");
   const [error, setError] = useState("");
@@ -68,6 +69,7 @@ export default function NewOrderSelector({
     setMale(0);
     setFemale(0);
     setLocation("");
+    setNote("");
     setPerDayPrice("");
     setTotalPrice("");
     setError("");
@@ -245,6 +247,7 @@ export default function NewOrderSelector({
     const fd = new FormData();
     fd.set("customer_name", name.trim());
     fd.set("location", location.trim());
+    fd.set("note", note.trim());
     fd.set("male_count", String(male || 0));
     fd.set("female_count", String(female || 0));
     fd.set("demand_days", JSON.stringify(days));
@@ -503,12 +506,20 @@ export default function NewOrderSelector({
               ))}
             </datalist>
           </div>
-          <input
-            placeholder="去哪个地点（选填）"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            style={{ fontSize: 13, padding: "6px 8px", color: "#222" }}
-          />
+          <div style={{ display: "flex", gap: 10 }}>
+            <input
+              placeholder="去哪个地点（选填）"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              style={{ flex: 1, minWidth: 0, fontSize: 13, padding: "6px 8px", color: "#222" }}
+            />
+            <input
+              placeholder="备注（选填）"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              style={{ flex: 1, minWidth: 0, fontSize: 13, padding: "6px 8px", color: "#222" }}
+            />
+          </div>
           <div style={{ display: "flex", gap: 10 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 4, flex: 1 }}>
               每天$

@@ -26,6 +26,7 @@ import {
   replaceDayRun,
 } from "@/lib/dates";
 import { rescaleAmount } from "@/lib/pricing";
+import { readNoteText } from "@/lib/orderNote";
 import {
   weekBounds,
   monthFirstDay,
@@ -57,7 +58,10 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const COL_WIDTH = 132;
+// 一天的单子色块就是这么宽。132 太挤了——编辑态里姓名、地点、备注三个框
+// 挤在第一行，名字基本看不见。加到 150 之后一天的单子也能正常看正常改。
+// 再宽就得多滑，一屏看到的天数会明显变少。
+const COL_WIDTH = 150;
 const HEADER_ROW_HEIGHT = 52;
 // 所有行统一这个高度。**不要改成 auto/minmax** —— 那样分配的那一行会比别的行高，
 // 每次进出编辑模式色块都跳一下，看久了很晃眼（试过，被否了）。
@@ -95,6 +99,7 @@ async function createQuickOrder(formData: FormData) {
   if (!customerName) throw new Error("客人姓名不能为空");
 
   const location = ((formData.get("location") as string) ?? "").trim() || null;
+  const note = ((formData.get("note") as string) ?? "").trim();
   const maleCount = Number(formData.get("male_count") ?? 0) || 0;
   const femaleCount = Number(formData.get("female_count") ?? 0) || 0;
   const demandDays = JSON.parse((formData.get("demand_days") as string) ?? "[]") as string[];
@@ -143,6 +148,14 @@ async function createQuickOrder(formData: FormData) {
     .select("id")
     .single();
   if (error) throw new Error(error.message);
+
+  // 备注存在 order_notes 里（表本来就有，跟 orders 一对一），不往 orders 上加字段。
+  // 填了才写，多一次写库就多一个 Supabase 来回（0.4~2 秒），没填就别浪费这个时间。
+  // 这一步失败不往上抛：订单其实已经建好了，抛上去客户端会显示"建单失败"，
+  // 比丢一条备注更误导人——备注可以进分配模式重填。
+  if (note) {
+    await supabase.from("order_notes").insert({ order_id: order.id, internal_note: note });
+  }
 
   revalidatePath("/admin/overview");
   revalidatePath("/admin/orders");
@@ -222,6 +235,7 @@ export default async function OverviewPage({
     { data: allResources, error: resourceError },
     { data: assignments },
     { data: allCustomers },
+    { data: orderNotes },
   ] = await Promise.all([
     supabase
       .from("orders")
@@ -238,7 +252,17 @@ export default async function OverviewPage({
     // 建新单时用来在客户端直接把姓名换成 customer_id，省掉建单时的那次查询
     // （跟上面几条并行，不额外增加页面加载时间）
     supabase.from("customers").select("id, first_name"),
+    supabase.from("order_notes").select("order_id, internal_note"),
   ]);
+
+  // 订单备注：色块右上角显示用。internal_note 这一列里还混着「取消原因」写进去的
+  // JSON 信封（那个功能的代码没了，数据还在），统一走 readNoteText 拆一层，
+  // 别把整段 JSON 印到色块上
+  const noteByOrder = new Map<string, string>();
+  for (const n of orderNotes ?? []) {
+    const t = readNoteText(n.internal_note);
+    if (t) noteByOrder.set(n.order_id, t);
+  }
 
   // 姓名统一转小写当 key：原来服务端用的是 ilike，大小写不敏感，这里保持一致
   const customerIdByName: Record<string, string> = {};
@@ -444,12 +468,16 @@ export default async function OverviewPage({
           appearance: none;
           margin: 0;
         }
-        /* 一天的单子色块只有一列宽（132px），第 3 行放不下「男x/y 女x/y + 状态 + 金额」。
-           这时候把状态下拉框藏掉：三者里它最不要紧——色块本身的颜色就是状态，
-           Order 列表页也能改。留下分配进度和金额，这两个数才是排期时要看的。
+        /* 一天的单子色块只有一列宽（COL_WIDTH，150px），第 3 行放不下「男x/y 女x/y + 状态 + 金额」。
+           这时候把状态下拉框和删除叉都藏掉（132px 时实测第 3 行溢出 31px；
+           加宽到 150 之后仍然放不下），
+           只留分配进度和金额——那两个数才是排期时要看的。
+           状态看色块颜色就知道；删除一天的单子去 Order 列表页，
+           或者先把单子拉宽再删。
+           备注框不用藏——它在第 1 行，那一行只有姓名和地点，挤得下。
            用容器查询而不是媒体查询：判断依据是这个色块自己有多宽（几天的单子），
-           跟浏览器窗口多宽没关系。180 这个数落在「一天」(内容宽 120) 和
-           「两天」(252) 中间，判得干脆。 */
+           跟浏览器窗口多宽没关系。180 这个数落在「一天」(内容宽 138) 和
+           「两天」(288) 中间，判得干脆。 */
         /* 分配模式下「已配的资源」这一行可以横着滚，把够不着的人划出来撤销。
            只给编辑中的这个色块开：日历最主要的手势就是左右拖，要是每个色块
            都吃掉横向滑动，整张表就没法平移了。
@@ -465,11 +493,22 @@ export default async function OverviewPage({
         }
         #assign-active-block .cards-row::-webkit-scrollbar { display: none; }
 
+        /* 备注框平时只占一个小方块（姓名和地点优先，它俩每单都有），
+           点进去自动撑到一半宽好打字，挪走又缩回去。
+           transition 让这一下不至于跳得太突兀。 */
+        #assign-active-block .assign-note { transition: min-width 120ms ease-out; }
+        #assign-active-block .assign-note:focus-within { min-width: 55% !important; }
+
         #assign-active-block { container-type: inline-size; }
         @container (max-width: 180px) {
           /* !important 不能省：表单的 display:flex 是内联样式，
              选择器再具体也压不过它 */
-          #assign-active-block .assign-status { display: none !important; }
+          #assign-active-block .assign-status,
+          #assign-active-block .assign-delete,
+          /* 连 $ 符号也藏掉：不藏的话金额右边会被切掉 9px，
+             「$120」看成「$12」比少个符号严重得多。旁边就是「男1/1 女0/1」，
+             最右边那个数是钱，不会认错 */
+          #assign-active-block .assign-money-sign { display: none !important; }
         }
 `,
         }}
@@ -609,6 +648,7 @@ export default async function OverviewPage({
                   const bandLane = band.laneOf.get(o.id);
                   if (bandLane === undefined) return null;
                   const cards = assignedTo.get(o.id) ?? [];
+                  const note = noteByOrder.get(o.id) ?? "";
                   const need = computeNeed(o, cards);
                   const isAssigning = searchParams.assign === o.id;
                   // 分配模式里那几个输入框用的是 defaultValue（不受控），React 只在挂载时读一次；
@@ -622,6 +662,7 @@ export default async function OverviewPage({
                     o.female_count,
                     o.location,
                     o.customers?.first_name,
+                    noteByOrder.get(o.id) ?? "",
                   ].join("|");
                   const allSorted = [...(o.demand_days as string[])].sort();
                   const firstDayOverall = allSorted[0];
@@ -643,9 +684,11 @@ export default async function OverviewPage({
                       gridRow: bandLane + 2,
                       gridColumn: `${start + 1} / span ${seg.length}`,
                       background: c.bg,
-                      border: isAssigning
-                        ? "2px solid #1c4e78"
-                        : `1px solid ${c.border}`,
+                      // 编辑态**不能**用更粗的边框：2px vs 1px 会把整块内容往下推 1px，
+                      // 进出编辑时所有字都跳一下。改成同样的 1px，加粗的观感交给
+                      // box-shadow——阴影不参与布局，几何一模一样。
+                      border: `1px solid ${isAssigning ? "#1c4e78" : c.border}`,
+                      boxShadow: isAssigning ? "0 0 0 1px #1c4e78" : undefined,
                       color: c.text,
                       borderRadius: 4,
                       padding: "2px 6px",
@@ -661,6 +704,7 @@ export default async function OverviewPage({
                       `${o.location ?? "?"} · ${formatParty(o.male_count, o.female_count)} · ${o.demand_days.length}天`,
                       `$${o.amount ?? "?"} · ${STATUS_LABELS[o.status] ?? o.status}`,
                       `分配 ${formatNeed(need)}（${formatGap(need)}）`,
+                      ...(note ? [`备注：${note}`] : []),
                       ...cards.map(
                         (s: any) =>
                           `　${s.holder_gender === "male" ? "♂" : "♀"} ${s.holder_name}（${calcAge(s.holder_date_of_birth) ?? "?"}岁 ${s.item_type ?? ""}）`
@@ -685,21 +729,48 @@ export default async function OverviewPage({
                         >
                           {showDetail && (
                             <>
-                              {/* 第 1 行整行都给「姓名 · 地点」：金额挪到第 3 行右下角了。
-                                  格子窄的时候（一天的单子只有一列宽）名字后面的地点名
-                                  原来经常被金额挤掉，现在挤掉的先是名字本身。 */}
+                              {/* 第 1 行左边「姓名 · 地点」，右上角放备注（有才显示）：
+                                  金额挪到第 3 行右下角了。格子窄的时候（一天的单子只有
+                                  一列宽）两边都截断，备注最多占一半，剩下的留给名字。 */}
                               <div
                                 style={{
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  fontWeight: 500,
+                                  display: "flex",
+                                  alignItems: "baseline",
+                                  gap: 4,
                                 }}
                               >
-                                {o.customers?.first_name ?? "?"}
-                                {o.location ? (
-                                  <span style={{ fontWeight: 400, opacity: 0.7 }}>
-                                    {` · ${o.location}`}
+                                <span
+                                  style={{
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    fontWeight: 500,
+                                    minWidth: 0,
+                                  }}
+                                >
+                                  {o.customers?.first_name ?? "?"}
+                                  {o.location ? (
+                                    <span style={{ fontWeight: 400, opacity: 0.7 }}>
+                                      {` · ${o.location}`}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                {note ? (
+                                  <span
+                                    // marginLeft:auto 顶到右边，不用 justifyContent：
+                                    // 装不下的时候 auto 会自己变 0，不会往左边溢出去压住名字
+                                    style={{
+                                      marginLeft: "auto",
+                                      maxWidth: "50%",
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      fontSize: 11,
+                                      fontWeight: 400,
+                                      opacity: 0.75,
+                                    }}
+                                  >
+                                    {note}
                                   </span>
                                 ) : null}
                               </div>
@@ -795,7 +866,11 @@ export default async function OverviewPage({
                             >
                               <OptimisticEditForm
                                 exitHref={qs({ assign: "" })}
-                                style={{ display: "flex", minWidth: 0, flexShrink: 1 }}
+                                // minWidth 跟里面输入框的下限对齐：只给 0 的话表单会被压到
+                                // 比输入框还窄，输入框撑出去盖住旁边的地点和备注。
+                                // 给到 48：姓名每一单都有，是这一行最该看见的东西，
+                                // 不能为了给偶尔才填的备注腾地方就把它压没了。
+                                style={{ display: "flex", minWidth: 48, flexShrink: 1 }}
                               >
                                 <input type="hidden" name="order_id" value={o.id} />
                                 <input
@@ -808,17 +883,24 @@ export default async function OverviewPage({
                                     maxWidth: "100%",
                                     fontSize: 12,
                                     fontWeight: 500,
-                                    padding: "0 2px",
+                                    padding: "0 3px",
                                     color: "inherit",
                                     background: "transparent",
-                                    border: "1px solid transparent",
+                                    // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
+                                    // 就比普通态的 <span> 低几像素。行高对齐色块的 1.3。
+                                    // border 得显式写 none——只删掉声明的话，浏览器给 input 的默认
+                                    // 2px inset 边框会冒出来，反而更高、还看得见。原来那 1px 透明边框
+                                    // 占的横向位置，用内边距 +1 补回来。
+                                    border: "none",
+                                    lineHeight: 1.3,
                                   }}
                                 />
                               </OptimisticEditForm>
                               <span style={{ fontSize: 11, opacity: 0.45, flexShrink: 0 }}>·</span>
                               <OptimisticEditForm
                                 exitHref={qs({ assign: "" })}
-                                style={{ display: "flex", minWidth: 0, flexShrink: 1 }}
+                                // 地点同理，每单都有，给 40
+                                style={{ display: "flex", minWidth: 40, flexShrink: 1 }}
                               >
                                 <input type="hidden" name="order_id" value={o.id} />
                                 <input
@@ -831,21 +913,57 @@ export default async function OverviewPage({
                                     minWidth: 22,
                                     maxWidth: "100%",
                                     fontSize: 11,
-                                    padding: "0 2px",
+                                    padding: "0 3px",
                                     color: "inherit",
                                     background: "transparent",
-                                    border: "1px solid transparent",
+                                    // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
+                                    // 就比普通态的 <span> 低几像素。行高对齐色块的 1.3。
+                                    // border 得显式写 none——只删掉声明的话，浏览器给 input 的默认
+                                    // 2px inset 边框会冒出来，反而更高、还看得见。原来那 1px 透明边框
+                                    // 占的横向位置，用内边距 +1 补回来。
+                                    border: "none",
+                                    lineHeight: 1.3,
                                   }}
                                 />
                               </OptimisticEditForm>
-                              {/* 撑开的空隙，把删除叉顶到最右边 */}
-                              <span style={{ flex: 1, minWidth: 2 }} />
-                              <DeleteOrderButton
-                                orderId={o.id}
-                                deleteAction={deleteOrder}
+                              {/* 备注框顶到右上角，跟平时状态显示备注的位置**同一个地方**——
+                                  进出编辑不用重新找。右对齐是为了让文字结束的位置也对上。
+                                  flex:1 吃掉中间剩余宽度，也让它第一个被压缩：
+                                  姓名和地点用的是 field-sizing:content，本来就只占内容那么宽。 */}
+                              <OptimisticEditForm
                                 exitHref={qs({ assign: "" })}
-                                style={{ flexShrink: 0 }}
-                              />
+                                className="assign-note"
+                                // flex-basis 给 0：宽松时把剩下的空间全吃掉（备注框要多大有多大），
+                                // 紧张时自己先缩到 22 这个「还点得进去」的下限，把地方让给
+                                // 姓名和地点——那两个每单都有，备注偶尔才有。
+                                // 缩成小方块之后也不影响用：点进去（:focus-within）会自动
+                                // 撑到一半宽，写完一挪走又缩回去，见上面那段 CSS。
+                                style={{ display: "flex", flex: "1 1 0", minWidth: 22, marginLeft: 2 }}
+                              >
+                                <input type="hidden" name="order_id" value={o.id} />
+                                <input
+                                  name="note"
+                                  placeholder="备注"
+                                  defaultValue={note}
+                                  data-original={note}
+                                  style={{
+                                    width: "100%",
+                                    minWidth: 0,
+                                    textAlign: "right",
+                                    fontSize: 11,
+                                    padding: "0 3px",
+                                    color: "inherit",
+                                    background: "transparent",
+                                    // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
+                                    // 就比普通态的 <span> 低几像素。行高对齐色块的 1.3。
+                                    // border 得显式写 none——只删掉声明的话，浏览器给 input 的默认
+                                    // 2px inset 边框会冒出来，反而更高、还看得见。原来那 1px 透明边框
+                                    // 占的横向位置，用内边距 +1 补回来。
+                                    border: "none",
+                                    lineHeight: 1.3,
+                                  }}
+                                />
+                              </OptimisticEditForm>
                             </div>
                             {/* nowrap：格子只有一列宽（一天的单子）时卡片名会换行，
                                 把写死高度的色块顶爆、底下那行被裁掉。宁可横着截断。
@@ -951,10 +1069,16 @@ export default async function OverviewPage({
                                       minWidth: 14,
                                       fontSize: 11,
                                       fontWeight: 500,
-                                      padding: "0 1px",
+                                      padding: "0 2px",
                                       color: "inherit",
                                       background: "transparent",
-                                      border: "1px solid transparent",
+                                      // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
+                                      // 就比普通态的 <span> 低几像素。行高对齐色块的 1.3。
+                                      // border 得显式写 none——只删掉声明的话，浏览器给 input 的默认
+                                      // 2px inset 边框会冒出来，反而更高、还看得见。原来那 1px 透明边框
+                                      // 占的横向位置，用内边距 +1 补回来。
+                                      border: "none",
+                                      lineHeight: 1.3,
                                     }}
                                   />
                                 </span>
@@ -979,10 +1103,16 @@ export default async function OverviewPage({
                                       minWidth: 14,
                                       fontSize: 11,
                                       fontWeight: 500,
-                                      padding: "0 1px",
+                                      padding: "0 2px",
                                       color: "inherit",
                                       background: "transparent",
-                                      border: "1px solid transparent",
+                                      // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
+                                      // 就比普通态的 <span> 低几像素。行高对齐色块的 1.3。
+                                      // border 得显式写 none——只删掉声明的话，浏览器给 input 的默认
+                                      // 2px inset 边框会冒出来，反而更高、还看得见。原来那 1px 透明边框
+                                      // 占的横向位置，用内边距 +1 补回来。
+                                      border: "none",
+                                      lineHeight: 1.3,
                                     }}
                                   />
                                 </span>
@@ -1039,7 +1169,12 @@ export default async function OverviewPage({
                               style={{ display: "flex", alignItems: "center", flexShrink: 0 }}
                             >
                               <input type="hidden" name="order_id" value={o.id} />
-                              <span style={{ fontSize: 11, opacity: 0.8, flexShrink: 0 }}>$</span>
+                              <span
+                                className="assign-money-sign"
+                                style={{ fontSize: 11, opacity: 0.8, flexShrink: 0 }}
+                              >
+                                $
+                              </span>
                               <input
                                 name="amount"
                                 type="number"
@@ -1055,13 +1190,29 @@ export default async function OverviewPage({
                                   minWidth: 26,
                                   maxWidth: 64,
                                   fontSize: 11,
-                                  padding: "0 1px",
+                                  padding: "0 2px",
                                   color: "inherit",
                                   background: "transparent",
-                                  border: "1px solid transparent",
+                                  // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
+                                  // 就比普通态的 <span> 低几像素。行高对齐色块的 1.3。
+                                  // border 得显式写 none——只删掉声明的话，浏览器给 input 的默认
+                                  // 2px inset 边框会冒出来，反而更高、还看得见。原来那 1px 透明边框
+                                  // 占的横向位置，用内边距 +1 补回来。
+                                  border: "none",
+                                  lineHeight: 1.3,
                                 }}
                               />
                             </OptimisticEditForm>
+                            {/* 删除订单放在右下角：离上面几个输入框最远的一个角，
+                                手滑点到的概率最低。前面留 6px 的空，别贴着金额框。 */}
+                            <span className="assign-delete" style={{ display: "flex", flexShrink: 0 }}>
+                              <DeleteOrderButton
+                                orderId={o.id}
+                                deleteAction={deleteOrder}
+                                exitHref={qs({ assign: "" })}
+                                style={{ flexShrink: 0, marginLeft: 6, width: 14 }}
+                              />
+                            </span>
                             </div>
                             </div>
                           </>
@@ -1097,7 +1248,8 @@ export default async function OverviewPage({
                         resizeAction={resizeOrderRun}
                         style={{
                           background: c.bg,
-                          border: "2px solid #1c4e78",
+                          border: "1px solid #1c4e78",
+                          boxShadow: "0 0 0 1px #1c4e78",
                           color: c.text,
                           borderRadius: 4,
                           overflow: "hidden",
