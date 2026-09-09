@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { claimFor, homeFor, parseRole } from "@/lib/accountClaim";
 
-// 邮件里那条 magic link 点进来落在这里：拿 URL 上的 code 换 session 写进 cookie，
+// 邮件里那条 magic link 点进来落在这里。
+//
+// 现在登录走的是邮箱+密码（内置发信服务额度太小，验证码每测几次就发不出去），
+// 所以这条路平时走不到。**故意留着**：等接了自己的 SMTP 想把验证码/魔法链接
+// 打开，那是 Supabase 控制台里的一个开关加登录页几十行，不是重写。：拿 URL 上的 code 换 session 写进 cookie，
 // 顺手把这个 auth 用户跟 customers 表对上，然后跳去 /customer。
 //
 // 这一步必须是 Route Handler，不能是页面：Server Component 里写不了 cookie。
