@@ -4,6 +4,13 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { formatParty } from "@/lib/party";
 import { computeNeed, formatNeed } from "@/lib/assignment";
+import { STATUS_LABELS } from "@/lib/orderStatus";
+import {
+  parseOrderFilters,
+  hasAnyFilter,
+  matchesOrderFilters,
+} from "@/lib/orderFilter";
+import FilterForm from "./FilterForm";
 import {
   dateRangeToArray,
   parseDaysInput,
@@ -24,6 +31,17 @@ import {
 } from "@/lib/adminStyles";
 
 export const dynamic = "force-dynamic";
+
+// 筛选行的控件比新增表单里的紧凑：8 列挤在一行，每格只有几十像素。
+// boxSizing 不能少——inputStyle 带内边距和边框，默认 content-box 的话
+// width:100% 会比同格的 <select>（浏览器默认 border-box）宽出十几像素，右边对不齐。
+const filterInputStyle = {
+  ...inputStyle,
+  width: "100%",
+  boxSizing: "border-box" as const,
+  padding: "3px 5px",
+  fontSize: 12,
+};
 
 const ORDER_STATUSES = [
   "created",
@@ -107,7 +125,19 @@ async function deleteOrder(formData: FormData) {
 export default async function OrdersAdminPage({
   searchParams,
 }: {
-  searchParams: { edit?: string };
+  // 逐列筛选全走 URL 参数，跟 ?edit= 一个路子：能收藏、能分享、刷新不丢
+  searchParams: {
+    edit?: string;
+    customer?: string;
+    location?: string;
+    party?: string;
+    from?: string;
+    to?: string;
+    min?: string;
+    max?: string;
+    assign?: string;
+    status?: string;
+  };
 }) {
   const [
     { data: orders, error },
@@ -139,6 +169,30 @@ export default async function OrdersAdminPage({
     const r = customers?.find((x: any) => x.id === id);
     return r ? `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() : "-";
   };
+
+  // 逐列筛选。在内存里筛不写进 SQL：一季 150~250 单，全捞回来才几十 KB；
+  // 而"配齐没配齐"是算出来的、日期是数组要判交集，写成 SQL 既别扭又容易跟
+  // 界面上的算法走偏（判断规则统一放在 lib/orderFilter.ts，有单测）。
+  const filters = parseOrderFilters(searchParams);
+  const filtering = hasAnyFilter(filters);
+  const visibleOrders = (orders ?? []).filter((o: any) => {
+    const cards = assignedTo.get(o.id) ?? [];
+    const need = computeNeed(o, cards);
+    return matchesOrderFilters(
+      {
+        customerName: customerName(o.customer_id),
+        location: o.location,
+        maleCount: o.male_count ?? 0,
+        femaleCount: o.female_count ?? 0,
+        demandDays: o.demand_days ?? [],
+        amount: o.amount ?? null,
+        status: o.status,
+        assignedCount: cards.length,
+        isComplete: need.isComplete,
+      },
+      filters
+    );
+  });
   return (
     <main>
       <h1 style={pageTitleStyle}>Order 管理</h1>
@@ -195,13 +249,140 @@ export default async function OrdersAdminPage({
         <div style={{ ...cellStyle, flex: 1 }}>地点</div>
         <div style={{ ...cellStyle, width: 70 }}>人数</div>
         <div style={{ ...cellStyle, flex: 1.6 }}>日期</div>
-        <div style={{ ...cellStyle, width: 70 }}>金额</div>
+        <div style={{ ...cellStyle, width: 130 }}>金额</div>
         <div style={{ ...cellStyle, flex: 1.4 }}>已分分配</div>
         <div style={{ ...cellStyle, width: 120 }}>状态</div>
         <div style={{ ...cellStyle, width: 110 }}>操作</div>
       </div>
 
-      {orders?.map((o: any) =>
+      {/* 逐列筛选：控件的 flex/width 跟上面表头一一对齐，看起来就是表头下面的一行。
+          常驻显示，不做收起——它只占一行，藏起来反而多一次点击。
+          也没有「筛选」按钮：改一个条件就自动筛，见 FilterForm。 */}
+      <FilterForm action="/admin/orders">
+        <div style={{ ...rowStyle, background: "#fafafa" }}>
+            <div style={{ ...cellStyle, flex: 1 }}>
+              <input
+                name="customer"
+                defaultValue={filters.customer}
+                placeholder="客人姓名"
+                style={filterInputStyle}
+              />
+            </div>
+            <div style={{ ...cellStyle, flex: 1 }}>
+              <input
+                name="location"
+                defaultValue={filters.location}
+                placeholder="地点"
+                style={filterInputStyle}
+              />
+            </div>
+            <div style={{ ...cellStyle, width: 70 }}>
+              <select name="party" defaultValue={filters.party} style={filterInputStyle}>
+                <option value="">全部</option>
+                <option value="male">有男</option>
+                <option value="female">有女</option>
+                <option value="both">男女都有</option>
+              </select>
+            </div>
+            {/* 起止两个日期并排一行，中间一个「~」，读起来就是「什么时间到什么时间」 */}
+            <div style={{ ...cellStyle, flex: 1.6, display: "flex", alignItems: "center", gap: 4 }}>
+              <input
+                type="date"
+                name="from"
+                defaultValue={filters.from}
+                title="从这天起"
+                style={{ ...filterInputStyle, flex: 1, minWidth: 0 }}
+              />
+              <span style={{ color: "#999", flexShrink: 0 }}>~</span>
+              <input
+                type="date"
+                name="to"
+                defaultValue={filters.to}
+                title="到这天止"
+                style={{ ...filterInputStyle, flex: 1, minWidth: 0 }}
+              />
+            </div>
+            {/* 金额同理并排。这一格只有 70px，放不下 placeholder，靠 title 说明 */}
+            <div style={{ ...cellStyle, width: 130, display: "flex", alignItems: "center", gap: 2 }}>
+              <input
+                // 用 text 不用 number：number 会带上下箭头，靠 CSS 干掉那个
+                // vendor 伪元素在不同浏览器上不一定都生效。text + inputMode=numeric
+                // 根本不会画箭头，手机上还是数字键盘。非数字的输入由
+                // lib/orderFilter 那边当"没填"处理。
+                type="text"
+                inputMode="numeric"
+                name="min"
+                defaultValue={filters.minAmount}
+                title="最低金额"
+                placeholder="最低"
+                style={{ ...filterInputStyle, flex: 1, minWidth: 0 }}
+              />
+              <span style={{ color: "#999", flexShrink: 0, fontSize: 11 }}>~</span>
+              <input
+                // 用 text 不用 number：number 会带上下箭头，靠 CSS 干掉那个
+                // vendor 伪元素在不同浏览器上不一定都生效。text + inputMode=numeric
+                // 根本不会画箭头，手机上还是数字键盘。非数字的输入由
+                // lib/orderFilter 那边当"没填"处理。
+                type="text"
+                inputMode="numeric"
+                name="max"
+                defaultValue={filters.maxAmount}
+                title="最高金额"
+                placeholder="最高"
+                style={{ ...filterInputStyle, flex: 1, minWidth: 0 }}
+              />
+            </div>
+            <div style={{ ...cellStyle, flex: 1.4 }}>
+              <select name="assign" defaultValue={filters.assign} style={filterInputStyle}>
+                <option value="">全部</option>
+                <option value="none">未分配</option>
+                <option value="partial">配了一半</option>
+                <option value="full">已配齐</option>
+              </select>
+            </div>
+            <div style={{ ...cellStyle, width: 120 }}>
+              <select name="status" defaultValue={filters.status} style={filterInputStyle}>
+                <option value="">全部状态</option>
+                {ORDER_STATUSES.map((st) => (
+                  <option key={st} value={st}>
+                    {STATUS_LABELS[st] ?? st}
+                  </option>
+                ))}
+              </select>
+            </div>
+          {/* 「清除」放在这一格：收起壳子拿掉之后，它是唯一能一键复位的入口 */}
+          <div
+            style={{
+              ...cellStyle,
+              width: 110,
+              color: "#999",
+              fontSize: 11,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            {filtering ? (
+              <>
+                <span style={{ color: "#a8620d" }}>{visibleOrders.length} 单</span>
+                <Link href="/admin/orders" style={linkButtonStyle}>
+                  清除
+                </Link>
+              </>
+            ) : (
+              "选完自动筛"
+            )}
+          </div>
+        </div>
+      </FilterForm>
+
+      {filtering && visibleOrders.length === 0 && (
+        <p style={{ ...helpTextStyle, margin: "6px 0" }}>
+          共 {orders?.length ?? 0} 单，没有符合条件的——放宽一点试试
+        </p>
+      )}
+
+      {visibleOrders.map((o: any) =>
         o.id === editingId ? (
           <form key={o.id} action={updateOrder} style={rowStyle}>
             <input type="hidden" name="id" value={o.id} />
@@ -250,7 +431,7 @@ export default async function OrdersAdminPage({
                 style={{ ...inputStyle, width: "100%" }}
               />
             </div>
-            <div style={{ ...cellStyle, width: 70 }}>
+            <div style={{ ...cellStyle, width: 130 }}>
               <input
                 name="amount"
                 type="number"
@@ -302,7 +483,7 @@ export default async function OrdersAdminPage({
                   : ""}
               </span>
             </div>
-            <div style={{ ...cellStyle, width: 70 }}>{o.amount ?? "-"}</div>
+            <div style={{ ...cellStyle, width: 130 }}>{o.amount ?? "-"}</div>
             <div style={{ ...cellStyle, flex: 1.4, color: "#555" }}>
               {(() => {
                 const cards = assignedTo.get(o.id) ?? [];
