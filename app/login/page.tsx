@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
-import { claimCustomer } from "@/lib/customerClaim";
+import { claimFor, homeFor, parseRole, type Role } from "@/lib/accountClaim";
 import BackToHome from "@/components/BackToHome";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,9 @@ export const dynamic = "force-dynamic";
 async function sendCode(formData: FormData) {
   "use server";
   const email = ((formData.get("email") as string) ?? "").trim();
-  if (!email) redirect("/customer/login?error=empty");
+  const role = parseRole(formData.get("as") as string);
+  const asParam = role === "provider" ? "&as=provider" : "";
+  if (!email) redirect(`/login?error=empty${asParam}`);
 
   const host = headers().get("host");
   const proto = host?.startsWith("localhost") ? "http" : "https";
@@ -25,7 +27,10 @@ async function sendCode(formData: FormData) {
   const supabase = createSupabaseServerClient();
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: `${proto}://${host}/auth/callback` },
+    options: {
+      // 角色跟着链接走：从物主入口发的信，点链接回来也得落在物主身份上
+      emailRedirectTo: `${proto}://${host}/auth/callback?as=${role}`,
+    },
   });
   if (error) {
     // 真实报错打到服务端日志：页面上只能给一句人话，出问题时靠这行定位
@@ -33,20 +38,23 @@ async function sendCode(formData: FormData) {
     // 限流是最常见的一种，单独给一句准确的 —— 说成「检查邮箱地址对不对」
     // 会把人往完全错误的方向带（地址是对的，就是发太频了）
     if (error.code === "over_email_send_rate_limit" || error.status === 429) {
-      redirect(`/customer/login?error=ratelimit&sentto=${encodeURIComponent(email)}`);
+      redirect(`/login?error=ratelimit&sentto=${encodeURIComponent(email)}${asParam}`);
     }
-    redirect("/customer/login?error=send");
+    redirect(`/login?error=send${asParam}`);
   }
-  redirect(`/customer/login?sent=${encodeURIComponent(email)}`);
+  redirect(`/login?sent=${encodeURIComponent(email)}${asParam}`);
 }
 
 async function verifyCode(formData: FormData) {
   "use server";
   const email = ((formData.get("email") as string) ?? "").trim();
+  const role = parseRole(formData.get("as") as string);
   // 用户从邮件里复制，常带空格；6 位数字之外的字符一律去掉
   const token = ((formData.get("token") as string) ?? "").replace(/\D/g, "");
-  const back = `/customer/login?sent=${encodeURIComponent(email)}`;
-  if (!email) redirect("/customer/login?error=empty");
+  const back =
+    `/login?sent=${encodeURIComponent(email)}` +
+    (role === "provider" ? "&as=provider" : "");
+  if (!email) redirect("/login?error=empty");
   if (token.length !== 6) redirect(`${back}&error=badcode`);
 
   const supabase = createSupabaseServerClient();
@@ -58,22 +66,26 @@ async function verifyCode(formData: FormData) {
   if (error || !data.user) redirect(`${back}&error=wrongcode`);
 
   try {
-    await claimCustomer(data.user.id, data.user.email ?? null);
+    await claimFor(role, data.user.id, data.user.email ?? null);
   } catch {
-    // 认领失败不该把人挡在门外：session 已经建好了，/customer 那边会再兜一次底
+    // 认领失败不该把人挡在门外：session 已经建好了，落地页那边会再兜一次底
   }
-  redirect("/customer");
+  redirect(homeFor(role));
 }
 
 export default async function CustomerLoginPage({
   searchParams,
 }: {
-  searchParams: { sent?: string; error?: string; sentto?: string };
+  searchParams: { sent?: string; error?: string; sentto?: string; as?: string };
 }) {
+  const role: Role = parseRole(searchParams.as);
+  const asParam = role === "provider" ? "&as=provider" : "";
+  const isProvider = role === "provider";
+
   // 已经登录了就别停在登录页
   const supabase = createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
-  if (data.user) redirect("/customer");
+  if (data.user) redirect(homeFor(role));
 
   const errorText: Record<string, string> = {
     empty: "邮箱不能为空",
@@ -94,7 +106,9 @@ export default async function CustomerLoginPage({
     return (
       <main style={{ padding: 24, maxWidth: 420, margin: "0 auto" }}>
         <BackToHome />
-        <h1 style={{ fontSize: 20 }}>输入验证码</h1>
+        <h1 style={{ fontSize: 20 }}>
+          输入验证码{isProvider ? "（物主）" : ""}
+        </h1>
         <p style={{ color: "#666", fontSize: 13, lineHeight: 1.7 }}>
           验证码已经发到 <strong>{searchParams.sent}</strong>，6 位数字，
           10 分钟内有效。没看到的话翻一下垃圾邮件。
@@ -106,6 +120,7 @@ export default async function CustomerLoginPage({
           style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}
         >
           <input type="hidden" name="email" value={searchParams.sent} />
+          <input type="hidden" name="as" value={role} />
           <input
             name="token"
             autoFocus
@@ -124,11 +139,12 @@ export default async function CustomerLoginPage({
         <div style={{ display: "flex", gap: 14, marginTop: 12 }}>
           <form action={sendCode}>
             <input type="hidden" name="email" value={searchParams.sent} />
+            <input type="hidden" name="as" value={role} />
             <button type="submit" style={linkButton}>
               没收到？重新发一封
             </button>
           </form>
-          <Link href="/customer/login" style={{ fontSize: 13, color: "#1c4e78" }}>
+          <Link href={`/login${isProvider ? "?as=provider" : ""}`} style={{ fontSize: 13, color: "#1c4e78" }}>
             换个邮箱
           </Link>
         </div>
@@ -139,7 +155,7 @@ export default async function CustomerLoginPage({
   return (
     <main style={{ padding: 24, maxWidth: 420, margin: "0 auto" }}>
       <BackToHome />
-      <h1 style={{ fontSize: 20 }}>客户登录</h1>
+      <h1 style={{ fontSize: 20 }}>{isProvider ? "物主登录" : "客户登录"}</h1>
       <p style={{ color: "#666", fontSize: 13 }}>
         填邮箱，我们发一个 6 位验证码给你 —— 不用设密码。
       </p>
@@ -147,7 +163,7 @@ export default async function CustomerLoginPage({
       {searchParams.sentto && (
         <p style={{ fontSize: 13, margin: "8px 0 0" }}>
           <Link
-            href={`/customer/login?sent=${encodeURIComponent(searchParams.sentto)}`}
+            href={`/login?sent=${encodeURIComponent(searchParams.sentto)}${asParam}`}
             style={{ color: "#1c4e78" }}
           >
             已经收到过码了？直接去输 →
@@ -158,6 +174,7 @@ export default async function CustomerLoginPage({
         action={sendCode}
         style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}
       >
+        <input type="hidden" name="as" value={role} />
         <input
           name="email"
           type="email"

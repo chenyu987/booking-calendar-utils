@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
-import { claimCustomer } from "@/lib/customerClaim";
+import { claimFor, homeFor, parseRole } from "@/lib/accountClaim";
 
 // 邮件里那条 magic link 点进来落在这里：拿 URL 上的 code 换 session 写进 cookie，
 // 顺手把这个 auth 用户跟 customers 表对上，然后跳去 /customer。
@@ -11,25 +11,27 @@ export async function GET(req: NextRequest) {
   // 是带着 error/error_code 回来的，不是「没有 code」。分开处理，否则用户看到的
   // 是「链接不完整」——完全是另一回事，他会以为是我们把链接发坏了。
   if (req.nextUrl.searchParams.get("error")) {
-    return NextResponse.redirect(new URL("/customer/login?error=expired", req.url));
+    return NextResponse.redirect(new URL("/login?error=expired", req.url));
   }
 
   const code = req.nextUrl.searchParams.get("code");
   if (!code) {
-    return NextResponse.redirect(new URL("/customer/login?error=nocode", req.url));
+    return NextResponse.redirect(new URL("/login?error=nocode", req.url));
   }
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
   if (error || !data.user) {
-    return NextResponse.redirect(new URL("/customer/login?error=expired", req.url));
+    return NextResponse.redirect(new URL("/login?error=expired", req.url));
   }
 
+  // 角色跟着链接来：物主入口发的信里带 ?as=provider
+  const role = parseRole(req.nextUrl.searchParams.get("as"));
   try {
-    await claimCustomer(data.user.id, data.user.email ?? null);
+    await claimFor(role, data.user.id, data.user.email ?? null);
   } catch {
     // 认领失败不该把人挡在门外：session 已经建好了，/customer 那边会再兜一次底
   }
 
-  return NextResponse.redirect(new URL("/customer", req.url));
+  return NextResponse.redirect(new URL(homeFor(role), req.url));
 }

@@ -33,8 +33,12 @@ create table providers (
   chat text,
   status text not null default 'active',
   note text,
+  -- 物主登录后对应的 Supabase Auth 用户。unique：一个 auth 用户只认领一行（0008）
+  auth_user_id uuid unique references auth.users(id) on delete set null,
   created_at timestamptz not null default now()
 );
+create index on providers (auth_user_id);
+create index on providers (lower(email));
 
 -- Resource Provider 挂出的可用资源
 create table resources (

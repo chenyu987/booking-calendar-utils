@@ -1,177 +1,171 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import { getSessionUser } from "@/lib/supabaseServer";
+import { claimProvider } from "@/lib/accountClaim";
 import { formatParty } from "@/lib/party";
 import { formatHolder } from "@/lib/age";
-import BackToHome from "@/components/BackToHome";
+import { formatDayRanges } from "@/lib/dates";
+import { coversOrder } from "@/lib/resourceStatus";
 
 export const dynamic = "force-dynamic";
 
 async function proposeMatch(formData: FormData) {
   "use server";
+  const user = await getSessionUser();
+  if (!user) redirect("/login?as=provider");
+  const providerId = await claimProvider(user.id, user.email ?? null);
+
   const orderId = formData.get("order_id") as string;
   const resourceId = formData.get("resource_id") as string;
-  const providerPhone = formData.get("provider_phone") as string;
 
-  // Provider 从 resource 带出来，不重复存
+  // 只能拿自己的资源去提意向 —— 界面上只列了自己的资源，但服务端必须再校验一次，
+  // 不能只靠界面（跟分配那三条校验同一个道理）
+  const { data: mine } = await supabase
+    .from("resources")
+    .select("id")
+    .eq("id", resourceId)
+    .eq("provider_id", providerId)
+    .maybeSingle();
+  if (!mine) redirect("/provider/matches?error=notmine");
+
+  // Provider 从 resource 推得出来，不重复存
   const { error } = await supabase.from("matches").insert({
     order_id: orderId,
     resource_id: resourceId,
     status: "proposed",
   });
-  if (error) throw new Error(error.message);
+  if (error) redirect("/provider/matches?error=save");
 
-  redirect(`/provider/matches?phone=${encodeURIComponent(providerPhone)}&proposed=1`);
+  revalidatePath("/admin/matches");
+  redirect("/provider/matches?proposed=1");
 }
 
+// 物主匹配台：看看有哪些需求能用我手上的资源接。
+//
+// **看不到客户是谁** —— 姓名和联系方式都不查。物主需要知道的是「几个人、
+// 哪几天、去哪个地点、多少钱」，够他判断接不接了；客户是谁跟这个决定无关。
 export default async function ProviderMatchesPage({
   searchParams,
 }: {
-  searchParams: { phone?: string; proposed?: string };
+  searchParams: { proposed?: string; error?: string };
 }) {
-  const phone = searchParams.phone;
+  const user = await getSessionUser();
+  if (!user) redirect("/login?as=provider");
+  const providerId = await claimProvider(user.id, user.email ?? null);
 
-  let provider: any = null;
-  let myResources: any[] = [];
-  let openOrders: any[] = [];
+  const [{ data: resources }, { data: orders }] = await Promise.all([
+    supabase.from("resources").select("*").eq("provider_id", providerId).eq("status", "active"),
+    supabase
+      .from("orders")
+      .select("id, location, amount, demand_days, status, male_count, female_count")
+      .eq("status", "created")
+      .order("created_at", { ascending: false }),
+  ]);
 
-  if (phone) {
-    const { data: providerData } = await supabase
-      .from("providers")
-      .select("*")
-      .eq("phone_number", phone)
-      .maybeSingle();
-    provider = providerData;
+  const myResources = resources ?? [];
+  // 只列我手上的资源真能覆盖的需求 —— 有效期盖不住那几天的，提了也是白提，
+  // 管理员那边分配时一样会被 coversOrder 拒掉
+  const openOrders = (orders ?? []).filter((o: any) =>
+    myResources.some((s: any) => coversOrder(s, o.demand_days ?? []))
+  );
 
-    if (provider) {
-      const { data: resources } = await supabase
-        .from("resources")
-        .select("*")
-        .eq("provider_id", provider.id)
-        .eq("status", "active");
-      myResources = resources ?? [];
-
-      const { data: orders } = await supabase
-        .from("orders")
-        .select(
-          "id, location, amount, demand_days, status, male_count, female_count, customers(first_name)"
-        )
-        .eq("status", "created")
-        .order("created_at", { ascending: false });
-      openOrders = orders ?? [];
-    }
-  }
+  const errorText: Record<string, string> = {
+    notmine: "那个资源不是你的",
+    save: "没提交上，再试一次",
+  };
 
   return (
-    <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <BackToHome />
-      <h1 style={{ fontSize: 20 }}>Provider 匹配台</h1>
+    <main style={{ padding: 24, maxWidth: 640, margin: "0 auto" }}>
+      <Link href="/provider" style={{ fontSize: 13, color: "#1c4e78" }}>
+        ← 我的资源
+      </Link>
+      <h1 style={{ fontSize: 20 }}>看看有哪些需求</h1>
       <p style={{ color: "#666", fontSize: 13 }}>
-        输入你注册时的手机号，看看有哪些需求可以匹配你手上的资源。
+        下面是还没配到资源、并且你手上的资源有效期能覆盖的需求。觉得能接就提一个意向，
+        管理员确认之后才算数。
       </p>
 
-      <form method="GET" style={{ display: "flex", gap: 8, margin: "16px 0" }}>
-        <input
-          name="phone"
-          defaultValue={phone}
-          placeholder="你的手机号"
-          style={inputStyle}
-        />
-        <button type="submit" style={buttonStyle}>
-          查看
-        </button>
-      </form>
-
-      {phone && !provider && (
-        <p style={{ color: "crimson" }}>
-          没找到这个手机号对应的 Provider，先去 Provider 挂牌页面注册。
+      {searchParams.proposed && (
+        <p style={{ color: "#1f5c33", fontSize: 13 }}>已提交意向，等管理员确认。</p>
+      )}
+      {searchParams.error && (
+        <p style={{ color: "#c0392b", fontSize: 13 }}>
+          {errorText[searchParams.error] ?? "出了点问题，再试一次"}
         </p>
       )}
 
-      {provider && myResources.length === 0 && (
-        <p style={{ color: "#666" }}>你名下没有在出租的资源，先去挂一个。</p>
-      )}
-
-      {searchParams.proposed && (
-        <p style={{ color: "green" }}>已提交匹配意向，等 Admin 审核。</p>
-      )}
-
-      {provider && myResources.length > 0 && (
-        <table style={tableStyle}>
-          <thead>
-            <tr>
-              <th style={thStyle}>Customer</th>
-              <th style={thStyle}>地点</th>
-              <th style={thStyle}>人数</th>
-              <th style={thStyle}>天数</th>
-              <th style={thStyle}>总价</th>
-              <th style={thStyle}>用哪个 Resource</th>
-              <th style={thStyle}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {openOrders.map((o: any) => (
-              <tr key={o.id}>
-                <td style={tdStyle}>{o.customers?.first_name ?? "-"}</td>
-                <td style={tdStyle}>{o.location}</td>
-                <td style={tdStyle}>{formatParty(o.male_count, o.female_count)}</td>
-                <td style={tdStyle}>{o.demand_days?.length ?? 0} 天</td>
-                <td style={tdStyle}>{o.amount ?? "-"}</td>
-                <td style={tdStyle}>
-                  <form action={proposeMatch} style={{ display: "flex", gap: 6 }}>
-                    <input type="hidden" name="order_id" value={o.id} />
-                    <input type="hidden" name="provider_phone" value={phone} />
-                    <select name="resource_id" style={inputStyle}>
-                      {myResources.map((s: any) => (
-                        <option key={s.id} value={s.id}>
-                          {s.holder_name ?? "?"}（
-                          {formatHolder(s.holder_gender, s.holder_date_of_birth)}
-                          ）· {s.date_range_start}~{s.date_range_end}
-                        </option>
-                      ))}
-                    </select>
-                    <button type="submit" style={buttonStyle}>
-                      我可以匹配
-                    </button>
-                  </form>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {myResources.length === 0 ? (
+        <p style={{ color: "#666", fontSize: 14, marginTop: 16 }}>
+          你名下没有在出租的资源。<Link href="/provider/listing">先去挂一个 →</Link>
+        </p>
+      ) : openOrders.length === 0 ? (
+        <p style={{ color: "#666", fontSize: 14, marginTop: 16 }}>
+          现在没有你的资源能接的需求，过两天再来看看。
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 16 }}>
+          {openOrders.map((o: any) => {
+            // 这一单能用的资源：有效期真覆盖得住的才列出来
+            const usable = myResources.filter((s: any) => coversOrder(s, o.demand_days ?? []));
+            return (
+              <div key={o.id} style={cardStyle}>
+                <div style={{ fontWeight: 500 }}>
+                  {formatDayRanges(o.demand_days ?? [])}
+                  <span style={{ fontWeight: 400, color: "#666" }}>
+                    {" "}
+                    · {o.demand_days?.length ?? 0}天
+                  </span>
+                </div>
+                <div style={{ fontSize: 13, color: "#444", marginTop: 2 }}>
+                  {o.location ? `${o.location} · ` : ""}
+                  {formatParty(o.male_count, o.female_count)}
+                  {o.amount != null ? ` · $${o.amount}` : ""}
+                </div>
+                <form
+                  action={proposeMatch}
+                  style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}
+                >
+                  <input type="hidden" name="order_id" value={o.id} />
+                  <select name="resource_id" style={inputStyle}>
+                    {usable.map((s: any) => (
+                      <option key={s.id} value={s.id}>
+                        {s.holder_name ?? "?"}（
+                        {formatHolder(s.holder_gender, s.holder_date_of_birth)}）
+                      </option>
+                    ))}
+                  </select>
+                  <button type="submit" style={buttonStyle}>
+                    我可以接
+                  </button>
+                </form>
+              </div>
+            );
+          })}
+        </div>
       )}
     </main>
   );
 }
 
+const cardStyle: React.CSSProperties = {
+  border: "1px solid #e2e2e2",
+  borderRadius: 6,
+  padding: "10px 12px",
+};
 const inputStyle: React.CSSProperties = {
-  padding: 6,
+  padding: 8,
   border: "1px solid #ccc",
   borderRadius: 4,
   fontSize: 14,
 };
 const buttonStyle: React.CSSProperties = {
-  padding: "6px 12px",
+  padding: "8px 14px",
   border: "none",
   background: "#111",
   color: "#fff",
   borderRadius: 4,
   cursor: "pointer",
-  fontSize: 14,
-};
-const tableStyle: React.CSSProperties = {
-  width: "100%",
-  borderCollapse: "collapse",
-  marginTop: 16,
-};
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: 8,
-  borderBottom: "1px solid #ddd",
-  fontSize: 13,
-  color: "#666",
-};
-const tdStyle: React.CSSProperties = {
-  padding: 8,
-  borderBottom: "1px solid #eee",
   fontSize: 14,
 };

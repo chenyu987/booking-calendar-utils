@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
-import { claimCustomer } from "@/lib/customerClaim";
+import { claimCustomer } from "@/lib/accountClaim";
 import { formatDayRanges } from "@/lib/dates";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 async function saveProfile(formData: FormData) {
   "use server";
   const user = await getSessionUser();
-  if (!user) redirect("/customer/login");
+  if (!user) redirect("/login");
   const customerId = await claimCustomer(user.id, user.email ?? null);
 
   const text = (k: string) => ((formData.get(k) as string) ?? "").trim() || null;
@@ -58,7 +58,7 @@ export default async function CustomerHomePage({
   };
 }) {
   const user = await getSessionUser();
-  if (!user) redirect("/customer/login");
+  if (!user) redirect("/login");
 
   // 兜底：/auth/callback 里认领失败过的话，这里再补一次
   const customerId = await claimCustomer(user.id, user.email ?? null);

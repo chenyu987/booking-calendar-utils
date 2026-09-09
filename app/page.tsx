@@ -12,8 +12,8 @@ const adminLinks = [
 
 const publicLinks = [
   { href: "/customer", label: "我要租借", desc: "Customer 登录后发需求、看自己的订单" },
-  { href: "/provider/listing", label: "挂出资源", desc: "Provider 上架额度" },
-  { href: "/provider/matches", label: "Provider 匹配台", desc: "看需求、提出匹配" },
+  { href: "/provider", label: "我有资源", desc: "Provider 登录后挂资源、看排期" },
+  { href: "/provider/matches", label: "Provider 匹配台", desc: "物主看需求、提意向" },
 ];
 
 export default function HomePage() {

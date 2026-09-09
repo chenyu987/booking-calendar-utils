@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
-import { claimCustomer } from "@/lib/customerClaim";
+import { claimCustomer } from "@/lib/accountClaim";
 import { dateRangeToArray } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ async function submitRequest(formData: FormData) {
   "use server";
 
   const user = await getSessionUser();
-  if (!user) redirect("/customer/login");
+  if (!user) redirect("/login");
   const customerId = await claimCustomer(user.id, user.email ?? null);
 
   const maleCount = Number(formData.get("male_count") ?? 0);
@@ -62,7 +62,7 @@ export default async function CustomerRequestPage({
   searchParams: { error?: string };
 }) {
   const user = await getSessionUser();
-  if (!user) redirect("/customer/login");
+  if (!user) redirect("/login");
   const customerId = await claimCustomer(user.id, user.email ?? null);
 
   // 只读地看一眼联系方式填没填 —— 改还是只能在个人资料里改，
