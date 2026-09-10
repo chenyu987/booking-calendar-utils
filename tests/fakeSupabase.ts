@@ -6,7 +6,7 @@
 // 配重了、日期盖不住、类型不对——这些全在服务端代码里，跟 Postgres 怎么存无关。
 //
 // 支持的链子就是 handler 里实际用到的那些，用到新的再往这儿加：
-//   from(t).select(cols).eq().neq() → 数组
+//   from(t).select(cols).eq().neq().in() → 数组
 //   ….single() / .maybeSingle()     → 单行
 //   from(t).insert(row)
 //   from(t).update(patch).eq()
@@ -27,10 +27,11 @@ const FK_COLUMN: Record<string, string> = {
   providers: "provider_id",
 };
 
-function matches(row: any, filters: [string, any, boolean][]) {
-  return filters.every(([col, val, negate]) =>
-    negate ? row[col] !== val : row[col] === val
-  );
+/** 一条筛选：eq / neq / in。存成谓词，加新的比较方式不用改调用处 */
+type Filter = (row: any) => boolean;
+
+function matches(row: any, filters: Filter[]) {
+  return filters.every((f) => f(row));
 }
 
 function embedName(select: string): string | null {
@@ -49,7 +50,7 @@ export function createFakeSupabase(seed: Tables = {}) {
   let failNextWrite: string | null = null;
 
   function builder(t: string) {
-    const filters: [string, any, boolean][] = [];
+    const filters: Filter[] = [];
     let select = "*";
     let mode: "select" | "delete" = "select";
 
@@ -79,11 +80,16 @@ export function createFakeSupabase(seed: Tables = {}) {
         return api;
       },
       eq(col: string, val: any) {
-        filters.push([col, val, false]);
+        filters.push((row) => row[col] === val);
         return api;
       },
       neq(col: string, val: any) {
-        filters.push([col, val, true]);
+        filters.push((row) => row[col] !== val);
+        return api;
+      },
+      in(col: string, vals: any[]) {
+        const set = new Set(vals);
+        filters.push((row) => set.has(row[col]));
         return api;
       },
       order() {
@@ -126,7 +132,7 @@ export function createFakeSupabase(seed: Tables = {}) {
         };
         const chain: any = {
           eq(col: string, val: any) {
-            filters.push([col, val, false]);
+            filters.push((row) => row[col] === val);
             return chain;
           },
           then: (res: any, rej: any) => Promise.resolve(run()).then(res, rej),

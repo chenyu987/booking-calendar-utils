@@ -103,11 +103,20 @@ export default function BulkSelect() {
     }
 
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setSelected([]);
-        anchorRef.current = null;
-        setMsg(null);
-      }
+      if (e.key !== "Escape") return;
+      setSelected([]);
+      anchorRef.current = null;
+      setMsg(null);
+
+      // **连焦点一起放掉。** 点色块会让那个 <a> 拿到焦点；平时看不出来，但一按键盘
+      // （比如这下 Esc），Chrome 的 :focus-visible 判定就翻转，给它画一圈默认的
+      // 焦点圈 —— 看着就像「最后点的那单还选着」。
+      //
+      // 这个圈**不是**我们画的（不是抢画的光圈，也不是多选的描边），所以之前两次
+      // 从那两处找原因都没找对。Esc 的语义就是「我不选了」，焦点跟着走才对。
+      // 只放色块上的焦点：别人在输入框里按 Esc 不该被抢走焦点。
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.closest?.("[data-order-id]")) active.blur();
     }
 
     document.addEventListener("click", onClick, true);

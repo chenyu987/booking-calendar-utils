@@ -26,13 +26,12 @@ import {
   shortLabel,
   contiguousRuns,
   formatDayRanges,
-  replaceDayRun,
 } from "@/lib/dates";
-import { rescaleAmount } from "@/lib/pricing";
 import { isPeakDate } from "@/lib/peakDates";
 import { clampRailWidth } from "@/lib/bandDays";
 import { resolveTimelineStart, ordersBeforeStart } from "@/lib/timelineStart";
 import { previousOrdersFor, type ResourceUse } from "@/lib/previousUse";
+import { findClashes, indexClashes, clashKey } from "@/lib/doubleBooking";
 import { getOverviewStart, getOverviewBandDays } from "@/lib/appSettings";
 import DayNote from "./DayNote";
 import { readNoteText } from "@/lib/orderNote";
@@ -223,40 +222,10 @@ async function createQuickOrder(formData: FormData) {
   return order.id as string;
 }
 
-async function resizeOrderRun(formData: FormData) {
-  "use server";
-  const orderId = formData.get("order_id") as string;
-  const oldRunStart = formData.get("run_start") as string;
-  const oldRunEnd = formData.get("run_end") as string;
-  const newStart = formData.get("new_start") as string;
-  const newEnd = formData.get("new_end") as string;
-
-  const { data: ord } = await supabase
-    .from("orders")
-    .select("demand_days, amount")
-    .eq("id", orderId)
-    .single();
-  if (!ord) throw new Error("订单不存在");
-
-  // 只替换被拖的这一段连续日期，订单里其它不连续的日期段保持不动
-  const merged = replaceDayRun(ord.demand_days ?? [], oldRunStart, oldRunEnd, newStart, newEnd);
-
-  // 总价跟着天数按比例重算：改天数前的单价（总价/天数）不变，改完乘回新天数
-  const newAmount = rescaleAmount(
-    ord.amount != null ? Number(ord.amount) : null,
-    (ord.demand_days ?? []).length,
-    merged.length
-  );
-
-  const { error } = await supabase
-    .from("orders")
-    .update({ demand_days: merged, amount: newAmount })
-    .eq("id", orderId);
-  if (error) throw new Error(error.message);
-
-  revalidatePath("/admin/overview");
-  revalidatePath("/admin/orders");
-}
+// 拖色块边缘改日期原来在这儿（Server Action），已经挪到
+// app/admin/overview/resize/route.ts —— 那条路上要拦「同一个资源同一天配两单」，
+// 拦住时得把原因原样说给人听，而 Server Action 抛的错在生产环境会被换成
+// 一句笼统的「服务器出错」。
 
 async function deleteOrder(formData: FormData) {
   "use server";
@@ -536,6 +505,14 @@ export default async function OverviewPage({
   // 别让单子无声无息地消失 —— 「明明建了单怎么没有」是这个项目最容易出的错觉
   const hiddenBeforeStart =
     timeline.length > 0 ? ordersBeforeStart(withDays as any[], timeline[0]).length : 0;
+
+  // 库里已经存在的「同一个资源同一天配给两单」。拖日期那条路现在拦着了，但数据
+  // 还可能从别处进来（两个人同时操作、直接改库、以前留下的），所以照样查一遍标红 ——
+  // 拦得住新的，也得让旧的看得见
+  const clashIndex = indexClashes(findClashes(usesByResource));
+  const orderNameById = new Map<string, string>(
+    (withDays as any[]).map((o) => [o.id, o.customers?.first_name ?? "另一单"])
+  );
 
   const sorted = [...withDays].sort((a: any, b: any) =>
     a.demand_days[0] < b.demand_days[0] ? -1 : 1
@@ -1123,6 +1100,13 @@ export default async function OverviewPage({
                       ...(note ? [`备注：${note}`] : []),
                       ...(badLocation ? [`⚠ ${locationHint}`] : []),
                       ...(isPreviousUse ? ["↑ 正在配的那一单，用的资源上次就是排在这儿"] : []),
+                      ...cards
+                        .map((s: any) => clashIndex.get(clashKey(o.id, s.id))?.[0])
+                        .filter(Boolean)
+                        .map(
+                          (c: any) =>
+                            `⚠ 冲突：${cards.find((s: any) => s.id === c.resourceId)?.holder_name ?? "有个资源"} 在 ${c.days.join("、")} 同时配给了「${orderNameById.get(c.otherOrderId) ?? "另一单"}」`
+                        ),
                       ...cards.map(
                         (s: any) =>
                           `　${s.holder_gender === "male" ? "♂" : "♀"} ${s.holder_name}（${calcAge(s.holder_date_of_birth) ?? "?"}岁 ${s.item_type ?? ""}）`
@@ -1219,12 +1203,36 @@ export default async function OverviewPage({
                                 }}
                               >
                                 {cards.length > 0
-                                  ? cards
-                                      .map(
-                                        (s: any) =>
-                                          `${s.holder_gender === "male" ? "♂" : "♀"}${s.holder_name}`
-                                      )
-                                      .join(" ")
+                                  ? cards.map((s: any, i: number) => {
+                                      const clash = clashIndex.get(clashKey(o.id, s.id));
+                                      return (
+                                        <span
+                                          key={s.id}
+                                          // 冲突的资源标红：这个资源同一天还配在别的单上，
+                                          // 核验那儿只有一个人能过，必须有人去改
+                                          style={
+                                            clash
+                                              ? {
+                                                  color: "var(--danger)",
+                                                  fontWeight: 600,
+                                                  textDecoration:
+                                                    "underline wavy var(--danger)",
+                                                  textUnderlineOffset: 2,
+                                                }
+                                              : undefined
+                                          }
+                                          title={
+                                            clash
+                                              ? `⚠ ${s.holder_name} 在 ${clash[0].days.join("、")} 同时配给了「${orderNameById.get(clash[0].otherOrderId) ?? "另一单"}」`
+                                              : undefined
+                                          }
+                                        >
+                                          {i > 0 ? " " : ""}
+                                          {s.holder_gender === "male" ? "♂" : "♀"}
+                                          {s.holder_name}
+                                        </span>
+                                      );
+                                    })
                                   : "未分配"}
                               </div>
                               <div
@@ -1494,8 +1502,22 @@ export default async function OverviewPage({
                                       style={{ position: "relative", whiteSpace: "pre" }}
                                     >
                                       {i > 0 ? " " : ""}
-                                      {s.holder_gender === "male" ? "♂" : "♀"}
-                                      {s.holder_name}
+                                      <span
+                                        // 分配态里同样标红 —— 两个状态得说同一件事
+                                        style={
+                                          clashIndex.get(clashKey(o.id, s.id))
+                                            ? {
+                                                color: "var(--danger)",
+                                                fontWeight: 600,
+                                                textDecoration: "underline wavy var(--danger)",
+                                                textUnderlineOffset: 2,
+                                              }
+                                            : undefined
+                                        }
+                                      >
+                                        {s.holder_gender === "male" ? "♂" : "♀"}
+                                        {s.holder_name}
+                                      </span>
                                       <UnassignButton
                                         orderId={o.id}
                                         resourceId={s.id}
@@ -1748,7 +1770,6 @@ export default async function OverviewPage({
                         length={seg.length}
                         timeline={band.days}
                         laneRow={bandLane + 2}
-                        resizeAction={resizeOrderRun}
                         // **必须从 blockStyle 派生，不能另写一份。**
                         // 这块反复出问题就是因为两个状态各维护一份样式：改了一边
                         // 忘了另一边，进出编辑态所有东西就错开几像素。

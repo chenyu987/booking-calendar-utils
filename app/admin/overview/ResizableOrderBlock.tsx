@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ErrorToast } from "./AssignActions";
 import { resizeIndices } from "@/lib/dates";
 
 // 分配模式下拖左右边框改订单的开始/结束日期，最短 1 天
@@ -14,7 +15,6 @@ export default function ResizableOrderBlock({
   length,
   timeline,
   laneRow,
-  resizeAction,
   style,
   children,
 }: {
@@ -26,13 +26,14 @@ export default function ResizableOrderBlock({
   length: number;
   timeline: string[];
   laneRow: number;
-  resizeAction: (formData: FormData) => Promise<void>;
+
   style: React.CSSProperties;
   children: React.ReactNode;
 }) {
   const router = useRouter();
   const blockRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ edge: "start" | "end"; delta: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const dragRef = useRef<{ edge: "start" | "end"; originX: number; colWidth: number } | null>(
     null
   );
@@ -82,14 +83,30 @@ export default function ResizableOrderBlock({
         const newEnd = timeline[newEndIdx];
         if (newStart === runStart && newEnd === runEnd) return;
 
-        const fd = new FormData();
-        fd.set("order_id", orderId);
-        fd.set("run_start", runStart);
-        fd.set("run_end", runEnd);
-        fd.set("new_start", newStart);
-        fd.set("new_end", newEnd);
-        await resizeAction(fd);
-        router.refresh();
+        // 走 Route Handler 不走 Server Action：撞上「同一个资源同一天配两单」时
+        // 要把「哪个资源、哪一天、撞了谁」原样说给人听，Server Action 抛的错在生产
+        // 环境会被 Next 换成一句笼统的「服务器出错」
+        try {
+          const res = await fetch("/admin/overview/resize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              order_id: orderId,
+              run_start: runStart,
+              run_end: runEnd,
+              new_start: newStart,
+              new_end: newEnd,
+            }),
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(json.error ?? "改日期没成功");
+          router.refresh();
+        } catch (e: any) {
+          // 拖回原样 + 把原因说出来。不提示的话看起来就是「拖了没反应」，
+          // 人会以为是资源了，反复再拖几次
+          setDrag(null);
+          setError(e.message ?? "改日期没成功");
+        }
       }
 
       document.addEventListener("mousemove", onMove);
@@ -112,6 +129,8 @@ export default function ResizableOrderBlock({
   }
 
   return (
+    <>
+      {error && <ErrorToast message={error} onClose={() => setError(null)} />}
     <div
       ref={blockRef}
       data-order-id={orderId}
@@ -153,5 +172,6 @@ export default function ResizableOrderBlock({
         }}
       />
     </div>
+    </>
   );
 }
