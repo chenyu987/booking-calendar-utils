@@ -29,6 +29,8 @@ export default function AssigningBar({
 }) {
   return (
     <div
+      // 给「点下去先假装已经进分配模式」那层认的：真条一挂上，假条立刻撤
+      data-assign-bar=""
       style={{
         position: "fixed",
         left: "50%",

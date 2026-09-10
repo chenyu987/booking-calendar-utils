@@ -72,6 +72,8 @@ const TOKENS: Record<string, [string, string]> = {
   "peak-hint": ["#a48ee0", "#6d5aa8"],
   "assigned-tint": ["#f2f9f4", "#1b2620"],
   "row-tint": ["#eef4fa", "#1e2530"],
+  /** 分配时点亮「这几个资源上一单在哪儿」的那圈光 */
+  "prev-use": ["#e2a03f", "#c9922f"],
   "notice-bg": ["#fdf3e3", "#2e2617"],
   "notice-border": ["#e9c893", "#5a482a"],
   "danger-soft-bg": ["#fff4e5", "#332a1a"],

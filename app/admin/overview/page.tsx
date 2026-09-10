@@ -8,6 +8,7 @@ import OptimisticEditForm from "./OptimisticEditForm";
 import NewOrderSelector from "./NewOrderSelector";
 import AssigningBar from "./AssigningBar";
 import DragAssign from "./DragAssign";
+import OptimisticAssign from "./OptimisticAssign";
 import FilterForm from "@/app/admin/orders/FilterForm";
 import PanelScroller from "./PanelScroller";
 import CollapsibleResourcePanel from "./CollapsibleResourcePanel";
@@ -31,6 +32,7 @@ import { rescaleAmount } from "@/lib/pricing";
 import { isPeakDate } from "@/lib/peakDates";
 import { clampRailWidth } from "@/lib/bandDays";
 import { resolveTimelineStart, ordersBeforeStart } from "@/lib/timelineStart";
+import { previousOrdersFor, type ResourceUse } from "@/lib/previousUse";
 import { getOverviewStart, getOverviewBandDays } from "@/lib/appSettings";
 import DayNote from "./DayNote";
 import { readNoteText } from "@/lib/orderNote";
@@ -348,6 +350,7 @@ export default async function OverviewPage({
   // 资源清单那行「已排 …」要按订单分组显示（哪几天去哪个地点），
   // 跟 bookedDays 那个并集不是一回事：并起来就丢了「哪几天去哪」
   const bookingsByResource = new Map<string, Booking[]>();
+  const usesByResource = new Map<string, ResourceUse[]>();
   const assignHistory: PastUse[] = [];
   for (const a of assignments ?? []) {
     const o: any = orderById.get(a.order_id);
@@ -355,6 +358,12 @@ export default async function OverviewPage({
     bookingsByResource.set(a.resource_id, [
       ...(bookingsByResource.get(a.resource_id) ?? []),
       { days: o.demand_days ?? [], location: o.location ?? null },
+    ]);
+    // 跟 bookingsByResource 几乎一样，多带一个 orderId —— 分配时要顺着它找回
+    // 「这个资源上一单是哪一单」，好把那一单点亮
+    usesByResource.set(a.resource_id, [
+      ...(usesByResource.get(a.resource_id) ?? []),
+      { orderId: a.order_id, days: o.demand_days ?? [] },
     ]);
     assignHistory.push({
       resourceId: a.resource_id,
@@ -567,6 +576,18 @@ export default async function OverviewPage({
     ? computeNeed(assigningOrder, assignedTo.get((assigningOrder as any).id) ?? [])
     : null;
 
+  // 正在配的这一单，配上的这几个资源「上一次分别用在哪一单」—— 把那几单轻轻点亮。
+  // 分配不是孤立的决定：同一个资源上一单去哪儿了、结没结清，都影响这一单怎么排。
+  // 以前得自己在日历上找，现在配上就自动亮出来
+  const previousUseOrders = assigningOrder
+    ? previousOrdersFor(
+        (assigningOrder as any).id,
+        (assigningOrder as any).demand_days ?? [],
+        (assignedTo.get((assigningOrder as any).id) ?? []).map((sp: any) => sp.id),
+        usesByResource
+      )
+    : new Set<string>();
+
   // 顶上那条浮动条里「输入物主名字分配」的候选。
   //
   // 用的是 allResources 不是筛选后的 resources：打名字本来就是绕开左边筛选的快捷方式，
@@ -745,6 +766,8 @@ export default async function OverviewPage({
       <CardsRowScroll />
       {/* 从左边把资源拖到订单色块上分配。分配模式开不开都能用 */}
       <DragAssign />
+      {/* 点色块进分配模式的即时反馈：整页重渲染要 420ms，这层先把「点到了」画出来 */}
+      <OptimisticAssign />
       {/* 填地点名的输入框共用这一份补全列表 */}
 
       {/* 统计 / 状态图例 / 缩放 / 资源面板 / 日历 全交给 ZoomableCalendar 排版。
@@ -985,6 +1008,8 @@ export default async function OverviewPage({
                   const locationHint = badLocation ? locationHintFor(o.location!) : "";
                   const need = computeNeed(o, cards);
                   const isAssigning = searchParams.assign === o.id;
+                  // 正在配的这一单用的资源，上一次是在这一单上用的
+                  const isPreviousUse = previousUseOrders.has(o.id);
                   // 分配模式里那几个输入框用的是 defaultValue（不受控），React 只在挂载时读一次；
                   // 撤销分配、拖拽改天数这些操作会在"还留在分配模式"的情况下改掉 o 的字段，
                   // 光 router.refresh() 拿到新数据不够——同一个 key 下 React 不会重新套 defaultValue，
@@ -1022,7 +1047,13 @@ export default async function OverviewPage({
                       // 进出编辑时所有字都跳一下。改成同样的 1px，加粗的观感交给
                       // box-shadow——阴影不参与布局，几何一模一样。
                       border: `1px solid ${isAssigning ? "var(--link)" : c.border}`,
-                      boxShadow: isAssigning ? "0 0 0 1px var(--link)" : undefined,
+                      // 点亮「这几个资源上一单在哪儿」：用外发光，不动边框和底色 ——
+                      // 状态颜色本身是有信息的（待付款 / 已完成…），盖掉就少了一层
+                      boxShadow: isAssigning
+                        ? "0 0 0 1px var(--link)"
+                        : isPreviousUse
+                          ? "0 0 0 2px var(--prev-use)"
+                          : undefined,
                       color: c.text,
                       borderRadius: 4,
                       padding: "2px 6px",
@@ -1040,6 +1071,7 @@ export default async function OverviewPage({
                       `分配 ${formatNeed(need)}（${formatGap(need)}）`,
                       ...(note ? [`备注：${note}`] : []),
                       ...(badLocation ? [`⚠ ${locationHint}`] : []),
+                      ...(isPreviousUse ? ["↑ 正在配的那一单，用的资源上次就是排在这儿"] : []),
                       ...cards.map(
                         (s: any) =>
                           `　${s.holder_gender === "male" ? "♂" : "♀"} ${s.holder_name}（${calcAge(s.holder_date_of_birth) ?? "?"}岁 ${s.item_type ?? ""}）`
@@ -1052,6 +1084,11 @@ export default async function OverviewPage({
                           key={segKey}
                           data-order-id={o.id}
                           data-order-start={orderStartDay(o) ?? ""}
+                          // 点下去那一刻，客户端要立刻拿它拼出分配浮动条的标题 ——
+                          // 从色块的文字里猜太脆，直接把服务端用的那份原样带上
+                          data-order-label={[o.customers?.first_name ?? "?", o.location]
+                            .filter(Boolean)
+                            .join(" · ")}
                           href={qs({ assign: o.id })}
                           style={{
                             ...blockStyle,
