@@ -28,7 +28,13 @@ export default function RootLayout({
         <style
           dangerouslySetInnerHTML={{
             __html:
-              "input.location-input::-webkit-calendar-picker-indicator{display:none!important}",
+              "input.location-input::-webkit-calendar-picker-indicator{display:none!important}" +
+              // 日期条上的空备注：平时完全看不见，鼠标移上去才浮出一条虚线。
+              // 这条必须是 CSS 的 :hover，不能用 React state —— 点进去编辑时这个
+              // div 被输入框换掉了，鼠标移走时它已经不在，onMouseLeave 永远不会
+              // 触发，hover 就永久卡在 true，虚线赖着不走
+              ".day-note-empty:hover{border-bottom-color:#bbb}" +
+              ".day-note-empty.day-note-peak:hover{border-bottom-color:#a48ee0}",
           }}
         />
       </head>

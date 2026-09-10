@@ -28,6 +28,9 @@ import {
   replaceDayRun,
 } from "@/lib/dates";
 import { rescaleAmount } from "@/lib/pricing";
+import { isPeakDate } from "@/lib/peakDates";
+import { clampBandDays, clampRailWidth } from "@/lib/bandDays";
+import DayNote from "./DayNote";
 import { readNoteText } from "@/lib/orderNote";
 import {
   weekBounds,
@@ -110,7 +113,8 @@ const FIELD_SIZING_CONTENT = { fieldSizing: "content" } as React.CSSProperties;
 const PANEL_WIDTH = 260;
 // 一条时间轴拉到底横着能滑很久，改成每 4 周折一段往下排（跟 Excel 里那张排期表一个思路）。
 // 段的起点对齐到周一，所以每段正好是 4 个完整自然周。
-const DAYS_PER_BAND = 28;
+// 每行几天现在跟着右边那道帘子走（lib/bandWeeks.ts），不再是写死的。
+// 帘子收着的时候就是 28 天 —— 原来的样子。
 // 每段除了实际用到的泳道，底下再空几行：一是留位置拖拽建新单，二是跟下一段隔开
 const EXTRA_LANES = 2;
 // 最后一段底下留多一点：下面没有别的段接着了，往后加新单子都得在这儿拖
@@ -266,6 +270,7 @@ export default async function OverviewPage({
     { data: assignments },
     { data: allCustomers },
     { data: orderNotes },
+    { data: dayNotes },
   ] = await Promise.all([
     supabase
       .from("orders")
@@ -285,7 +290,13 @@ export default async function OverviewPage({
     // （跟上面几条并行，不额外增加页面加载时间）
     supabase.from("customers").select("id, first_name"),
     supabase.from("order_notes").select("order_id, internal_note"),
+    // 日期条上「这一天的备注」。整张表拉下来：一天一行，一个季撑死两三百行
+    supabase.from("day_notes").select("day, note"),
   ]);
+
+  const noteByDay = new Map<string, string>(
+    (dayNotes ?? []).map((n: any) => [n.day, n.note])
+  );
 
   // 订单备注：色块右上角显示用。internal_note 这一列里还混着「取消原因」写进去的
   // JSON 信封（那个功能的代码没了，数据还在），统一走 readNoteText 拆一层，
@@ -426,6 +437,12 @@ export default async function OverviewPage({
     d.setUTCDate(d.getUTCDate() + delta);
     return d.toISOString().slice(0, 10);
   };
+
+  // 每行排几天：右边帘子的手柄拖到哪儿决定的，存在 cookie 里，服务端读出来
+  // 算泳道。客户端算不了 —— 泳道要看整段里哪些单子重叠，段一变就全变。
+  const DAYS_PER_BAND = clampBandDays(
+    Number(cookies().get("overview_band_days")?.value ?? NaN)
+  );
 
   const todayForTimeline = todayIso();
 
@@ -714,6 +731,10 @@ export default async function OverviewPage({
           缩放状态在客户端、统计是服务端渲染的，两者要挤在同一行就得由同一个
           客户端组件来渲染——所以统计行和资源面板当 props 传进去。 */}
       <ZoomableCalendar
+        bandDays={DAYS_PER_BAND}
+        railWidth={clampRailWidth(
+          Number(cookies().get("overview_rail_width")?.value ?? NaN)
+        )}
         panel={
           <ResourcePanel
             assignHistory={assignHistory}
@@ -864,23 +885,45 @@ export default async function OverviewPage({
                   createOrderAction={createQuickOrder}
                   customerIdByName={customerIdByName}
                 />
+                {/* peak date 的整列底色。单独铺一层是因为日期条只有表头那一格，
+                    往下滚就看不出这一列是不是 peak 了。gridRow 1/-1 铺满整段，
+                    zIndex 0 压在订单色块下面，pointerEvents none 不挡建单的框选 */}
+                {band.days.map((d, i) =>
+                  isPeakDate(d) ? (
+                    <div
+                      key={`peak-${d}`}
+                      aria-hidden
+                      style={{
+                        gridRow: "1 / -1",
+                        gridColumn: i + 1,
+                        background: "#f4efff",
+                        pointerEvents: "none",
+                        zIndex: 0,
+                      }}
+                    />
+                  ) : null
+                )}
                 {band.days.map((d, i) => {
                   const { date, weekday } = shortLabel(d);
                   const weekend = isWeekend(d);
+                  // peak 盖过周末的橙色：限制资源那几天根本进不了场，
+                  // 比「这天是周末」要紧得多
+                  const peak = isPeakDate(d);
                   return (
                     <div
                       key={d}
                       // 新开标签页时用来定位到"今天"那一列
                       data-today={d === today ? "1" : undefined}
+                      title={peak ? "Alpha 限制资源的 peak date，这天进不了场" : undefined}
                       style={{
                         gridRow: 1,
                         gridColumn: i + 1,
                         padding: "4px 6px",
-                        background: weekend ? "#fdefdb" : "#fafafa",
+                        background: peak ? "#e9e0fb" : weekend ? "#fdefdb" : "#fafafa",
                         borderBottom:
                           d === today ? "2px solid #333" : "1px solid #e5e5e5",
                         fontSize: 12,
-                        color: weekend ? "#a8620d" : "#666",
+                        color: peak ? "#5b3fa8" : weekend ? "#a8620d" : "#666",
                         // 竖着滚的时候日期条黏在顶上，不然滚下去就不知道是哪天了。
                         // zIndex 要压过订单色块（1）和空白选框（0）
                         position: "sticky",
@@ -889,7 +932,12 @@ export default async function OverviewPage({
                       }}
                     >
                       <div style={{ fontWeight: 500 }}>{date}</div>
-                      <div style={{ fontSize: 11 }}>{weekday}</div>
+                      <div style={{ fontSize: 11 }}>
+                        {weekday}
+                        {peak && " · peak"}
+                      </div>
+                      {/* 日期条剩下的那条空白：能写这一天的备注，没写的时候看不出来 */}
+                      <DayNote day={d} note={noteByDay.get(d) ?? ""} peak={peak} />
                     </div>
                   );
                 })}

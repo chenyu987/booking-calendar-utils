@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PUBLIC_LINKS } from "@/lib/publicLinks";
 
 const adminLinks = [
   { href: "/admin/overview", label: "排期总览", desc: "日历式看全部订单和资源" },
@@ -10,11 +11,6 @@ const adminLinks = [
   { href: "/admin/providers", label: "Provider 物主", desc: "物主信息" },
 ];
 
-const publicLinks = [
-  { href: "/customer", label: "我要租借", desc: "Customer 登录后发需求、看自己的订单" },
-  { href: "/provider", label: "我有资源", desc: "Provider 登录后挂资源、看排期" },
-  { href: "/provider/matches", label: "Provider 匹配台", desc: "物主看需求、提意向" },
-];
 
 export default function HomePage() {
   return (
@@ -25,7 +21,7 @@ export default function HomePage() {
       </p>
 
       <Section title="Admin 后台" links={adminLinks} />
-      <Section title="对外页面" links={publicLinks} />
+      <Section title="对外页面" links={[...PUBLIC_LINKS]} />
     </main>
   );
 }

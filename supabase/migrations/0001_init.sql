@@ -133,3 +133,11 @@ create table matches (
 );
 create index on matches (order_id);
 create index on matches (resource_id);
+
+-- Day note 日历上「这一天的备注」（跟订单无关，属于这一天本身）
+-- 用日期当主键：一天只有一条，天然唯一。
+create table day_notes (
+  day date primary key,
+  note text not null,
+  updated_at timestamptz not null default now()
+);
