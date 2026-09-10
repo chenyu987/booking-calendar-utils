@@ -30,6 +30,8 @@ import {
 import { rescaleAmount } from "@/lib/pricing";
 import { isPeakDate } from "@/lib/peakDates";
 import { clampBandDays, clampRailWidth } from "@/lib/bandDays";
+import { resolveTimelineStart, ordersBeforeStart } from "@/lib/timelineStart";
+import { getOverviewStart } from "@/lib/appSettings";
 import DayNote from "./DayNote";
 import { readNoteText } from "@/lib/orderNote";
 import {
@@ -271,6 +273,7 @@ export default async function OverviewPage({
     { data: allCustomers },
     { data: orderNotes },
     { data: dayNotes },
+    overviewStart,
   ] = await Promise.all([
     supabase
       .from("orders")
@@ -292,6 +295,9 @@ export default async function OverviewPage({
     supabase.from("order_notes").select("order_id, internal_note"),
     // 日期条上「这一天的备注」。整张表拉下来：一天一行，一个季撑死两三百行
     supabase.from("day_notes").select("day, note"),
+    // 日历从哪天开始。**跟上面几条并排跑**，不要单独 await 一次 ——
+    // 这一页渲染一次本来就要 0.6~1.3 秒，再串一个来回纯属白等
+    getOverviewStart(),
   ]);
 
   const noteByDay = new Map<string, string>(
@@ -457,11 +463,19 @@ export default async function OverviewPage({
         ? allDays[allDays.length - 1]
         : todayForTimeline;
 
-    // 起点先往前留两天，再退到那一周的周一（getUTCDay：0=周日），这样每段都从周一开始
+    // 起点先往前留两天，再退到那一周的周一（getUTCDay：0=周日）。
+    // 界面上指定了开始日期的话就原样用它，这一套默认不参与（见 lib/timelineStart.ts）
     const firstPadded = shiftDay(earliest, -2);
     const backToMonday = (new Date(`${firstPadded}T00:00:00Z`).getUTCDay() + 6) % 7;
-    const start = shiftDay(firstPadded, -backToMonday);
-    let end = shiftDay(latest, 10);
+    // 起始日期是**设置**不是筛选：筛选是「这一眼我想看什么」，看完就没了；
+    // 这个是「以后每次进来都这样」，所以存在库里（/admin/settings），不走 URL
+    const start = resolveTimelineStart(
+      overviewStart ?? undefined,
+      shiftDay(firstPadded, -backToMonday)
+    );
+    // 起点被拖到所有单子后面时，latest 会跑到 start 前面，dateRangeToArray 就空了 ——
+    // 那样日历整个不见，连往后拖新单的空白都没有。所以末尾至少给起点留出一段
+    let end = shiftDay(latest > start ? latest : start, 10);
     timeline = dateRangeToArray(start, end);
     // 补齐最后一段，让每段都是完整的 4 周；末尾多出来的空白正好用来拖拽建新单
     const remainder = timeline.length % DAYS_PER_BAND;
@@ -483,6 +497,11 @@ export default async function OverviewPage({
       timeline = dateRangeToArray(start, end);
     }
   }
+
+  // 起点定在中间的时候，整单落在起点之前的就一条都看不见了。数出来告诉人，
+  // 别让单子无声无息地消失 —— 「明明建了单怎么没有」是这个项目最容易出的错觉
+  const hiddenBeforeStart =
+    timeline.length > 0 ? ordersBeforeStart(withDays as any[], timeline[0]).length : 0;
 
   const sorted = [...withDays].sort((a: any, b: any) =>
     a.demand_days[0] < b.demand_days[0] ? -1 : 1
@@ -831,6 +850,17 @@ export default async function OverviewPage({
             </Link>
           )}
         </FilterForm>
+        {/* 有单子被挡在起点前面就说一声，并给一条改设置的路。
+            悄悄少几个单子，比日历难看多了 */}
+        {hiddenBeforeStart > 0 && (
+          <Link
+            href="/admin/settings"
+            style={{ fontSize: 12, color: "#8a4b00", whiteSpace: "nowrap" }}
+            title="去设置里改起始日期"
+          >
+            起始日期之前还有 {hiddenBeforeStart} 单没显示 →
+          </Link>
+        )}
 
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {Object.entries(STATUS_LABELS).map(([key, label]) => {

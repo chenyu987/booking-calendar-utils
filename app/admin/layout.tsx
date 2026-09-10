@@ -12,6 +12,7 @@ const navItems = [
   { href: "/admin/resources", label: "Resource" },
   { href: "/admin/payments", label: "Payment" },
   { href: "/admin/matches", label: "Match" },
+  { href: "/admin/settings", label: "设置" },
 ];
 
 export default function AdminLayout({

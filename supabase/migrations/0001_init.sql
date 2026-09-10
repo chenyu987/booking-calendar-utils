@@ -141,3 +141,11 @@ create table day_notes (
   note text not null,
   updated_at timestamptz not null default now()
 );
+
+-- App settings 后台设置项（key/value）
+-- 只放跨设备该一致的东西；缩放、面板收起这类「这台机器上的习惯」留在 cookie。
+create table app_settings (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz not null default now()
+);
