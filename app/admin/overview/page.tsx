@@ -1224,27 +1224,30 @@ export default async function OverviewPage({
                     const editInner = (
                       <div
                         id="assign-active-block"
+                        // 内边距 / 字号 / 行高都由外层的 blockStyle 给了，这儿别再写一遍 ——
+                        // 写两遍就是下一次「进出编辑态错开几像素」的来源
                         style={{
                           display: "flex",
                           flexDirection: "column",
-                          // 行间距和上下内边距都收到 2px：色块压扁之后这 5 行才塞得下
                           gap: 2,
                           height: "100%",
                           boxSizing: "border-box",
-                          padding: "2px 6px",
-                          fontSize: 12,
-                          lineHeight: 1.3,
                           overflow: "hidden",
                         }}
                         title={blockTitle}
                       >
                         {showEdit && (
                           <>
+                            {/* gap 是 0，分隔符自己带空格。普通态那行是一整串文字
+                                「姓名 · 地点」，中间就是普通空格；编辑态要是用 flex gap
+                                去凑，宽度永远差个一两像素，进出编辑就看得出来在动。
+                                直接用同样的字符，横向位置自然就对上了。
+                                备注跟前面那段的间距由它自己的 marginLeft 给 */}
                             <div
                               style={{
                                 display: "flex",
                                 alignItems: "baseline",
-                                gap: 2,
+                                gap: 0,
                                 overflow: "hidden",
                               }}
                             >
@@ -1254,7 +1257,10 @@ export default async function OverviewPage({
                                 // 比输入框还窄，输入框撑出去盖住旁边的地点和备注。
                                 // 给到 48：姓名每一单都有，是这一行最该看见的东西，
                                 // 不能为了给偶尔才填的备注腾地方就把它压没了。
-                                style={{ display: "flex", minWidth: 48, flexShrink: 1 }}
+                                // minWidth 交给里面的输入框（28）就够了：这儿再写 48 的话，
+                                // 名字短的时候（「1123」才 27px）表单被撑到 48，后面的
+                                // 「· 地点」整体右移二十几像素 —— 进编辑态就是「东西动了」
+                                style={{ display: "flex", minWidth: 0, flexShrink: 1 }}
                               >
                                 <input type="hidden" name="order_id" value={o.id} />
                                 <input
@@ -1267,7 +1273,9 @@ export default async function OverviewPage({
                                     maxWidth: "100%",
                                     fontSize: 12,
                                     fontWeight: 500,
-                                    padding: "0 3px",
+                                    // 内边距必须是 0：普通态那行文字是从内容左边缘开始的，
+                                    // 给 3px 就整行右移 3px
+                                    padding: 0,
                                     color: "inherit",
                                     background: "transparent",
                                     // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
@@ -1280,11 +1288,23 @@ export default async function OverviewPage({
                                   }}
                                 />
                               </OptimisticEditForm>
-                              <span style={{ fontSize: 11, opacity: 0.45, flexShrink: 0 }}>·</span>
+                              {/* 连空格一起，跟普通态的 `{` · ${location}`}` 一模一样。
+                                  whiteSpace: pre 是必须的，不然两头的空格会被折叠掉 */}
+                              <span
+                                style={{
+                                  fontSize: 12,
+                                  opacity: 0.7,
+                                  flexShrink: 0,
+                                  whiteSpace: "pre",
+                                }}
+                              >
+                                {" · "}
+                              </span>
                               <OptimisticEditForm
                                 exitHref={qs({ assign: "" })}
                                 // 地点同理，每单都有，给 40
-                                style={{ display: "flex", minWidth: 40, flexShrink: 1 }}
+                                // 同上：minWidth 交给里面的输入框，别在表单上再设一个
+                                style={{ display: "flex", minWidth: 0, flexShrink: 1 }}
                               >
                                 <input type="hidden" name="order_id" value={o.id} />
                                 <LocationInput
@@ -1297,8 +1317,11 @@ export default async function OverviewPage({
                                     ...FIELD_SIZING_CONTENT,
                                     minWidth: 22,
                                     maxWidth: "100%",
-                                    fontSize: 11,
-                                    padding: "0 3px",
+                                    // 12 不是 11：普通态里地点跟姓名是同一串文字，
+                                    // 同一个字号。写 11 的话一进编辑态地点就缩一号
+                                    fontSize: 12,
+                                    opacity: badLocation ? 1 : 0.7,
+                                    padding: 0,
                                     // 地点名库里认不出来就标红。这里正好是能当场改掉的地方
                                     color: badLocation ? "var(--danger)" : "inherit",
                                     fontWeight: badLocation ? 600 : 400,
@@ -1325,7 +1348,9 @@ export default async function OverviewPage({
                                 // 姓名和地点——那两个每单都有，备注偶尔才有。
                                 // 缩成小方块之后也不影响用：点进去（:focus-within）会自动
                                 // 撑到一半宽，写完一挪走又缩回去，见上面那段 CSS。
-                                style={{ display: "flex", flex: "1 1 0", minWidth: 22, marginLeft: 2 }}
+                                // marginLeft 4：普通态那一行「姓名·地点」和备注之间是 gap:4，
+                                // 编辑态整行 gap 改成 0 了，这一段的间距挪到这儿单独给
+                                style={{ display: "flex", flex: "1 1 0", minWidth: 22, marginLeft: 4 }}
                               >
                                 <input type="hidden" name="order_id" value={o.id} />
                                 <input
@@ -1623,13 +1648,17 @@ export default async function OverviewPage({
                         timeline={band.days}
                         laneRow={bandLane + 2}
                         resizeAction={resizeOrderRun}
+                        // **必须从 blockStyle 派生，不能另写一份。**
+                        // 这块反复出问题就是因为两个状态各维护一份样式：改了一边
+                        // 忘了另一边，进出编辑态所有东西就错开几像素。
+                        // 这里只覆盖「本来就该不一样」的那两条（边框颜色和光圈），
+                        // 内边距、字号、行高、圆角一律跟着普通态走。
+                        // gridRow / gridColumn 由 ResizableOrderBlock 自己算，
+                        // 它在 spread 之后再写，覆盖得掉
                         style={{
-                          background: c.bg,
+                          ...blockStyle,
                           border: "1px solid var(--link)",
                           boxShadow: "0 0 0 1px var(--link)",
-                          color: c.text,
-                          borderRadius: 4,
-                          overflow: "hidden",
                         }}
                       >
                         {editInner}

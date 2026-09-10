@@ -125,6 +125,9 @@ export default function ResizableOrderBlock({
       }}
     >
       {children}
+      {/* 左右两条 8px 的可拖区域，**故意没有可见的把手**。
+          画一根竖杠会盖住色块最边上的字，而且只在编辑态出现 —— 进出编辑
+          就多两根杠，正是「东西又动了」的一部分。边缘能拖记住就行。 */}
       <div
         onMouseDown={beginDrag("start")}
         title="拖动改开始日期"
@@ -136,20 +139,7 @@ export default function ResizableOrderBlock({
           width: 8,
           cursor: "ew-resize",
         }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            left: 3,
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: 2,
-            height: 20,
-            borderRadius: 1,
-            background: "rgba(0,0,0,0.25)",
-          }}
-        />
-      </div>
+      />
       <div
         onMouseDown={beginDrag("end")}
         title="拖动改结束日期"
@@ -161,20 +151,7 @@ export default function ResizableOrderBlock({
           width: 8,
           cursor: "ew-resize",
         }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            right: 3,
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: 2,
-            height: 20,
-            borderRadius: 1,
-            background: "rgba(0,0,0,0.25)",
-          }}
-        />
-      </div>
+      />
     </div>
   );
 }
