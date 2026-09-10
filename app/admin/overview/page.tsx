@@ -243,6 +243,7 @@ export default async function OverviewPage({
     sstatus?: string;
     q?: string;
     assign?: string;
+    allcards?: string;
   };
 }) {
   const [
@@ -539,6 +540,8 @@ export default async function OverviewPage({
     if (f.gender) p.set("gender", f.gender);
     if (f.sstatus !== "active") p.set("sstatus", f.sstatus); // active 是默认，不写进 URL
     if (f.q) p.set("q", f.q);
+    if (searchParams.assign) p.set("assign", searchParams.assign);
+    if (searchParams.allcards) p.set("allcards", searchParams.allcards);
     for (const [k, v] of Object.entries(extra)) {
       if (v) p.set(k, v);
       else p.delete(k);
@@ -645,6 +648,9 @@ export default async function OverviewPage({
         panel={
           <ResourcePanel
             assignHistory={assignHistory}
+            showAllCards={searchParams.allcards === "1"}
+            showAllHref={qs({ allcards: "1" })}
+            hideUnusableHref={qs({ allcards: "" })}
             bookingsByResource={bookingsByResource}
             // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
             initialCollapsed={cookies().get("resource_panel_collapsed")?.value === "1"}
@@ -1423,6 +1429,9 @@ export default async function OverviewPage({
 function ResourcePanel({
   assignHistory,
   bookingsByResource,
+  showAllCards,
+  showAllHref,
+  hideUnusableHref,
   resources,
   filters,
   hasFilter,
@@ -1437,6 +1446,9 @@ function ResourcePanel({
 }: {
   assignHistory: PastUse[];
   bookingsByResource: Map<string, Booking[]>;
+  showAllCards: boolean;
+  showAllHref: string;
+  hideUnusableHref: string;
   resources: any[];
   filters: { item: string; gender: string; sstatus: string; q: string };
   hasFilter: boolean;
@@ -1579,6 +1591,9 @@ function ResourcePanel({
             assignHistory={assignHistory}
             bookingsByResource={bookingsByResource}
             allResources={resources}
+            showAllCards={showAllCards}
+            showAllHref={showAllHref}
+            hideUnusableHref={hideUnusableHref}
           />
           <ResourceGroup
             title="女资源"
@@ -1591,6 +1606,9 @@ function ResourcePanel({
             assignHistory={assignHistory}
             bookingsByResource={bookingsByResource}
             allResources={resources}
+            showAllCards={showAllCards}
+            showAllHref={showAllHref}
+            hideUnusableHref={hideUnusableHref}
           />
           {other.length > 0 && (
             <ResourceGroup
@@ -1604,6 +1622,9 @@ function ResourcePanel({
               assignHistory={assignHistory}
               bookingsByResource={bookingsByResource}
               allResources={resources}
+              showAllCards={showAllCards}
+              showAllHref={showAllHref}
+              hideUnusableHref={hideUnusableHref}
             />
           )}
         </PanelScroller>
@@ -1623,6 +1644,9 @@ function ResourceGroup({
   assignHistory,
   bookingsByResource,
   allResources,
+  showAllCards,
+  showAllHref,
+  hideUnusableHref,
 }: {
   title: string;
   symbol: string;
@@ -1634,6 +1658,9 @@ function ResourceGroup({
   assignHistory: PastUse[];
   bookingsByResource: Map<string, Booking[]>;
   allResources: any[];
+  showAllCards: boolean;
+  showAllHref: string;
+  hideUnusableHref: string;
 }) {
   if (list.length === 0) return null;
 
@@ -1653,6 +1680,23 @@ function ResourceGroup({
   // 这一组里真正配得出去的有几张 —— 「还差 N 张」只说了缺口，
   // 不说手上还有多少可选，看到「还差 2 张」时不知道是有得挑还是根本没资源
   const assignable = assigningOrder ? list.filter(canAssignResource) : [];
+
+  // 分配时把配不了的资源藏起来：一屏里大半是「已配齐」「已被占用」「类型不对」，
+  // 全是噪音，真正能点的那两张反而要找。
+  // **已经配给这一单的留着** —— 得看得见配了谁，也得能撤。
+  const visible =
+    assigningOrder && !showAllCards
+      ? list.filter((s: any) => alreadyAssigned.has(s.id) || canAssignResource(s))
+      : list;
+  const hiddenCount = list.length - visible.length;
+
+  // 这一单压根不需要这个性别的资源（比如「2男0女」的单，女资源那一组），
+  // 整组不显示 —— 摆在那儿说「没有能配的资源」是句废话，谁都知道性别不对，
+  // 而左边这一列每一行都在跟真正要看的东西抢地方。
+  //
+  // 只在「缺口为 0 且这一单没配过这个性别的资源」时才整组藏掉：
+  // 缺口还在但一张都配不出去（「还差 1 张 无资源可选」）是要紧信息，得留着。
+  if (assigningOrder && gap === 0 && visible.length === 0) return null;
 
   const recommendations = new Map<string, Scored>();
   if (assigningOrder) {
@@ -1692,7 +1736,8 @@ function ResourceGroup({
         }}
       >
         <span>
-          {symbol} {title}（{list.length}）
+          {symbol} {title}（
+          {hiddenCount > 0 ? `${visible.length}/${list.length}` : list.length}）
         </span>
         {assigningOrder && gap > 0 && (
           <span style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
@@ -1712,7 +1757,12 @@ function ResourceGroup({
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {list.map((s) => {
+        {visible.length === 0 && (
+          <div style={{ fontSize: 12, color: "#bbb", padding: "2px 0" }}>
+            没有能配的资源
+          </div>
+        )}
+        {visible.map((s) => {
           const isAssigned = alreadyAssigned.has(s.id);
           const booked = [...new Set(bookedDays.get(s.id) ?? [])].sort();
           // 按订单分段、越近的越靠前。地方就那么点，排前面的才露得出来 ——
@@ -1744,6 +1794,11 @@ function ResourceGroup({
             covers &&
             !itemConflict &&
             conflictDays.length === 0;
+          // 右上角有没有东西要放：能配的（按钮 + 推荐标记）或者已配给这单的（√）。
+          // 配不了的资源（只有点开「显示全部」才看得到）右上角还是显示类型，
+          // 配不了的原因留在下面那一行 —— 那句话太长，塞不进角落。
+          const hasAction = Boolean(assigningOrder && (canAssign || isAssigned));
+          const actionSlotWidth = isAssigned ? 64 : rec?.top ? 96 : 56;
 
           return (
             <div
@@ -1753,6 +1808,8 @@ function ResourceGroup({
                 borderRadius: 6,
                 padding: "8px 10px",
                 background: isAssigned ? "#f2f9f4" : "#fff",
+                // 右上角那块操作区要绝对定位（见下面 hasAction）
+                position: "relative",
               }}
             >
               <Link
@@ -1769,6 +1826,8 @@ function ResourceGroup({
                     justifyContent: "space-between",
                     alignItems: "baseline",
                     gap: 6,
+                    // 给右上角那块操作区让开，名字长了也不会钻到按钮底下
+                    paddingRight: hasAction ? actionSlotWidth : 0,
                   }}
                 >
                   <span
@@ -1782,9 +1841,13 @@ function ResourceGroup({
                   >
                     {s.holder_name ?? "（未填物主）"}
                   </span>
-                  <span style={{ fontSize: 11, color: "#888", flexShrink: 0 }}>
-                    {s.item_type ?? "?"}
-                  </span>
+                  {/* 分配时这个位置让给「配这单」和推荐标记 —— 类型平时才显示。
+                      能配的资源类型一定是对的（第四条校验拦过了），分配那一刻它没信息量 */}
+                  {!hasAction && (
+                    <span style={{ fontSize: 11, color: "#888", flexShrink: 0 }}>
+                      {s.item_type ?? "?"}
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>
                   {calcAge(s.holder_date_of_birth) ?? "?"}岁
@@ -1842,53 +1905,23 @@ function ResourceGroup({
                 </div>
               </Link>
 
-              {assigningOrder && (
+              {/* 绝对定位放在右上角、并且**在 Link 外面** —— 塞进 Link 里就成了
+                  「链接里套按钮」，点按钮会顺带跳到卡片详情页 */}
+              {hasAction && (
                 <div
                   style={{
-                    marginTop: 6,
+                    position: "absolute",
+                    top: 6,
+                    right: 8,
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 6,
+                    gap: 4,
                   }}
                 >
-                  {isAssigned ? (
-                    <span style={{ fontSize: 11, color: "#1f5c33" }}>✓ 已配给这单</span>
-                  ) : canAssign ? (
-                    <AssignResourceButton
-                      orderId={assigningOrder.id}
-                      resourceId={s.id}
-                      style={{
-                        ...buttonStyle,
-                        padding: "3px 10px",
-                        fontSize: 11,
-                        background: "#1f5c33",
-                      }}
-                    />
-                  ) : (
-                    <span
-                      title={itemConflict || undefined}
-                      style={{ fontSize: 11, color: itemConflict ? "#c0392b" : "#bbb" }}
-                    >
-                      {!listingOk
-                        ? (badge?.text ?? "不可用")
-                        : gap === 0
-                          ? "这个性别已配齐"
-                          : itemConflict
-                            ? `类型不对：${s.item_type} 进不了这个地点`
-                            : !covers
-                              ? `订单日期超出有效期（${s.date_range_start}~${s.date_range_end}）`
-                              : `${formatDayRanges(conflictDays)} 已被占用`}
-                    </span>
-                  )}
-
-                  {/* 推荐标记贴右下角。理由挂在 title 上：分配最后是人拍板，
-                      说不出理由的推荐没人敢用 */}
                   {rec && rec.signals.length > 0 && (
                     <span
                       title={explain(rec)}
                       style={{
-                        flexShrink: 0,
                         fontSize: 11,
                         cursor: "help",
                         color: rec.top ? "#a8620d" : "#bbb",
@@ -1899,12 +1932,67 @@ function ResourceGroup({
                       {rec.top ? "★ 推荐" : rec.score > 0 ? "☆" : "⚠"}
                     </span>
                   )}
+                  {isAssigned ? (
+                    <span style={{ fontSize: 11, color: "#1f5c33", whiteSpace: "nowrap" }}>
+                      ✓ 已配给这单
+                    </span>
+                  ) : (
+                    <AssignResourceButton
+                      orderId={assigningOrder!.id}
+                      resourceId={s.id}
+                      style={{
+                        ...buttonStyle,
+                        padding: "2px 8px",
+                        fontSize: 11,
+                        background: "#1f5c33",
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* 配不了的资源才需要这一行 —— 原因那句话太长，塞不进右上角。
+                  这些资源默认是藏起来的，只有点开「显示全部」才看得到 */}
+              {assigningOrder && !hasAction && (
+                <div
+                  title={itemConflict || undefined}
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: itemConflict ? "#c0392b" : "#bbb",
+                  }}
+                >
+                  {!listingOk
+                    ? (badge?.text ?? "不可用")
+                    : gap === 0
+                      ? "这个性别已配齐"
+                      : itemConflict
+                        ? `类型不对：${s.item_type} 进不了这个地点`
+                        : !covers
+                          ? `订单日期超出有效期（${s.date_range_start}~${s.date_range_end}）`
+                          : `${formatDayRanges(conflictDays)} 已被占用`}
                 </div>
               )}
             </div>
           );
         })}
       </div>
+
+      {/* 藏起来的那些留个出口：偶尔想知道「某个资源为什么配不了」，
+          点开就能看到「已被占用」「类型不对」那些说明 */}
+      {assigningOrder && (hiddenCount > 0 || showAllCards) && (
+        <div style={{ fontSize: 11, marginTop: 6 }}>
+          {showAllCards ? (
+            <Link href={hideUnusableHref} style={{ color: "#888" }}>
+              只看能配的
+            </Link>
+          ) : (
+            <Link href={showAllHref} style={{ color: "#888" }}>
+              还有 {hiddenCount} 张配不了，点开看看为什么 →
+            </Link>
+          )}
+        </div>
+      )}
     </div>
   );
 }
