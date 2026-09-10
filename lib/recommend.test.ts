@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { recommendResources, type Candidate, type PastUse } from "./recommend";
+import {
+  recommendResources,
+  isRecommended,
+  AGE_TOLERANCE,
+  type Candidate,
+  type PastUse,
+} from "./recommend";
 
 const card = (id: string, extra: Partial<Candidate> = {}): Candidate => ({
   id,
@@ -93,19 +99,20 @@ describe("地理惯性", () => {
       ...base,
       candidates: [card("regionB-card"), card("vermont-card")],
       history: [
+        // 日期得在本单（2026-01-10）之前，不然按规则不算「之前那一次」
         {
           resourceId: "regionB-card",
           customerId: "someone",
           location: "locai",
           status: "complete",
-          days: [],
+          days: ["2025-12-20"],
         },
         {
           resourceId: "vermont-card",
           customerId: "someone",
           location: "locam",
           status: "complete",
-          days: [],
+          days: ["2025-12-20"],
         },
       ],
     });
@@ -183,7 +190,7 @@ describe("运营便利", () => {
   });
 });
 
-describe("打星星的门槛", () => {
+describe("打星星（★ 推荐）的规则", () => {
   it("全都没什么信号时，一个都不推荐", () => {
     const out = recommendResources({
       ...base,
@@ -193,13 +200,13 @@ describe("打星星的门槛", () => {
     expect(out.every((s) => !s.top)).toBe(true);
   });
 
-  it("并列最高分的都打星", () => {
+  it("符合规则的都打星 —— 不是「分最高的那张」，可以同时好几张", () => {
     const out = recommendResources({
       ...base,
       candidates: [card("a"), card("b")],
       history: [
-        { resourceId: "a", customerId: "x", location: "locag", status: "complete", days: [] },
-        { resourceId: "b", customerId: "y", location: "locag", status: "complete", days: [] },
+        { resourceId: "a", customerId: "x", location: "locag", status: "complete", days: ["2025-12-20"] },
+        { resourceId: "b", customerId: "y", location: "locag", status: "complete", days: ["2025-12-20"] },
       ],
     });
     expect(out.filter((s) => s.top).length).toBe(2);
@@ -229,5 +236,186 @@ describe("没填地点 / 地点名认不出来就不推荐", () => {
     });
     expect(out[0].signals).toEqual([]);
     expect(out[0].top).toBe(false);
+  });
+});
+
+// 星星的规则是明说的一条，不是分数排名 —— 这一组直接测那条规则本身
+describe("isRecommended：星星到底怎么给", () => {
+  const 上次去过 = (m: string) => ({ lastLocation: m, orderLocation: "locag" });
+
+  it("客人没记年龄：只看上次是不是同一片区域", () => {
+    // locai 和 locag 同属 RegionB
+    expect(isRecommended({ customerAge: null, holderAge: 30, ...上次去过("locai") })).toBe(true);
+    // locam 在东北，不是一片
+    expect(isRecommended({ customerAge: null, holderAge: 30, ...上次去过("locam") })).toBe(false);
+  });
+
+  it("**上次就去的同一个地点**也算同一片区域", () => {
+    // sameRegion 的定义是「同一片但不同场」，只用它会把最该推荐的这张漏掉
+    expect(isRecommended({ customerAge: null, holderAge: 30, ...上次去过("locag") })).toBe(true);
+  });
+
+  it("客人有年龄：区域对上、年龄也得在 5 岁之内", () => {
+    const 同一片 = 上次去过("locai");
+    expect(isRecommended({ customerAge: 30, holderAge: 30, ...同一片 })).toBe(true);
+    expect(isRecommended({ customerAge: 30, holderAge: 35, ...同一片 })).toBe(true); // 正好 5 岁
+    expect(isRecommended({ customerAge: 30, holderAge: 25, ...同一片 })).toBe(true); // 小 5 岁也行
+    expect(isRecommended({ customerAge: 30, holderAge: 36, ...同一片 })).toBe(false);
+    expect(isRecommended({ customerAge: 30, holderAge: 24, ...同一片 })).toBe(false);
+  });
+
+  it("年龄够近但区域不对 —— 不推荐（两条是「并且」不是「或者」）", () => {
+    expect(isRecommended({ customerAge: 30, holderAge: 30, ...上次去过("locam") })).toBe(false);
+  });
+
+  it("**客人有年龄但资源没记生日 → 不推荐**", () => {
+    // 核验看的是持有人的脸和年龄，查不了就别声称对得上
+    expect(
+      isRecommended({ customerAge: 30, holderAge: null, ...上次去过("locai") })
+    ).toBe(false);
+  });
+
+  it("这个资源从来没排过 → 不推荐（没有「上一次」可比）", () => {
+    expect(
+      isRecommended({ customerAge: null, holderAge: 30, lastLocation: null, orderLocation: "locag" })
+    ).toBe(false);
+  });
+
+  it("地点名认不出来 → 不推荐", () => {
+    expect(
+      isRecommended({ customerAge: null, holderAge: 30, lastLocation: "乱写", orderLocation: "locag" })
+    ).toBe(false);
+    expect(
+      isRecommended({ customerAge: null, holderAge: 30, lastLocation: "locai", orderLocation: "乱写" })
+    ).toBe(false);
+  });
+
+  it("容差就是 5 岁，改了这个常量测试要跟着动", () => {
+    expect(AGE_TOLERANCE).toBe(5);
+  });
+});
+
+describe("整条链路：星星按新规则给", () => {
+  it("上次同一片区域 + 年龄差 3 岁 → 打星；年龄差 10 岁 → 不打", () => {
+    const out = recommendResources({
+      ...base,
+      customerAge: 30,
+      candidates: [
+        card("close", { holderDateOfBirth: `${new Date().getUTCFullYear() - 33}-01-01` }),
+        card("far", { holderDateOfBirth: `${new Date().getUTCFullYear() - 40}-01-01` }),
+      ],
+      history: [
+        { resourceId: "close", customerId: "x", location: "locai", status: "complete", days: ["2025-12-01"] },
+        { resourceId: "far", customerId: "y", location: "locai", status: "complete", days: ["2025-12-01"] },
+      ],
+    });
+    expect(scoreOf(out, "close").top).toBe(true);
+    expect(scoreOf(out, "far").top).toBe(false);
+  });
+
+  it("上一次按**结束日期**取，不按数组顺序（补录的历史单顺序是乱的）", () => {
+    const out = recommendResources({
+      ...base,
+      candidates: [card("a")],
+      history: [
+        // 数组里排在前面，但日子更早 —— 不该被当成「上一次」
+        { resourceId: "a", customerId: "x", location: "locai", status: "complete", days: ["2026-01-05"] },
+        { resourceId: "a", customerId: "x", location: "locam", status: "complete", days: ["2025-01-01"] },
+      ],
+    });
+    // 最近一次是 locai（RegionB），跟 locag 同片 → 推荐
+    expect(scoreOf(out, "a").top).toBe(true);
+  });
+
+  it("打了星的，理由里第一条就说清楚为什么", () => {
+    const out = recommendResources({
+      ...base,
+      candidates: [card("a")],
+      history: [
+        { resourceId: "a", customerId: "x", location: "locai", status: "complete", days: ["2025-12-01"] },
+      ],
+    });
+    expect(scoreOf(out, "a").signals[0].code).toBe("recommended");
+  });
+});
+
+// 「上一次」= **这一单之前**最近的那一次，不是「时间轴上最近的一次」。
+// 日历上排在这一单后面的行程不算 —— 拿一个月后的安排推断今天的地理惯性，
+// 是拿未来倒推现在。
+describe("「上一次」只看这一单之前", () => {
+  const use = (resourceId: string, location: string, day: string): PastUse => ({
+    resourceId,
+    customerId: "someone",
+    location,
+    status: "complete",
+    days: [day],
+  });
+
+  it("用户举的例子：8 号的单，只有 9/5 去过 locbl 的那张算数", () => {
+    const out = recommendResources({
+      ...base,
+      order: { customerId: "r", location: "locbl", demandDays: ["2026-09-08"] },
+      candidates: [card("jordan"), card("zolan"), card("shengli"), card("david")],
+      history: [
+        // 9/5 在 9/8 之前 → 算
+        use("jordan", "locbl", "2026-09-05"),
+        // 下面这些都排在 9/8 之后 → 不算
+        use("jordan", "locbl", "2026-09-11"),
+        use("zolan", "locbn", "2026-09-13"),
+        use("zolan", "locbl", "2026-09-15"),
+        use("shengli", "locbm", "2026-09-20"),
+        use("david", "locbm", "2026-09-12"),
+      ],
+    });
+    expect(scoreOf(out, "jordan").top).toBe(true);
+    expect(scoreOf(out, "zolan").top).toBe(false);
+    expect(scoreOf(out, "shengli").top).toBe(false);
+    expect(scoreOf(out, "david").top).toBe(false);
+  });
+
+  it("之前有好几次，取最近的那一次（更早那次去别处也不影响）", () => {
+    const out = recommendResources({
+      ...base,
+      order: { customerId: "r", location: "locbl", demandDays: ["2026-09-08"] },
+      candidates: [card("a")],
+      history: [
+        use("a", "locam", "2026-01-01"), // 更早，去的东北
+        use("a", "locbn", "2026-09-05"), // 最近，B 区 → 按这个算
+      ],
+    });
+    expect(scoreOf(out, "a").top).toBe(true);
+  });
+
+  it("最近那一次去了别的片 → 不推荐，哪怕更早去过同一片", () => {
+    const out = recommendResources({
+      ...base,
+      order: { customerId: "r", location: "locbl", demandDays: ["2026-09-08"] },
+      candidates: [card("a")],
+      history: [
+        use("a", "locbn", "2026-01-01"), // 更早去过B 区
+        use("a", "locam", "2026-09-05"), // 最近去的东北 → 按这个算
+      ],
+    });
+    expect(scoreOf(out, "a").top).toBe(false);
+  });
+
+  it("正好当天结束的那次不算「之前」", () => {
+    const out = recommendResources({
+      ...base,
+      order: { customerId: "r", location: "locbl", demandDays: ["2026-09-08"] },
+      candidates: [card("a")],
+      history: [{ ...use("a", "locbn", "2026-09-08"), days: ["2026-09-07", "2026-09-08"] }],
+    });
+    expect(scoreOf(out, "a").top).toBe(false);
+  });
+
+  it("没记日期的用资源记录排不了序，跳过", () => {
+    const out = recommendResources({
+      ...base,
+      order: { customerId: "r", location: "locbl", demandDays: ["2026-09-08"] },
+      candidates: [card("a")],
+      history: [{ resourceId: "a", customerId: "x", location: "locbn", status: "complete", days: [] }],
+    });
+    expect(scoreOf(out, "a").top).toBe(false);
   });
 });

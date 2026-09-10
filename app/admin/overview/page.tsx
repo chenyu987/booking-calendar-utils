@@ -100,7 +100,7 @@ const HEADER_ROW_HEIGHT = 52;
 //
 // 两个状态排成一一对应的 3 行，位置一样，所以进出编辑不跳、也看得出哪个字段对哪个框：
 //   1 姓名 · 地点 | 金额   ←→  姓名框 | 地点框 | 删除叉 | 金额框
-//   2 已配的资源             ←→  已配的资源（带撤销叉）
+//   2 已配的资源             ←→  已配的资源（撤销叉绝对定位，hover 才出现，不占位置）
 //   3 男1/1 女1/1          ←→  男1/[框] 女1/[框] | 状态下拉框
 //
 // 第 3 行是「分配进度」和「几男几女」合并的结果：进度的分母本来就是要几个人，
@@ -114,6 +114,30 @@ const ROW_HEIGHT = 62;
 // TS 的 CSSProperties 还没收这个属性，所以断言一下；不支持的浏览器退回默认宽度，
 // 只是没那么紧凑，不会坏。
 const FIELD_SIZING_CONTENT = { fieldSizing: "content" } as React.CSSProperties;
+
+// 第 3 行「男1/1」里分母那一格的尺寸。分配态那儿是个数字输入框，缩不到跟文字
+// 一样窄（5px 宽点不中），所以反过来让**普通态也占同样的格子**——两个状态一样宽，
+// 进出编辑那行就不动了。两边都用这一份，别各写各的。
+/** 「男…」和「女…」两组之间的间距。两个状态共用，别一边写 gap 一边靠空格 */
+const COUNT_GAP = 3;
+
+// 右下角那个金额。两个状态共用：普通态是文字、分配态是输入框，
+// 但**右边缘、字号、淡度、右对齐**必须一模一样，不然进出编辑钱会挪位置。
+// 输入框默认左对齐，普通态的文字是右对齐的 —— 这一条不写就差七八像素。
+const MONEY_SLOT: React.CSSProperties = {
+  fontSize: 11,
+  opacity: 0.8,
+  textAlign: "right",
+  flexShrink: 0,
+};
+
+const COUNT_BOX: React.CSSProperties = {
+  display: "inline-block",
+  boxSizing: "content-box",
+  width: 16,
+  padding: "0 2px",
+  textAlign: "left",
+};
 const PANEL_WIDTH = 260;
 // 一条时间轴拉到底横着能滑很久，改成每 4 周折一段往下排（跟 Excel 里那张排期表一个思路）。
 // 段的起点对齐到周一，所以每段正好是 4 个完整自然周。
@@ -741,10 +765,18 @@ export default async function OverviewPage({
         /* 备注框平时只占一个小方块（姓名和地点优先，它俩每单都有），
            点进去自动撑到一半宽好打字，挪走又缩回去。
            transition 让这一下不至于跳得太突兀。 */
+        /* 输入框宽度贴着内容走（field-sizing:content），**不设 min-width** ——
+           设了的话名字/地点名短的时候框比文字宽，后面的东西整体右移，
+           进出编辑就又在动了。只有**空着**的时候才需要一个点得中的宽度，
+           靠 :placeholder-shown 区分「空着」和「填了但很短」。 */
+        #assign-active-block .assign-fit { min-width: 0; }
+        #assign-active-block .assign-fit:placeholder-shown {
+          min-width: var(--fit-empty, 28px);
+        }
+
         #assign-active-block .assign-note { transition: min-width 120ms ease-out; }
         #assign-active-block .assign-note:focus-within { min-width: 55% !important; }
 
-        #assign-active-block { container-type: inline-size; }
         @container (max-width: 180px) {
           /* !important 不能省：表单的 display:flex 是内联样式，
              选择器再具体也压不过它 */
@@ -752,8 +784,10 @@ export default async function OverviewPage({
           #assign-active-block .assign-delete,
           /* 连 $ 符号也藏掉：不藏的话金额右边会被切掉 9px，
              「$120」看成「$12」比少个符号严重得多。旁边就是「男1/1 女0/1」，
-             最右边那个数是钱，不会认错 */
-          #assign-active-block .assign-money-sign { display: none !important; }
+             最右边那个数是钱，不会认错。
+             **不限定 #assign-active-block**：普通态也要一起藏，不然窄色块
+             进出编辑一个有 $ 一个没有 */
+          .assign-money-sign { display: none !important; }
         }
 `,
         }}
@@ -905,6 +939,20 @@ export default async function OverviewPage({
               </span>
             );
           })}
+          {/* 「按住 ⌘ 点多个单子可以一起改状态」这件事原来没有任何提示 ——
+              手势藏着，用的人自然以为功能没了。挨着状态图例放，因为这一排
+              讲的正是状态 */}
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--text-faint)",
+              alignSelf: "center",
+              whiteSpace: "nowrap",
+            }}
+            title="按住 ⌘（Windows 上是 Ctrl）点几个单子，或者按住 Shift 点头尾连选，顶上会出来「状态改为」那一条"
+          >
+            ⌘/Shift + 点 = 多选改状态
+          </span>
         </div>
           </>
         }
@@ -1063,6 +1111,9 @@ export default async function OverviewPage({
                       // 空白处的新建选框也是这个 grid 的一员，没有这两条订单色块会被它盖住点不到
                       position: "relative",
                       zIndex: 1,
+                      // 让 @container 那条「窄色块藏 $」的规则对普通态也生效 ——
+                      // 只给分配态设的话，窄色块进出编辑就一个有钱号一个没有
+                      containerType: "inline-size",
                     } as const;
                     const blockTitle = [
                       `${o.customers?.first_name ?? ""} ${o.customers?.last_name ?? ""}`,
@@ -1194,10 +1245,37 @@ export default async function OverviewPage({
                                     textOverflow: "ellipsis",
                                   }}
                                 >
-                                  {formatNeed(need)}
+                                  {/* 不用 formatNeed 拼字符串：分母要单独套进 COUNT_BOX，
+                                      跟分配态那个输入框占一样宽，进出编辑这行才不动 */}
+                                  {need.maleNeeded === 0 && need.femaleNeeded === 0 ? (
+                                    "-"
+                                  ) : (
+                                    <>
+                                      {need.maleNeeded > 0 && (
+                                        <>
+                                          男{need.maleFilled}/
+                                          <span style={COUNT_BOX}>{need.maleNeeded}</span>
+                                        </>
+                                      )}
+                                      {need.femaleNeeded > 0 && (
+                                        <span
+                                          style={{
+                                            // 跟分配态那个 flex gap 同一个数
+                                            marginLeft: need.maleNeeded > 0 ? COUNT_GAP : 0,
+                                          }}
+                                        >
+                                          女{need.femaleFilled}/
+                                          <span style={COUNT_BOX}>{need.femaleNeeded}</span>
+                                        </span>
+                                      )}
+                                    </>
+                                  )}
                                 </span>
-                                <span style={{ opacity: 0.8, flexShrink: 0 }}>
-                                  ${o.amount ?? "?"}
+                                {/* $ 用跟分配态同一个 class：色块窄到 180px 以下时两边一起藏，
+                                    不然进出编辑一个有钱号一个没有 */}
+                                <span style={MONEY_SLOT}>
+                                  <span className="assign-money-sign">$</span>
+                                  {o.amount ?? "?"}
                                 </span>
                               </div>
                             </>
@@ -1265,11 +1343,18 @@ export default async function OverviewPage({
                                 <input type="hidden" name="order_id" value={o.id} />
                                 <input
                                   name="customer_name"
+                                  className="assign-fit"
+                                  // 有 placeholder 才能用 :placeholder-shown 区分「空着」和
+                                  // 「填了但很短」—— minWidth 只该管前者，见下面那条注释
+                                  placeholder="姓名"
                                   defaultValue={o.customers?.first_name ?? ""}
                                   data-original={o.customers?.first_name ?? ""}
                                   style={{
                                     ...FIELD_SIZING_CONTENT,
-                                    minWidth: 28,
+                                    // minWidth **不写在这儿**：写死 28 的话，名字短的
+                                    // （「xhs」才 20px）会被撑到 28，后面的「· 地点」
+                                    // 整体右移四五像素 —— 进出编辑又在动。
+                                    // 交给 .assign-fit：填了就贴着内容，空着才留出点得中的宽度
                                     maxWidth: "100%",
                                     fontSize: 12,
                                     fontWeight: 500,
@@ -1309,13 +1394,15 @@ export default async function OverviewPage({
                                 <input type="hidden" name="order_id" value={o.id} />
                                 <LocationInput
                                   name="location"
+                                  className="assign-fit"
                                   placeholder="地点"
                                   defaultValue={o.location ?? ""}
                                   data-original={o.location ?? ""}
                                   title={locationHint || undefined}
                                   style={{
+                                    // 同上：minWidth 交给 .assign-fit，别写死
                                     ...FIELD_SIZING_CONTENT,
-                                    minWidth: 22,
+                                    ["--fit-empty" as any]: "22px",
                                     maxWidth: "100%",
                                     // 12 不是 11：普通态里地点跟姓名是同一串文字，
                                     // 同一个字号。写 11 的话一进编辑态地点就缩一号
@@ -1384,45 +1471,57 @@ export default async function OverviewPage({
                                 Shift+滚轮是浏览器原生的，纵向滚轮由 CardsRowScroll 接管。 */}
                             <div
                               className="cards-row"
+                              // gap 归 0、淡度对齐普通态的 0.85：普通态这一行是一整串
+                              // 「♂名字 ♀名字」，资源与资源之间就是个普通空格。用 flex gap
+                              // 去凑宽度永远差一点，直接照抄那个空格（见下面的分隔符）
                               style={{
                                 display: "flex",
                                 flexWrap: "nowrap",
-                                gap: 4,
+                                gap: 0,
                                 fontSize: 11,
-                                opacity: 0.9,
+                                opacity: 0.85,
                                 whiteSpace: "nowrap",
                               }}
                             >
                               {cards.length > 0
-                                ? cards.map((s: any) => (
+                                ? cards.map((s: any, i: number) => (
                                     <span
                                       key={s.id}
-                                      style={{
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        gap: 2,
-                                      }}
+                                      className="assign-card"
+                                      // relative：撤销那个叉靠它定位。叉是**绝对定位**的，
+                                      // 不占位置 —— 原来它排在文字后面，一进分配模式
+                                      // 后面所有东西就右移 14px，正是「进编辑东西动了」
+                                      style={{ position: "relative", whiteSpace: "pre" }}
                                     >
+                                      {i > 0 ? " " : ""}
                                       {s.holder_gender === "male" ? "♂" : "♀"}
                                       {s.holder_name}
                                       <UnassignButton
                                         orderId={o.id}
                                         resourceId={s.id}
+                                        className="assign-card-x"
                                         style={{
-                                          background: "none",
-                                          border: "none",
-                                          padding: "0 3px",
-                                          margin: 0,
+                                          // 贴在这个资源的右上角，盖住后面一点点。
+                                          // 平时透明+不可点，鼠标移到这个资源上才浮出来
+                                          position: "absolute",
+                                          right: -3,
+                                          top: -4,
                                           width: 14,
                                           height: 14,
+                                          padding: 0,
+                                          margin: 0,
                                           boxSizing: "border-box",
                                           display: "inline-flex",
                                           alignItems: "center",
                                           justifyContent: "center",
-                                          borderRadius: 3,
+                                          borderRadius: 7,
+                                          // 底色跟色块一样：盖在字上面也看得清
+                                          background: c.bg,
+                                          border: `1px solid ${c.border}`,
                                           color: "inherit",
-                                          fontSize: 12,
+                                          fontSize: 11,
                                           lineHeight: 1,
+                                          zIndex: 2,
                                         }}
                                       />
                                     </span>
@@ -1452,7 +1551,7 @@ export default async function OverviewPage({
                                 style={{
                                   display: "flex",
                                   alignItems: "center",
-                                  gap: 3,
+                                  gap: COUNT_GAP,
                                   fontSize: 11,
                                   fontWeight: 500,
                                   whiteSpace: "nowrap",
@@ -1475,13 +1574,11 @@ export default async function OverviewPage({
                                     defaultValue={o.male_count}
                                     data-original={o.male_count}
                                     style={{
-                                      ...FIELD_SIZING_CONTENT,
+                                      // 跟普通态那一格同一份尺寸（COUNT_BOX），不许各写各的
+                                      ...COUNT_BOX,
                                       appearance: "textfield",
-                                      width: 16,
-                                      minWidth: 14,
                                       fontSize: 11,
                                       fontWeight: 500,
-                                      padding: "0 2px",
                                       color: "inherit",
                                       background: "transparent",
                                       // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
@@ -1509,13 +1606,11 @@ export default async function OverviewPage({
                                     defaultValue={o.female_count}
                                     data-original={o.female_count}
                                     style={{
-                                      ...FIELD_SIZING_CONTENT,
+                                      // 跟普通态那一格同一份尺寸（COUNT_BOX），不许各写各的
+                                      ...COUNT_BOX,
                                       appearance: "textfield",
-                                      width: 16,
-                                      minWidth: 14,
                                       fontSize: 11,
                                       fontWeight: 500,
-                                      padding: "0 2px",
                                       color: "inherit",
                                       background: "transparent",
                                       // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
@@ -1596,13 +1691,19 @@ export default async function OverviewPage({
                                 data-original={o.amount ?? ""}
                                 style={{
                                   ...FIELD_SIZING_CONTENT,
+                                  // 字号 / 淡度 / 右对齐跟普通态同一份（MONEY_SLOT）
+                                  ...MONEY_SLOT,
                                   appearance: "textfield",
                                   // 不写死宽度：让 field-sizing 跟着金额位数走，
                                   // 三位数的单子就只占三位数的地方
-                                  minWidth: 26,
+                                  // minWidth 别给大：给 26 的话三位数的金额（约 21px）
+                                  // 撑不满，输入框比文字宽，$ 被往左顶开五六像素，
+                                  // 进出编辑钱号就跳。18 够点得中，其余交给 field-sizing
+                                  minWidth: 18,
                                   maxWidth: 64,
-                                  fontSize: 11,
-                                  padding: "0 2px",
+                                  // 内边距 0：普通态的数字是贴着右边缘的，
+                                  // 留 2px 数字就往左挪 2px
+                                  padding: 0,
                                   color: "inherit",
                                   background: "transparent",
                                   // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，

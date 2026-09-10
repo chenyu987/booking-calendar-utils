@@ -142,10 +142,13 @@ export function UnassignButton({
   orderId,
   resourceId,
   style,
+  className,
 }: {
   orderId: string;
   resourceId: string;
   style: React.CSSProperties;
+  /** 平时藏起来、鼠标移到这个资源上才浮出来 —— 那条 :hover 规则在 app/layout.tsx */
+  className?: string;
 }) {
   const { pending, error, dismiss, run } = useAssignCall();
   return (
@@ -153,10 +156,18 @@ export function UnassignButton({
       {error && <ErrorToast message={error} onClose={dismiss} />}
       <button
         type="button"
+        className={className}
         disabled={pending}
         title={pending ? "撤销中…" : "撤销这个资源"}
         onClick={() => run({ order_id: orderId, resource_id: resourceId, op: "remove" })}
-        style={{ ...style, cursor: pending ? "default" : "pointer", opacity: pending ? 0.4 : 1 }}
+        // opacity 只在「撤销中」时写死。平时**不能**写 opacity: 1 ——
+        // 内联样式盖过 class，分配态那个「平时藏起来、hover 才出现」的规则
+        // （.assign-card-x，见 app/layout.tsx）就永远生效不了
+        style={{
+          ...style,
+          cursor: pending ? "default" : "pointer",
+          ...(pending ? { opacity: 0.4 } : null),
+        }}
       >
         {pending ? "·" : "×"}
       </button>

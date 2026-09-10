@@ -17,7 +17,7 @@ export type Scored = {
   resourceId: string;
   score: number;
   signals: Signal[];
-  /** 同性别候选里的最高分，且分数够高 —— 界面上打星星的就是它 */
+  /** 打不打「★ 推荐」。判据见 isRecommended —— 是一条明说的规则，不是分数排名 */
   top: boolean;
 };
 
@@ -85,6 +85,44 @@ function isAdjacent(demandDays: string[], booked: string[]): boolean {
   );
 }
 
+/** 差几岁之内算「年龄对得上」 */
+export const AGE_TOLERANCE = 5;
+
+/**
+ * 打不打「★ 推荐」。
+ *
+ * 这一条**故意跟打分分开**。分数是十来条信号加权求和，好用来排序，但说不清
+ * 「凭什么给它一颗星」；星星是给人看的结论，得能一句话讲明白：
+ *
+ *   · 这个资源在**这一单之前**最近的那一次，去的是同一片区域
+ *   · 并且（如果知道客户年龄的话）持有人跟客户差不超过 5 岁
+ *
+ * 客户没年龄就只看区域 —— 大多数单子确实没记年龄，卡着不放等于永远没有推荐。
+ * 反过来，**客户有年龄但资源没生日就不推荐**：核验看的是持有人的脸和年龄，
+ * 查不了就别声称对得上。
+ */
+export function isRecommended(args: {
+  customerAge: number | null;
+  holderAge: number | null;
+  /** 这个资源在这一单之前最近那一次去的地点（原始文本，内部会归一化）；没有就传 null */
+  lastLocation: string | null;
+  /** 这一单要去哪个地点 */
+  orderLocation: string | null;
+}): boolean {
+  const { customerAge, holderAge, lastLocation, orderLocation } = args;
+  // 没去过、或者两边的地点名认不出来，就谈不上「同一片区域」
+  if (!lastLocation || !orderLocation) return false;
+  // **sameVenue 也要算**：sameRegion 的定义是「同一片但不是同一个场地」
+  // （它是给打分用的，跟 sameVenue 互斥，免得同一件事加两次分）。
+  // 「上次就去的这个地点」当然属于同一片区域，漏掉它等于把最该推荐的排除了
+  if (!sameVenue(lastLocation, orderLocation) && !sameRegion(lastLocation, orderLocation)) {
+    return false;
+  }
+  if (customerAge === null) return true;
+  if (holderAge === null) return false;
+  return Math.abs(holderAge - customerAge) <= AGE_TOLERANCE;
+}
+
 export function recommendResources(input: RecommendInput): Scored[] {
   const { order, customerAge, candidates, history, assignedProviderIds = [] } = input;
 
@@ -99,6 +137,30 @@ export function recommendResources(input: RecommendInput): Scored[] {
   const byResource = new Map<string, PastUse[]>();
   for (const h of history) {
     byResource.set(h.resourceId, [...(byResource.get(h.resourceId) ?? []), h]);
+  }
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+
+  // 每个资源「**这一单之前**的那一次去的地点」。
+  //
+  // 两个要点，都踩过：
+  //  1. 只算**这一单开始之前**结束的那些用资源记录。日历上排在这一单后面的行程
+  //     不算数 —— 判断「这个资源最近在哪一片活动」是为了推断它现在的地理惯性，
+  //     拿一个月后的安排来推断今天，是拿未来倒推现在。
+  //  2. 在这些里面按**结束日期**取最近的一次，不按数组顺序：补录历史单的时候
+  //     数组顺序是乱的，但资源实际哪天用的不会乱。
+  //
+  // 没记日期的记录整条跳过：既然规则是「在这一单之前」，排不了序就没法判断。
+  const orderStart = [...order.demandDays].sort()[0];
+  const lastLocationOf = new Map<string, string>();
+  for (const [resourceId, uses] of byResource) {
+    let best: { end: string; location: string } | null = null;
+    for (const u of uses) {
+      if (!u.location || u.days.length === 0) continue;
+      const end = [...u.days].sort().at(-1)!;
+      if (orderStart && end >= orderStart) continue;
+      if (!best || end > best.end) best = { end, location: u.location };
+    }
+    if (best) lastLocationOf.set(resourceId, best.location);
   }
 
   const scored: Scored[] = candidates.map((c) => {
@@ -192,12 +254,29 @@ export function recommendResources(input: RecommendInput): Scored[] {
     };
   });
 
-  // 打星星的门槛：光「类型对得上」这种弱信号不足以叫推荐，
-  // 至少要够到「同一片区域」那个量级，否则不如不推。
-  const MIN_TOP = W.sameRegion;
-  const best = Math.max(0, ...scored.map((s) => s.score));
-  if (best >= MIN_TOP) {
-    for (const s of scored) if (s.score === best) s.top = true;
+  // 星星按 isRecommended 那条明说的规则打，**不看分数排名**。
+  // 分数继续管排序（十来条信号加权，好用），但「凭什么给它一颗星」得能一句话
+  // 讲清楚，不然人不敢照着配。
+  for (const s of scored) {
+    const c = byId.get(s.resourceId);
+    if (!c) continue;
+    const last = lastLocationOf.get(s.resourceId) ?? null;
+    s.top = isRecommended({
+      customerAge,
+      holderAge: calcAge(c.holderDateOfBirth),
+      lastLocation: last,
+      orderLocation: order.location,
+    });
+    if (s.top) {
+      s.signals.unshift({
+        code: "recommended",
+        label:
+          customerAge === null
+            ? `★ 这一单之前最近一次就在同一片区域（${last}）`
+            : `★ 这一单之前最近一次就在同一片区域（${last}），持有人跟客人差不到 ${AGE_TOLERANCE} 岁`,
+        points: 0,
+      });
+    }
   }
   return scored;
 }
@@ -206,6 +285,8 @@ export function recommendResources(input: RecommendInput): Scored[] {
 export function explain(s: Scored): string {
   if (s.signals.length === 0) return "没有特别的理由推荐或不推荐";
   return s.signals
-    .map((x) => `${x.points > 0 ? "+" : ""}${x.points} ${x.label}`)
+    // points 为 0 的是「结论」不是「打分项」（比如那条 ★ 推荐的理由），
+    // 前面挂个「0」看着像扣了分没扣，直接不显示数字
+    .map((x) => (x.points === 0 ? x.label : `${x.points > 0 ? "+" : ""}${x.points} ${x.label}`))
     .join("\n");
 }

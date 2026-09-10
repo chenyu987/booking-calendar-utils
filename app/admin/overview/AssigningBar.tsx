@@ -29,8 +29,11 @@ export default function AssigningBar({
 }) {
   return (
     <div
-      // 给「点下去先假装已经进分配模式」那层认的：真条一挂上，假条立刻撤
-      data-assign-bar=""
+      // 给「点下去先假装已经进分配模式」那层认的。
+      // **必须带上单号**：在分配态里点另一单时，旧那一单的真条还挂在 DOM 上，
+      // 只判断「有没有真条」的话，抢画的假状态一挂上就被立刻撤掉 ——
+      // 等于换单的时候完全没有即时反馈，干等一次整页重渲染
+      data-assign-bar={orderId}
       style={{
         position: "fixed",
         left: "50%",

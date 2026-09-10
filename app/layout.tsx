@@ -50,6 +50,11 @@ export default function RootLayout({
               // 弹框背后压一层。浏览器默认的 ::backdrop 才 10% 黑，暗色下几乎
               // 看不出框和页面的界线
               "dialog::backdrop{background:rgba(0,0,0,.45)}" +
+              // 分配态里撤销资源的那个叉：平时看不见也点不到，鼠标移到这个资源上
+              // 才浮出来。它是绝对定位的，所以出现/消失都不挤动别的东西 ——
+              // 原来它老老实实排在名字后面，一进分配模式后面全右移 14px
+              ".assign-card-x{opacity:0;pointer-events:none;transition:opacity .12s}" +
+              ".assign-card:hover .assign-card-x{opacity:1;pointer-events:auto}" +
               "input[type=date]::-webkit-calendar-picker-indicator{filter:var(--picker-filter,none)}" +
               ':root[data-theme="dark"]{--picker-filter:invert(1) opacity(.6)}' +
               "@media (prefers-color-scheme: dark){:root:not([data-theme=\"light\"]){--picker-filter:invert(1) opacity(.6)}}",

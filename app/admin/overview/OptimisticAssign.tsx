@@ -20,6 +20,17 @@ export default function OptimisticAssign() {
   const [label, setLabel] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 抢画的那圈光**注入一条 CSS 规则**，不碰元素的内联样式。
+  //
+  // 这里踩过两次才想明白：
+  //   1. 一开始直接写 el.style.boxShadow —— React 不知道它存在，服务端重渲染时
+  //      节点复用，样式留着不走，退出分配态之后蓝边赖着不动。
+  //   2. 于是加了个「撤销」去清 el.style.boxShadow —— 更糟：**React 的
+  //      style={{}} 渲染出来就是内联样式**，清掉的其实是 React 自己画的那圈光，
+  //      而它不会重画，结果分配态的色块整个没了蓝圈。
+  // 注入 CSS 规则两个毛病都没有：跟节点的生死无关，也碰不到 React 那一份。
+  // （BulkSelect 的高亮一直是这么干的，CLAUDE.md 里记了这条。）
+  const [paintedId, setPaintedId] = useState<string | null>(null);
 
   useEffect(() => {
     // 用 pointerdown 不用 click：按下就给反馈，不等抬手，能再抢出几十毫秒
@@ -34,22 +45,22 @@ export default function OptimisticAssign() {
       const id = el.dataset.orderId;
       if (!id) return;
 
-      // 同一个单子可能有好几个色块（日期不连续、或者被段边界切开），全都套上
-      document
-        .querySelectorAll<HTMLElement>(`[data-order-id="${CSS.escape(id)}"]`)
-        .forEach((block) => {
-          block.style.boxShadow = "0 0 0 1px var(--link)";
-          block.style.borderColor = "var(--link)";
-        });
-
       // flushSync：这个监听挂在 document 上，不是 React 的事件，setState 会被
       // 攒到下一帧才刷 —— 光圈立刻就有、浮动条晚一帧，两件事错开反而显得毛躁。
       // 这里正是 flushSync 该用的场合：同一次交互里要求同一帧画完
-      flushSync(() => setLabel(el.dataset.orderLabel || "…"));
+      // 同一个单子可能有好几个色块（日期不连续、被段边界切开），
+      // 一条 [data-order-id] 的规则全都盖到，不用管有几个
+      flushSync(() => {
+        setPaintedId(id);
+        setLabel(el.dataset.orderLabel || "…");
+      });
 
       // 兜底：导航要是没成（网断了、被别的导航顶掉了），假条不能一直挂着骗人
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setLabel(null), 8000);
+      timerRef.current = setTimeout(() => {
+        setLabel(null);
+        setPaintedId(null);
+      }, 8000);
     }
 
     document.addEventListener("pointerdown", onDown);
@@ -59,15 +70,21 @@ export default function OptimisticAssign() {
     };
   }, []);
 
-  // 真条一挂上就撤掉假条，并把手快打进去的字搬过去
+  // 真条一挂上就撤掉假条，并把手快打进去的字搬过去。
+  // **认单号**：在分配态里点另一单时，旧那一单的真条还在 DOM 上，
+  // 只判断「有没有真条」的话假状态会被立刻撤掉，换单就完全没有即时反馈了
   useEffect(() => {
-    if (label === null) return;
+    if (label === null || !paintedId) return;
 
     const handover = () => {
-      const real = document.querySelector<HTMLElement>("[data-assign-bar]");
+      const real = document.querySelector<HTMLElement>(
+        `[data-assign-bar="${CSS.escape(paintedId)}"]`
+      );
       if (!real) return false;
       const typed = inputRef.current?.value ?? "";
       setLabel(null);
+      // 真界面到位了，抢画的规则撤掉，交还给服务端渲染的那一份
+      setPaintedId(null);
       if (typed) {
         const realInput = real.querySelector("input");
         if (realInput) {
@@ -89,13 +106,29 @@ export default function OptimisticAssign() {
     const mo = new MutationObserver(() => {
       if (handover()) mo.disconnect();
     });
-    mo.observe(document.body, { childList: true, subtree: true });
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true });
     return () => mo.disconnect();
-  }, [label]);
+  }, [label, paintedId]);
 
-  if (label === null) return null;
+  // id 是 UUID，过一道白名单再拼进选择器，没有注入面
+  const safeId = paintedId && /^[A-Za-z0-9-]+$/.test(paintedId) ? paintedId : null;
+  // !important 不能省：色块的 border 是 React 用内联 shorthand 写的
+  // （border: 1px solid …），样式表里的 border-color 压不过内联
+  const paintCss = safeId
+    ? `[data-order-id="${safeId}"]{
+         box-shadow:0 0 0 1px var(--link)!important;
+         border-color:var(--link)!important;
+       }`
+    : "";
+
+  if (label === null && !safeId) return null;
 
   return (
+    <>
+      {/* 跟 page.tsx 那处一个道理：<style> 的文本子节点会被 React 转义，
+          " 变成 &quot;，而 <style> 是 raw text 元素、浏览器不还原，选择器就废了 */}
+      <style dangerouslySetInnerHTML={{ __html: paintCss }} />
+      {label !== null && (
     // 样式跟真的那条一份不差（AssigningBar），不然接上的那一刻会跳一下
     <div
       aria-hidden
@@ -161,5 +194,7 @@ export default function OptimisticAssign() {
       </span>
       <span style={{ flexShrink: 0, fontSize: 12, opacity: 0.55 }}>完成</span>
     </div>
+      )}
+    </>
   );
 }

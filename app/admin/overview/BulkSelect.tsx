@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { STATUS_LABELS } from "@/lib/orderStatus";
 import { BULK_SETTABLE_STATUSES } from "@/lib/bulkStatus";
 
@@ -19,6 +19,7 @@ import { BULK_SETTABLE_STATUSES } from "@/lib/bulkStatus";
 // 新渲染出来的节点自动就带上高亮。也省掉了 MutationObserver 那一套。
 export default function BulkSelect() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -27,6 +28,26 @@ export default function BulkSelect() {
   const anchorRef = useRef<string | null>(null);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+  // **一选中多单，就退出分配态，并且把当时正在配的那一单也算进选中。**
+  //
+  // 两件事互斥：多选是为了一起改状态，分配天生是单目标的（选了三单也不知道
+  // 该把资源配给谁）。不退的话两条浮动条会打架 —— 都是 position:fixed、top:8、
+  // 居中、z-index 50，严丝合缝叠在一起，「已选 N 单」整条被分配条盖住。
+  //
+  // 为什么要把正在配的那一单也算进来：人的做法是「先点开 lych，再 ⌘ 点
+  // laura kim」，在他看来这就是选了两单。代码里「点开」是进分配态、「⌘ 点」
+  // 才是选中，两回事 —— 于是只剩一单，看着就像「⌘ 没生效」。按人的理解来。
+  const assigning = searchParams.get("assign");
+  useEffect(() => {
+    if (selected.length === 0 || !assigning) return;
+    setSelected((prev) => (prev.includes(assigning) ? prev : [assigning, ...prev]));
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("assign");
+    const qs = next.toString();
+    // replace 不是 push：这是「模式切换」不是一次导航，不该在后退历史里留一格
+    router.replace(qs ? `/admin/overview?${qs}` : "/admin/overview");
+  }, [selected.length, assigning, searchParams, router]);
 
   // 订单在日历上的先后：按最早的需求日排，同一天的按 id 排（稳定就行）。
   // 不用 DOM 顺序——DOM 里是按泳道排的，看起来在上面的不一定排在前面。
@@ -136,7 +157,10 @@ export default function BulkSelect() {
       ? `${safeIds.map((id) => `[data-order-id="${id}"]`).join(",")}{
            outline:2px solid var(--link);outline-offset:-2px;
            box-shadow:0 0 0 3px rgba(37,99,235,0.18);
-         }`
+         }
+         /* 退出分配态要走一次服务端渲染（这一页 420ms），这半秒里分配条还在，
+            正好压着「已选 N 单」那条。先用 CSS 把它藏掉，别让人看见两条打架 */
+         [data-assign-bar]{display:none!important}`
       : "");
 
   return (
