@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation";
 // 不能配给两个订单），第三条还依赖别的订单的数据——先认下来再回滚的话，
 // 撤销那一下很容易被人错过，而物品是登记了使用人的，以为配上了其实没配上，
 // 人到核验前才发现，代价太大。
-function useAssignCall() {
+export function useAssignCall() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +62,7 @@ function useAssignCall() {
 
 // 失败必须看得见：钉在顶上、红的、不自动消失，得手动关掉。
 // 配错资源的代价（人到核验前过不去）比多点一下关提示大得多。
-function ErrorToast({ message, onClose }: { message: string; onClose: () => void }) {
+export function ErrorToast({ message, onClose }: { message: string; onClose: () => void }) {
   return (
     <div
       style={{

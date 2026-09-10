@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { coversOrder, itemConflictReason } from "@/lib/resourceStatus";
 import {
   computeNeed,
+  extraAssignmentReason,
   findConflictingDays,
   syncedAssignmentStatus,
 } from "@/lib/assignment";
@@ -61,12 +62,12 @@ async function addAssignment(orderId: string, resourceId: string) {
         .single(),
       supabase
         .from("resources")
-        .select("date_range_start, date_range_end, status, holder_name, holder_gender, item_type")
+        .select("id, date_range_start, date_range_end, status, holder_name, holder_gender, item_type")
         .eq("id", resourceId)
         .single(),
       supabase
         .from("order_assignments")
-        .select("resources(holder_gender)")
+        .select("resources(id, holder_gender)")
         .eq("order_id", orderId),
       supabase
         .from("order_assignments")
@@ -77,8 +78,12 @@ async function addAssignment(orderId: string, resourceId: string) {
 
   if (!ord || !sup) throw new Error("订单或资源不存在");
 
-  // 四条校验，跟匹配台那条路径必须一致
+  // 校验，跟匹配台那条路径必须一致
   if (sup.status !== "active") throw new Error("这个资源不在出租中");
+  // 配多了 / 配重了。以前只靠界面藏按钮，拖拽分配把这个洞暴露了
+  const already = (existingRows ?? []).map((r: any) => r.resources).filter(Boolean);
+  const extra = extraAssignmentReason(ord, already, sup);
+  if (extra) throw new Error(extra);
   // 类型要能进这个地点。地点名认不出来就不拦 —— 判断不了不等于不合法
   const itemConflict = itemConflictReason(sup, ord.location);
   if (itemConflict) throw new Error(itemConflict);

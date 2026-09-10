@@ -126,7 +126,7 @@ export function recommendResources(input: RecommendInput): Scored[] {
 
     // 2. 地理惯性：这个资源以前就在这一片被用过。
     //    除了「理所应当」之外还有个实际好处 —— 同一个资源的使用地点前后一致，
-    //    比一个资源这周在 RegionA、下周在 Vermont 要自然得多。
+    //    比一个资源这周在 RegionB、下周在 Vermont 要自然得多。
     const settledPast = past.filter((p) => SETTLED.has(p.status));
     const hitVenue = settledPast.find((p) => sameVenue(p.location, order.location));
     const hitRegion = settledPast.find((p) => sameRegion(p.location, order.location));

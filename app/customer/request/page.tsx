@@ -122,7 +122,7 @@ export default async function CustomerRequestPage({
           想去哪个地点
           <LocationInput
             name="location"
-            placeholder="比如 locbe（打字会有提示）"
+            placeholder="比如 locaj（打字会有提示）"
             required
             style={inputStyle}
           />

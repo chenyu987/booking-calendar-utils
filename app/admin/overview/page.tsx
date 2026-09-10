@@ -7,6 +7,8 @@ import ResizableOrderBlock from "./ResizableOrderBlock";
 import OptimisticEditForm from "./OptimisticEditForm";
 import NewOrderSelector from "./NewOrderSelector";
 import AssigningBar from "./AssigningBar";
+import DragAssign from "./DragAssign";
+import FilterForm from "@/app/admin/orders/FilterForm";
 import PanelScroller from "./PanelScroller";
 import CollapsibleResourcePanel from "./CollapsibleResourcePanel";
 import CollapsibleFilters from "./CollapsibleFilters";
@@ -42,7 +44,15 @@ import {
   formatNeed,
   formatGap,
 } from "@/lib/assignment";
-import { isUnknownLocation, locationHintFor } from "@/lib/locations";
+import {
+  LOCATION_OPTIONS,
+  REGION_LABELS,
+  isUnknownLocation,
+  locationHintFor,
+  normalizeLocation,
+  sameVenue,
+  type Region,
+} from "@/lib/locations";
 import LocationInput from "@/components/LocationInput";
 import {
   formatRun,
@@ -244,6 +254,9 @@ export default async function OverviewPage({
     q?: string;
     assign?: string;
     allcards?: string;
+    region?: string;
+    mtn?: string;
+    sregion?: string;
   };
 }) {
   const [
@@ -332,6 +345,22 @@ export default async function OverviewPage({
     });
   }
 
+  // 每个资源上一次去的是哪一片区域 —— 左边按这个筛，就能只挑「一直在这一片用」的资源。
+  // 取的是**最近一次**（按结束日期最大），跟卡片上「已排 …」那一行默认停在最右边
+  // 是同一个意思：最近去哪对配下一单最有参考价值。
+  // 认不出地点名的那几段跳过，不能因为写错一个名字就让整个资源归错区。
+  const lastRegionOf = (resourceId: string): Region | null => {
+    let best: { end: string; region: Region } | null = null;
+    for (const b of bookingsByResource.get(resourceId) ?? []) {
+      const region = normalizeLocation(b.location)?.region;
+      if (!region) continue;
+      const end = [...(b.days ?? [])].sort().at(-1);
+      if (!end) continue;
+      if (!best || end > best.end) best = { end, region };
+    }
+    return best?.region ?? null;
+  };
+
   // 左边卡片清单的筛选
   // 挂牌状态默认只看「出租中」——暂停和已下架的平时不该占地方
   const f = {
@@ -339,21 +368,52 @@ export default async function OverviewPage({
     gender: searchParams.gender ?? "",
     sstatus: searchParams.sstatus || "active",
     q: (searchParams.q ?? "").trim().toLowerCase(),
+    // 上次去的区域。"none" 是「还没排过 / 认不出地点名」那一档
+    sregion: searchParams.sregion ?? "",
   };
   const resources = (allResources ?? []).filter((s: any) => {
     if (f.item && s.item_type !== f.item) return false;
     if (f.gender && s.holder_gender !== f.gender) return false;
     if (f.sstatus !== "all" && s.status !== f.sstatus) return false;
     if (f.q && !(s.holder_name ?? "").toLowerCase().includes(f.q)) return false;
+    if (f.sregion) {
+      const last = lastRegionOf(s.id);
+      if (f.sregion === "none") {
+        // 只看还没排过的
+        if (last !== null) return false;
+      } else if (last !== null && last !== f.sregion) {
+        // **还没排过的资源不筛掉**：它不属于任何一片，但对哪一片都可用，
+        // 筛掉等于把最灵活的那批资源藏起来，正好跟这个筛选的目的相反
+        return false;
+      }
+    }
     return true;
   });
   const hasFilter = Boolean(
-    f.item || f.gender || f.q || f.sstatus !== "active"
+    f.item || f.gender || f.q || f.sregion || f.sstatus !== "active"
   );
   const resourceTotal = (allResources ?? []).length;
 
+  // 按区域 / 具体的地点筛订单。
+  //
+  // **只筛日历和统计，不筛资源面板那边的排期历史** —— 一个资源去过哪几个地点是它
+  // 自己的事实，不该因为当前在看 RegionB 就少掉几段。bookedDays / assignHistory
+  // 都是上面用全部订单算好的，这里不动它们。
+  const orderFilter = {
+    region: (searchParams.region ?? "") as Region | "",
+    mtn: searchParams.mtn ?? "",
+  };
+  const hasOrderFilter = Boolean(orderFilter.region || orderFilter.mtn);
+  const matchesOrderFilter = (o: any) => {
+    if (orderFilter.mtn) return sameVenue(o.location, orderFilter.mtn);
+    if (orderFilter.region) {
+      return normalizeLocation(o.location)?.region === orderFilter.region;
+    }
+    return true;
+  };
+
   const withDays = (orders ?? []).filter(
-    (o: any) => o.demand_days && o.demand_days.length > 0
+    (o: any) => o.demand_days && o.demand_days.length > 0 && matchesOrderFilter(o)
   );
 
   const allDays = withDays.flatMap((o: any) => o.demand_days).sort();
@@ -540,8 +600,11 @@ export default async function OverviewPage({
     if (f.gender) p.set("gender", f.gender);
     if (f.sstatus !== "active") p.set("sstatus", f.sstatus); // active 是默认，不写进 URL
     if (f.q) p.set("q", f.q);
+    if (f.sregion) p.set("sregion", f.sregion);
     if (searchParams.assign) p.set("assign", searchParams.assign);
     if (searchParams.allcards) p.set("allcards", searchParams.allcards);
+    if (searchParams.region) p.set("region", searchParams.region);
+    if (searchParams.mtn) p.set("mtn", searchParams.mtn);
     for (const [k, v] of Object.entries(extra)) {
       if (v) p.set(k, v);
       else p.delete(k);
@@ -639,6 +702,8 @@ export default async function OverviewPage({
       <BulkSelect />
       {/* 让分配模式那一行的「已配的资源」能用纵向滚轮横着滚，够到后面的人 */}
       <CardsRowScroll />
+      {/* 从左边把资源拖到订单色块上分配。分配模式开不开都能用 */}
+      <DragAssign />
       {/* 填地点名的输入框共用这一份补全列表 */}
 
       {/* 统计 / 状态图例 / 缩放 / 资源面板 / 日历 全交给 ZoomableCalendar 排版。
@@ -648,6 +713,8 @@ export default async function OverviewPage({
         panel={
           <ResourcePanel
             assignHistory={assignHistory}
+            orderRegion={orderFilter.region}
+            orderMtn={orderFilter.mtn}
             showAllCards={searchParams.allcards === "1"}
             showAllHref={qs({ allcards: "1" })}
             hideUnusableHref={qs({ allcards: "" })}
@@ -686,6 +753,60 @@ export default async function OverviewPage({
           value={String(weekNotFullyAssigned)}
           highlight={weekNotFullyAssigned > 0}
         />
+        {/* 按区域 / 具体的地点筛订单。用 GET 表单不用 useState —— 跟这个项目里
+            其它筛选一个路子，筛选状态留在 URL 上，刷新和分享链接都还在。
+            选完自动提交（onChange 交给 FilterAutoSubmit，跟资源筛选共用）。 */}
+        <FilterForm action="/admin/overview" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {/* 资源面板那边的筛选也在 URL 上，这个表单一提交就会把它们冲掉，
+              所以原样带过去 */}
+          {f.item && <input type="hidden" name="item" value={f.item} />}
+          {f.gender && <input type="hidden" name="gender" value={f.gender} />}
+          {f.sstatus !== "active" && (
+            <input type="hidden" name="sstatus" value={f.sstatus} />
+          )}
+          {f.q && <input type="hidden" name="q" value={f.q} />}
+          {searchParams.assign && (
+            <input type="hidden" name="assign" value={searchParams.assign} />
+          )}
+          {/* key 不能省：defaultValue 只在挂载时读一次，URL 上的参数变了（比如建完
+              新单把筛选清掉了）而 DOM 节点被复用，下拉框会一直显示旧值 ——
+              看起来就像「筛选还开着但没生效」。把值拼进 key，值一变就重新挂载。
+              CLAUDE.md 里分配输入框那段记的是同一个坑。 */}
+          <select
+            key={`region-${orderFilter.region}`}
+            name="region"
+            defaultValue={orderFilter.region}
+            style={{ ...selectStyle, fontSize: 12, padding: "2px 4px" }}
+          >
+            <option value="">全部区域</option>
+            {(Object.keys(REGION_LABELS) as Region[]).map((r) => (
+              <option key={r} value={r}>
+                {REGION_LABELS[r]}
+              </option>
+            ))}
+          </select>
+          <select
+            key={`mtn-${orderFilter.mtn}`}
+            name="mtn"
+            defaultValue={orderFilter.mtn}
+            style={{ ...selectStyle, fontSize: 12, padding: "2px 4px" }}
+          >
+            <option value="">全部地点</option>
+            {LOCATION_OPTIONS.filter(
+              (m) => !orderFilter.region || m.region === orderFilter.region
+            ).map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.value} · {m.label}
+              </option>
+            ))}
+          </select>
+          {hasOrderFilter && (
+            <Link href={qs({ region: "", mtn: "" })} style={{ fontSize: 12, color: "#888" }}>
+              清除
+            </Link>
+          )}
+        </FilterForm>
+
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {Object.entries(STATUS_LABELS).map(([key, label]) => {
             const c = statusColor(key);
@@ -1429,6 +1550,8 @@ export default async function OverviewPage({
 function ResourcePanel({
   assignHistory,
   bookingsByResource,
+  orderRegion,
+  orderMtn,
   showAllCards,
   showAllHref,
   hideUnusableHref,
@@ -1450,7 +1573,9 @@ function ResourcePanel({
   showAllHref: string;
   hideUnusableHref: string;
   resources: any[];
-  filters: { item: string; gender: string; sstatus: string; q: string };
+  filters: { item: string; gender: string; sstatus: string; q: string; sregion: string };
+  orderRegion: string;
+  orderMtn: string;
   hasFilter: boolean;
   total: number;
   loadError?: string;
@@ -1513,14 +1638,18 @@ function ResourcePanel({
         summary={filterSummary}
         clearHref="/admin/overview"
       >
-      <form
-        method="GET"
+      <FilterForm
+        action="/admin/overview"
         style={{ display: "flex", flexDirection: "column", gap: 6 }}
       >
         {assigningOrder && (
           <input type="hidden" name="assign" value={assigningOrder.id} />
         )}
+        {/* 顶上那两个订单筛选也在 URL 上，这个表单一提交会把它们冲掉，原样带过去 */}
+        {orderRegion && <input type="hidden" name="region" value={orderRegion} />}
+        {orderMtn && <input type="hidden" name="mtn" value={orderMtn} />}
         <input
+          key={`q-${filters.q}`}
           name="q"
           defaultValue={filters.q}
           placeholder="搜物主姓名"
@@ -1531,6 +1660,7 @@ function ResourcePanel({
         />
         <div style={{ display: "flex", gap: 6 }}>
           <select
+            key={`item-${filters.item}`}
             name="item"
             defaultValue={filters.item}
             style={{ ...selectStyle, flex: 1, minWidth: 0 }}
@@ -1540,6 +1670,7 @@ function ResourcePanel({
             <option value="alpha">alpha</option>
           </select>
           <select
+            key={`gender-${filters.gender}`}
             name="gender"
             defaultValue={filters.gender}
             style={{ ...selectStyle, flex: 1, minWidth: 0 }}
@@ -1549,7 +1680,30 @@ function ResourcePanel({
             <option value="female">女资源</option>
           </select>
         </div>
+        {/* 上次去的区域。顶上按区域筛订单、这里按同一片筛资源，
+            就能只在「一直在这一片用」的资源里配 —— 资源的使用轨迹前后一致，
+            也正是推荐算法里「同一片区域」那条信号 */}
         <select
+          key={`sregion-${filters.sregion}`}
+          name="sregion"
+          defaultValue={filters.sregion}
+          style={{ ...selectStyle, width: "100%" }}
+        >
+          <option value="">上次去哪都行</option>
+          {(Object.keys(REGION_LABELS) as Region[]).map((r) => (
+            <option key={r} value={r}>
+              上次去过 {REGION_LABELS[r]}
+            </option>
+          ))}
+          <option value="none">只看还没排过的</option>
+        </select>
+        {filters.sregion && filters.sregion !== "none" && (
+          <span style={{ fontSize: 11, color: "#aaa", marginTop: -2 }}>
+            还没排过的资源不受这条影响，一直显示
+          </span>
+        )}
+        <select
+          key={`sstatus-${filters.sstatus}`}
           name="sstatus"
           defaultValue={filters.sstatus}
           style={{ ...selectStyle, width: "100%" }}
@@ -1561,17 +1715,20 @@ function ResourcePanel({
           ))}
           <option value="all">全部挂牌</option>
         </select>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button type="submit" style={buttonStyle}>
-            筛选
-          </button>
-          {hasFilter && (
-            <Link href="/admin/overview" style={linkButtonStyle}>
-              清除
-            </Link>
+        {/* 没有「筛选」按钮：选完就自动筛（FilterForm 干的），少点一下 */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+          {hasFilter ? (
+            <>
+              <span style={{ color: "#a8620d" }}>{resources.length} 张</span>
+              <Link href="/admin/overview" style={linkButtonStyle}>
+                清除
+              </Link>
+            </>
+          ) : (
+            <span style={{ color: "#aaa" }}>选完自动筛</span>
           )}
         </div>
-      </form>
+      </FilterForm>
       </CollapsibleFilters>
 
       {resources.length === 0 ? (
@@ -1810,15 +1967,27 @@ function ResourceGroup({
                 background: isAssigned ? "#f2f9f4" : "#fff",
                 // 右上角那块操作区要绝对定位（见下面 hasAction）
                 position: "relative",
+                // 可以拿起来拖到订单上分配（DragAssign）
+                cursor: "grab",
               }}
+              data-resource-id={s.id}
+              data-resource-name={s.holder_name ?? "这个资源"}
             >
               <Link
                 href={`/admin/resources?edit=${s.id}`}
+                // 单击被 DragAssign 吞掉了（改成双击进详情），光标跟着卡片走，
+                // 别显示成「这里能点开」
+                draggable={false}
                 // 有效期不占一行了 —— 它只在「配不了」的时候才有用，
                 // 而那种时候按钮位置本来就会写明「订单日期超出有效期（…）」。
                 // 平时想查就悬停看这里。
-                title={`有效期 ${s.date_range_start} ~ ${s.date_range_end}`}
-                style={{ textDecoration: "none", color: "inherit", display: "block" }}
+                title={`有效期 ${s.date_range_start} ~ ${s.date_range_end}　（双击打开这个资源）`}
+                style={{
+                  textDecoration: "none",
+                  color: "inherit",
+                  display: "block",
+                  cursor: "inherit",
+                }}
               >
                 <div
                   style={{

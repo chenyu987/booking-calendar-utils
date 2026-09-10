@@ -11,12 +11,12 @@ import { LOCATION_OPTIONS } from "@/lib/locations";
  * 所以改成按输入动态生成：没打字就一个选项都不给（连 list 属性都不挂，
  * 浏览器自然什么都不弹）。
  *
- * **从头匹配，不是包含**：打「pe」只出 locbg，不出 locam ——
+ * **从头匹配，不是包含**：打「pe」只出 locbl，不出 locao ——
  * 中间碰巧含这两个字母的不该冒出来，一冒出来就得费眼睛去分辨。
  *
- * 除了库里的写法，全称和区域也能从头打：打「whis」出 locbe，
- * 打「regionA」出 locaa / ns / locac。按**词**判断开头，
- * 所以「Mount Locam」打「suna」出得来，打「ount」出不来。
+ * 除了库里的写法，全称和区域也能从头打：打「whis」出 locaj，
+ * 打「regionB」出 locag / ns / locai。按**词**判断开头，
+ * 所以「Mount Locao」打「suna」出得来，打「ount」出不来。
  * 最多给 8 条，多了还是糊屏。
  *
  * 受控（value + onChange）和非受控（defaultValue）两种都支持 ——

@@ -11,7 +11,7 @@ const card = (id: string, extra: Partial<Candidate> = {}): Candidate => ({
 });
 
 const base = {
-  order: { customerId: "customer-A", location: "locaa", demandDays: ["2026-01-10"] },
+  order: { customerId: "customer-A", location: "locag", demandDays: ["2026-01-10"] },
   customerAge: null as number | null,
   history: [] as PastUse[],
 };
@@ -28,7 +28,7 @@ describe("回头客复用", () => {
         {
           resourceId: "used",
           customerId: "customer-A",
-          location: "locaa",
+          location: "locag",
           status: "complete",
           days: ["2025-12-01"],
         },
@@ -47,7 +47,7 @@ describe("回头客复用", () => {
         {
           resourceId: "s1",
           customerId: "customer-B",
-          location: "locaa",
+          location: "locag",
           status: "complete",
           days: [],
         },
@@ -82,34 +82,34 @@ describe("地理惯性", () => {
     const out = recommendResources({
       ...base,
       candidates: [card("same"), card("region"), card("far")],
-      history: [mk("same", "locaa"), mk("region", "locac"), mk("far", "locaj")],
+      history: [mk("same", "locag"), mk("region", "locai"), mk("far", "local")],
     });
     expect(scoreOf(out, "same").score).toBeGreaterThan(scoreOf(out, "region").score);
     expect(scoreOf(out, "region").score).toBeGreaterThan(scoreOf(out, "far").score);
   });
 
-  it("用户举的例子：9 号去 locaa，上次去过 locac 的资源应该被推荐", () => {
+  it("用户举的例子：9 号去 locag，上次去过 locai 的资源应该被推荐", () => {
     const out = recommendResources({
       ...base,
-      candidates: [card("regionA-card"), card("vermont-card")],
+      candidates: [card("regionB-card"), card("vermont-card")],
       history: [
         {
-          resourceId: "regionA-card",
+          resourceId: "regionB-card",
           customerId: "someone",
-          location: "locac",
+          location: "locai",
           status: "complete",
           days: [],
         },
         {
           resourceId: "vermont-card",
           customerId: "someone",
-          location: "locak",
+          location: "locam",
           status: "complete",
           days: [],
         },
       ],
     });
-    expect(scoreOf(out, "regionA-card").top).toBe(true);
+    expect(scoreOf(out, "regionB-card").top).toBe(true);
     expect(scoreOf(out, "vermont-card").top).toBe(false);
   });
 });
@@ -198,8 +198,8 @@ describe("打星星的门槛", () => {
       ...base,
       candidates: [card("a"), card("b")],
       history: [
-        { resourceId: "a", customerId: "x", location: "locaa", status: "complete", days: [] },
-        { resourceId: "b", customerId: "y", location: "locaa", status: "complete", days: [] },
+        { resourceId: "a", customerId: "x", location: "locag", status: "complete", days: [] },
+        { resourceId: "b", customerId: "y", location: "locag", status: "complete", days: [] },
       ],
     });
     expect(out.filter((s) => s.top).length).toBe(2);
@@ -215,7 +215,7 @@ describe("没填地点 / 地点名认不出来就不推荐", () => {
       history: [
         // 就算是回头客也不推 —— 地理和类型两个主信号都判断不了的时候，
         // 硬推一张比不推更危险
-        { resourceId: "a", customerId: "customer-A", location: "locbg", status: "complete", days: [] },
+        { resourceId: "a", customerId: "customer-A", location: "locbl", status: "complete", days: [] },
       ],
     });
     expect(out.every((s) => !s.top && s.signals.length === 0)).toBe(true);

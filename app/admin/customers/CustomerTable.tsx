@@ -209,7 +209,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
               <input
                 value={footprint}
                 onChange={(e) => setFootprint(e.target.value)}
-                placeholder="筛选地点或日期，如 locbg / 1/18"
+                placeholder="筛选地点或日期，如 locbl / 1/18"
                 style={filterInputStyle}
               />
             </th>

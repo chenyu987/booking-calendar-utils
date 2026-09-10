@@ -69,3 +69,37 @@ export function formatGap(n: Need): string {
   if (n.femaleGap > 0) parts.push(`${n.femaleGap}张女资源`);
   return parts.length > 0 ? `还差 ${parts.join("、")}` : "已配齐";
 }
+
+/**
+ * 再配一个资源进这一单，合不合规矩。合规返回 null，不合规返回一句人话。
+ *
+ * 这两条以前只靠界面拦（配齐了就把「配这单」按钮藏掉），服务端没查过 ——
+ * 拖拽分配一上来就把这个洞暴露了：拖过去照样能配，一个只要 1 张男资源的单
+ * 能配上 2 张。CLAUDE.md 里那句「服务端必须校验，不能只靠界面藏按钮」
+ * 说的就是这种事。
+ *
+ * 放在 lib 里而不是各写一份：分配有两条路径（排期总览的 addAssignment、
+ * 匹配台把 match 改成 chosen），两边必须是同一套判断。
+ */
+export function extraAssignmentReason(
+  order: { male_count?: number | null; female_count?: number | null },
+  assignedResources: { id?: string; holder_gender?: string | null }[],
+  candidate: { id?: string; holder_gender?: string | null; holder_name?: string | null }
+): string | null {
+  const name = candidate.holder_name ?? "这个资源";
+
+  // 同一个资源不能配给同一单两次。库里有 unique(order_id, resource_id) 兜底，
+  // 但那报出来是一串 Postgres 约束错误，看不懂，所以这里先给一句人话
+  if (candidate.id && assignedResources.some((s) => s.id === candidate.id)) {
+    return `${name} 已经配给这一单了`;
+  }
+
+  const need = computeNeed(order, assignedResources);
+  if (candidate.holder_gender === "male" && need.maleGap === 0) {
+    return `这一单只要 ${need.maleNeeded} 张男资源，已经配齐了`;
+  }
+  if (candidate.holder_gender === "female" && need.femaleGap === 0) {
+    return `这一单只要 ${need.femaleNeeded} 张女资源，已经配齐了`;
+  }
+  return null;
+}

@@ -68,13 +68,13 @@ describe("itemConflictReason（第四条校验：类型要能进这个地点）"
   const betaCard = { item_type: "beta", holder_name: "B" };
 
   it("alpha 资源配 Alpha 的地点 → 放行", () => {
-    expect(itemConflictReason(alphaCard, "locbg")).toBeNull();
-    expect(itemConflictReason(alphaCard, "locbe")).toBeNull();
+    expect(itemConflictReason(alphaCard, "locbl")).toBeNull();
+    expect(itemConflictReason(alphaCard, "locaj")).toBeNull();
   });
 
   it("beta 资源配 Alpha 的地点 → 拦住，并说清楚为什么", () => {
-    const reason = itemConflictReason(betaCard, "locbh");
-    expect(reason).toContain("locbh");
+    const reason = itemConflictReason(betaCard, "locbm");
+    expect(reason).toContain("locbm");
     expect(reason).toContain("alpha");
     expect(reason).toContain("beta");
     expect(reason).toContain("B");
@@ -88,6 +88,6 @@ describe("itemConflictReason（第四条校验：类型要能进这个地点）"
   });
 
   it("类型没填也不拦", () => {
-    expect(itemConflictReason({ item_type: null, holder_name: "C" }, "locbg")).toBeNull();
+    expect(itemConflictReason({ item_type: null, holder_name: "C" }, "locbl")).toBeNull();
   });
 });

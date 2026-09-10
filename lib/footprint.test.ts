@@ -7,20 +7,20 @@ describe("orderSegments", () => {
       orderSegments({
         customer_id: "r1",
         demand_days: ["2026-01-18", "2026-01-19"],
-        location: "locbg",
+        location: "locbl",
         status: "complete",
       })
-    ).toEqual([{ label: "1/18~1/19 locbg", start: "2026-01-18", inactive: false }]);
+    ).toEqual([{ label: "1/18~1/19 locbl", start: "2026-01-18", inactive: false }]);
   });
 
   it("单天不写成区间", () => {
     const segs = orderSegments({
       customer_id: "r1",
       demand_days: ["2026-02-01"],
-      location: "locbi",
+      location: "locbn",
       status: "complete",
     });
-    expect(segs[0].label).toBe("2/1 locbi");
+    expect(segs[0].label).toBe("2/1 locbn");
   });
 
   it("不连续的日期拆成多段（只用 24、25、27）", () => {
@@ -51,7 +51,7 @@ describe("orderSegments", () => {
       const segs = orderSegments({
         customer_id: "r1",
         demand_days: ["2026-01-18"],
-        location: "locbg",
+        location: "locbl",
         status,
       });
       expect(segs).toHaveLength(1);
@@ -64,7 +64,7 @@ describe("orderSegments", () => {
       orderSegments({
         customer_id: "r1",
         demand_days: [],
-        location: "locbg",
+        location: "locbl",
         status: "created",
       })
     ).toEqual([]);
@@ -72,7 +72,7 @@ describe("orderSegments", () => {
       orderSegments({
         customer_id: "r1",
         demand_days: null,
-        location: "locbg",
+        location: "locbl",
         status: "created",
       })
     ).toEqual([]);
@@ -84,13 +84,13 @@ describe("buildFootprints", () => {
     {
       customer_id: "r1",
       demand_days: ["2026-01-18", "2026-01-19"],
-      location: "locbg",
+      location: "locbl",
       status: "complete",
     },
     {
       customer_id: "r1",
       demand_days: ["2026-02-01", "2026-02-02", "2026-02-03"],
-      location: "locbi",
+      location: "locbn",
       status: "complete",
     },
     {
@@ -109,8 +109,8 @@ describe("buildFootprints", () => {
   it("段按时间倒序，最近的在前", () => {
     const r1 = buildFootprints(orders).get("r1")!;
     expect(r1.segments.map((s) => s.label)).toEqual([
-      "2/1~2/3 locbi",
-      "1/18~1/19 locbg",
+      "2/1~2/3 locbn",
+      "1/18~1/19 locbl",
     ]);
   });
 
@@ -133,11 +133,11 @@ describe("buildFootprints", () => {
       {
         customer_id: "r1",
         demand_days: ["2026-01-18"],
-        location: "Locbg",
+        location: "Locbl",
         status: "complete",
       },
     ]).get("r1")!;
-    expect(r1.searchText).toContain("locbg");
+    expect(r1.searchText).toContain("locbl");
     expect(r1.searchText).toContain("1/18");
   });
 

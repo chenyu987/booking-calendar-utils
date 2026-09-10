@@ -16,7 +16,7 @@ export type FootprintOrder = {
 };
 
 export type FootprintSegment = {
-  // 显示用：「1/18~1/19 locbg」
+  // 显示用：「1/18~1/19 locbl」
   label: string;
   // 排序用的 ISO 起始日
   start: string;

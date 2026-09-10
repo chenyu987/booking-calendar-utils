@@ -2,7 +2,11 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { formatParty } from "@/lib/party";
 import { formatHolder } from "@/lib/age";
-import { computeNeed, findConflictingDays } from "@/lib/assignment";
+import {
+  computeNeed,
+  extraAssignmentReason,
+  findConflictingDays,
+} from "@/lib/assignment";
 import { coversOrder, itemConflictReason } from "@/lib/resourceStatus";
 import {
   formStyle,
@@ -52,15 +56,16 @@ async function updateMatchStatus(formData: FormData) {
   // chosen：把这个资源加到订单的分配里（一个订单可以配多张，1男1女要两张）
   if (newStatus === "chosen") {
     // 订单那几天资源必须有效
-    const [{ data: ord }, { data: sup }, { data: otherAssignments }] = await Promise.all([
+    const [{ data: ord }, { data: sup }, { data: otherAssignments }, { data: alreadyRows }] =
+      await Promise.all([
       supabase
         .from("orders")
-        .select("demand_days, location")
+        .select("demand_days, location, male_count, female_count")
         .eq("id", match.order_id)
         .single(),
       supabase
         .from("resources")
-        .select("date_range_start, date_range_end, status, holder_name, item_type")
+        .select("id, date_range_start, date_range_end, status, holder_name, holder_gender, item_type")
         .eq("id", match.resource_id)
         .single(),
       supabase
@@ -68,9 +73,18 @@ async function updateMatchStatus(formData: FormData) {
         .select("orders(demand_days)")
         .eq("resource_id", match.resource_id)
         .neq("order_id", match.order_id),
+      // 这一单已经配了哪些资源 —— 判断配多了/配重了要用
+      supabase
+        .from("order_assignments")
+        .select("resources(id, holder_gender)")
+        .eq("order_id", match.order_id),
     ]);
     if (!ord || !sup) throw new Error("订单或资源不存在");
     if (sup.status !== "active") throw new Error("这个资源不在出租中");
+    // 配多了 / 配重了，跟排期总览那条路径同一个判断
+    const already = (alreadyRows ?? []).map((r: any) => r.resources).filter(Boolean);
+    const extra = extraAssignmentReason(ord, already, sup);
+    if (extra) throw new Error(extra);
     // 类型要能进这个地点，跟排期总览那条路径同一个判断
     const itemConflict = itemConflictReason(sup, ord.location);
     if (itemConflict) throw new Error(itemConflict);

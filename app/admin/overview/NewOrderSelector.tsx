@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { dateRangeToArray } from "@/lib/dates";
 import { computeTotalFromPerDay } from "@/lib/pricing";
 import LocationInput from "@/components/LocationInput";
+import { normalizeLocation, sameVenue } from "@/lib/locations";
 
 const GAP = 2;
 const POPUP_WIDTH = 260;
@@ -274,7 +275,26 @@ export default function NewOrderSelector({
       const newOrderId = await createOrderAction(fd);
       // 只 push 不 refresh：action 里已经 revalidatePath 过了，这次跳转拿到的就是
       // 新数据。多加一个 refresh 等于白等一次服务端来回（一个来回将近 1 秒）。
-      router.push(`/admin/overview?assign=${newOrderId}`);
+      // 跳转要**带上当前的筛选**。原来是 push 一个光秃秃的地址，
+      // 建完单区域筛选、资源筛选全没了，而下拉框还显示着旧值（非受控 select
+      // 只在挂载时读 defaultValue），看起来就像「筛选还开着但没生效」。
+      const params = new URLSearchParams(window.location.search);
+      params.set("assign", newOrderId);
+      // 但如果新建的这单跟当前区域/地点筛选对不上，就把这两个筛选去掉 ——
+      // 不然刚建好的单会被自己的筛选藏起来，人会以为没建成。
+      const region = params.get("region");
+      const mtn = params.get("mtn");
+      const typedLocation = location.trim();
+      const fitsFilter = mtn
+        ? sameVenue(typedLocation, mtn)
+        : region
+          ? normalizeLocation(typedLocation)?.region === region
+          : true;
+      if (!fitsFilter) {
+        params.delete("region");
+        params.delete("mtn");
+      }
+      router.push(`/admin/overview?${params.toString()}`);
     } catch {
       // 弹窗已经关了，错误得单独提示一下，不然建单失败会悄无声息
       setPending(null);

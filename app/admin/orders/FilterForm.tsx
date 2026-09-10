@@ -14,9 +14,12 @@ import { useRouter } from "next/navigation";
 export default function FilterForm({
   action,
   children,
+  style,
 }: {
   action: string;
   children: React.ReactNode;
+  /** 排期总览把它塞在统计行里，要能自己排版 */
+  style?: React.CSSProperties;
 }) {
   const router = useRouter();
 
@@ -34,6 +37,7 @@ export default function FilterForm({
     <form
       method="GET"
       action={action}
+      style={style}
       onChange={(e) => submit(e.currentTarget)}
       // 没有提交按钮时回车不会触发原生提交，但文本框的 change 已经覆盖了回车，
       // 这里兜一下防止将来有人加了按钮又忘了处理

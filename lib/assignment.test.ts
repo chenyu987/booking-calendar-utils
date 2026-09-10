@@ -1,11 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  computeNeed,
-  findConflictingDays,
-  formatNeed,
-  formatGap,
-  syncedAssignmentStatus,
-} from "./assignment";
+import { computeNeed, findConflictingDays, formatNeed, formatGap, syncedAssignmentStatus, extraAssignmentReason } from "./assignment";
 
 describe("computeNeed", () => {
   it("1男1女订单，两个资源都配了就算配齐", () => {
@@ -104,5 +98,47 @@ describe("syncedAssignmentStatus", () => {
     expect(syncedAssignmentStatus("pendingPayment", need)).toBe(
       "pendingPayment"
     );
+  });
+});
+
+describe("extraAssignmentReason（配多了 / 配重了）", () => {
+  const male = (id: string) => ({ id, holder_gender: "male", holder_name: id });
+  const female = (id: string) => ({ id, holder_gender: "female", holder_name: id });
+  const order = { male_count: 1, female_count: 1 };
+
+  it("还差就放行", () => {
+    expect(extraAssignmentReason(order, [], male("a"))).toBeNull();
+    expect(extraAssignmentReason(order, [male("a")], female("b"))).toBeNull();
+  });
+
+  it("这个性别配齐了就拦住，并说清楚要几张", () => {
+    const reason = extraAssignmentReason(order, [male("a")], male("b"));
+    expect(reason).toContain("只要 1 张男资源");
+    expect(reason).toContain("配齐");
+  });
+
+  it("男资源配齐了不影响女资源", () => {
+    expect(extraAssignmentReason(order, [male("a")], female("b"))).toBeNull();
+  });
+
+  it("同一个资源不能配给同一单两次", () => {
+    const reason = extraAssignmentReason(order, [male("a")], male("a"));
+    expect(reason).toContain("已经配给这一单了");
+  });
+
+  it("重复优先于「配齐了」—— 说「已经配过」比说「配齐了」更贴近实际发生的事", () => {
+    const o = { male_count: 1, female_count: 0 };
+    expect(extraAssignmentReason(o, [male("a")], male("a"))).toContain("已经配给这一单");
+  });
+
+  it("2男的单可以配两张男资源，第三张才拦", () => {
+    const o = { male_count: 2, female_count: 0 };
+    expect(extraAssignmentReason(o, [male("a")], male("b"))).toBeNull();
+    expect(extraAssignmentReason(o, [male("a"), male("b")], male("c"))).toContain("只要 2 张男资源");
+  });
+
+  it("性别没填的资源不按性别拦（那是另一个问题）", () => {
+    const o = { male_count: 1, female_count: 0 };
+    expect(extraAssignmentReason(o, [male("a")], { id: "x", holder_gender: null })).toBeNull();
   });
 });

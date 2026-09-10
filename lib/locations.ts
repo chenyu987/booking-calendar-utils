@@ -3,98 +3,95 @@ export type ItemType = "beta" | "alpha";
 
 export type Region =
   | "regionA"
-  | "co"
+  | "regionB"
   | "regionC"
-  | "vt"
-  | "nh"
-  | "ny"
-  | "pa"
-  | "regionH"
-  | "bc"
-  | "regionJ"
-  | "regionK";
+  | "regionD"
+  | "regionE"
+  | "regionF"
+  | "regionG";
 
 /** label 只用来显示：输入框的补全列表里让人认得出这是哪个地点。匹配一律看 canonical */
 export type Venue = { canonical: string; region: Region; label: string };
 
 export const REGION_LABELS: Record<Region, string> = {
   regionA: "区域 A",
-  co: "区域 B",
+  regionB: "区域 B",
   regionC: "区域 C",
-  vt: "区域 D",
-  nh: "区域 E",
-  ny: "区域 F",
-  pa: "区域 G",
-  regionH: "区域 H",
-  bc: "区域 I",
-  regionJ: "区域 J",
-  regionK: "区域 K",
+  regionD: "区域 D",
+  regionE: "区域 E",
+  regionF: "区域 F",
+  regionG: "区域 G",
 };
 
 const VENUES: Venue[] = [
   { canonical: "locaa", region: "regionA", label: "地点 01" },
-  { canonical: "ns", region: "regionA", label: "地点 02" },
+  { canonical: "locab", region: "regionA", label: "地点 02" },
   { canonical: "locac", region: "regionA", label: "地点 03" },
+  { canonical: "locad", region: "regionA", label: "地点 04" },
+  { canonical: "locae", region: "regionA", label: "地点 05" },
+  { canonical: "locaf", region: "regionA", label: "地点 06" },
 
-  { canonical: "locad", region: "co", label: "地点 04" },
-  { canonical: "locae", region: "co", label: "地点 05" },
-  { canonical: "locaf", region: "co", label: "地点 06" },
-  { canonical: "locag", region: "co", label: "地点 07" },
-  { canonical: "locah", region: "co", label: "地点 08" },
+  { canonical: "locag", region: "regionB", label: "地点 07" },
+  { canonical: "ns", region: "regionB", label: "地点 08" },
+  { canonical: "locai", region: "regionB", label: "地点 09" },
 
-  { canonical: "locai", region: "regionC", label: "地点 09" },
+  { canonical: "locaj", region: "regionC", label: "地点 10" },
+  { canonical: "locak", region: "regionC", label: "地点 11" },
 
-  { canonical: "locaj", region: "vt", label: "地点 10" },
-  { canonical: "locak", region: "vt", label: "地点 11" },
-  { canonical: "local", region: "vt", label: "地点 12" },
+  { canonical: "local", region: "regionD", label: "地点 12" },
+  { canonical: "locam", region: "regionD", label: "地点 13" },
+  { canonical: "locan", region: "regionD", label: "地点 14" },
+  { canonical: "locao", region: "regionD", label: "地点 15" },
+  { canonical: "locap", region: "regionD", label: "地点 16" },
+  { canonical: "locaq", region: "regionD", label: "地点 17" },
+  { canonical: "locar", region: "regionD", label: "地点 18" },
+  { canonical: "hunter", region: "regionD", label: "地点 19" },
 
-  { canonical: "locam", region: "nh", label: "地点 13" },
-  { canonical: "locan", region: "nh", label: "地点 14" },
-  { canonical: "locao", region: "nh", label: "地点 15" },
-  { canonical: "locap", region: "nh", label: "地点 16" },
+  { canonical: "liberty", region: "regionE", label: "地点 20" },
+  { canonical: "locau", region: "regionE", label: "地点 21" },
+  { canonical: "locav", region: "regionE", label: "地点 22" },
+  { canonical: "locaw", region: "regionE", label: "地点 23" },
+  { canonical: "locax", region: "regionE", label: "地点 24" },
+  { canonical: "locay", region: "regionE", label: "地点 25" },
+  { canonical: "locaz", region: "regionE", label: "地点 26" },
+  { canonical: "locba", region: "regionE", label: "地点 27" },
 
-  { canonical: "hunter", region: "ny", label: "地点 17" },
+  { canonical: "locbb", region: "regionF", label: "地点 28" },
+  { canonical: "locbc", region: "regionF", label: "地点 29" },
+  { canonical: "locbd", region: "regionF", label: "地点 30" },
+  { canonical: "locbe", region: "regionF", label: "地点 31" },
+  { canonical: "locbf", region: "regionF", label: "地点 32" },
+  { canonical: "locbg", region: "regionF", label: "地点 33" },
+  { canonical: "locbh", region: "regionF", label: "地点 34" },
+  { canonical: "locbi", region: "regionF", label: "地点 35" },
+  { canonical: "locbj", region: "regionF", label: "地点 36" },
+  { canonical: "locbk", region: "regionF", label: "地点 37" },
 
-  { canonical: "locar", region: "pa", label: "地点 18" },
-  { canonical: "locas", region: "pa", label: "地点 19" },
-  { canonical: "locat", region: "pa", label: "地点 20" },
-  { canonical: "locau", region: "pa", label: "地点 21" },
-  { canonical: "locav", region: "pa", label: "地点 22" },
-  { canonical: "liberty", region: "pa", label: "地点 23" },
-  { canonical: "locax", region: "pa", label: "地点 24" },
-  { canonical: "locay", region: "pa", label: "地点 25" },
-
-  { canonical: "locaz", region: "regionH", label: "地点 26" },
-  { canonical: "locba", region: "regionH", label: "地点 27" },
-  { canonical: "locbb", region: "regionH", label: "地点 28" },
-  { canonical: "locbc", region: "regionH", label: "地点 29" },
-  { canonical: "locbd", region: "regionH", label: "地点 30" },
-
-  { canonical: "locbe", region: "bc", label: "地点 31" },
-  { canonical: "locbf", region: "regionJ", label: "地点 32" },
-
-  { canonical: "locbg", region: "regionK", label: "地点 33" },
-  { canonical: "locbh", region: "regionK", label: "地点 34" },
-  { canonical: "locbi", region: "regionK", label: "地点 35" },
+  { canonical: "locbl", region: "regionG", label: "地点 38" },
+  { canonical: "locbm", region: "regionG", label: "地点 39" },
+  { canonical: "locbn", region: "regionG", label: "地点 40" },
 ];
 
 const ALIASES: Record<string, string> = {
   akaaa: "ns",
-  akaab: "locaf",
-  akaac: "locaf",
-  akaad: "locbe",
-  akaae: "locbe",
-  akaaf: "local",
-  snow: "local",
-  akaah: "locbh",
-  akaai: "locaz",
-  akaaj: "locar",
-  brighton: "locba",
-  locbd: "locbd",
-  akaam: "locai",
-  akaan: "locaa",
-  akaao: "locam",
-  akaap: "locah",
+  akaab: "locac",
+  akaac: "locac",
+  akaad: "locaj",
+  akaae: "locaj",
+  akaaf: "locan",
+  snow: "locan",
+  akaah: "locbm",
+  akaai: "locbb",
+  akaaj: "locay",
+  brighton: "locbc",
+  locbh: "locbh",
+  akaam: "locbe",
+  akaan: "locbj",
+  akaao: "locbk",
+  akaap: "locaf",
+  akaaq: "locag",
+  akaar: "locao",
+  akaas: "locae",
 };
 
 const BY_CANONICAL = new Map(VENUES.map((r) => [r.canonical, r]));
@@ -104,7 +101,7 @@ const BY_CANONICAL = new Map(VENUES.map((r) => [r.canonical, r]));
  * 「看得见的含糊」变成「看不见的错数据」。界面上会标红并列出可选项。
  */
 const AMBIGUOUS: Record<string, string[]> = {
-  hiddenvalley: ["locat", "locbc"],
+  hiddenvalley: ["locba", "locbi"],
 };
 
 function key(raw: string): string {
@@ -120,7 +117,7 @@ function lookup(k: string): Venue | null {
   return BY_CANONICAL.get(k) ?? BY_CANONICAL.get(ALIASES[k] ?? "") ?? null;
 }
 
-/** 一条需求可能写「locag/locaf」这种多个地点，取第一个认得的 */
+/** 一条需求可能写「locad/locac」这种多个地点，取第一个认得的 */
 export function normalizeLocation(raw?: string | null): Venue | null {
   if (!raw) return null;
   const whole = lookup(key(raw));
@@ -228,7 +225,14 @@ export function itemFits(
 }
 
 /** 输入框补全用的选项：值是库里的写法，旁边显示全称和区域 */
-export const LOCATION_OPTIONS: { value: string; hint: string }[] = VENUES.map((r) => ({
+export const LOCATION_OPTIONS: {
+  value: string;
+  label: string;
+  region: Region;
+  hint: string;
+}[] = VENUES.map((r) => ({
   value: r.canonical,
+  label: r.label,
+  region: r.region,
   hint: `${r.label} · ${REGION_LABELS[r.region]}`,
 })).sort((a, b) => a.value.localeCompare(b.value));
