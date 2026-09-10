@@ -2,8 +2,9 @@
 
 import { useEffect } from "react";
 
-// 分配模式下「已配的资源」那一行，人多了后面的够不着——名字被裁掉，
-// 撤销用的 × 也点不到。这里让那一行能横着滚。
+// 两处「单行放不下」的地方：分配色块里「已配的资源」那一行（人多了后面的够不着，
+// 名字被裁掉、撤销的 × 也点不到），以及左边资源清单上「已排 …」那一行
+// （一个资源排过好几段，后面的看不见）。这里让它们能横着滚。
 //
 // 横向手势（触控板左右划、Shift+滚轮）靠 CSS 的 overflow-x:auto 就够了，
 // 浏览器自己会处理。这个组件只补一件事：**纵向滚轮也能横着滚这一行**。
@@ -13,10 +14,25 @@ import { useEffect } from "react";
 // 鼠标一压到订单上整张表就滚不动了——而屏幕上大半地方都是订单。
 // 编辑中的色块同一时刻只有一个，而且你正盯着它，接管才不添乱。
 export default function CardsRowScroll() {
+  // 「已排 …」那一行默认停在最右边 —— 时间是正序排的（早 → 晚），
+  // 但最有用的是最近一次，所以视窗停在最新那一头，早期的踪迹推到左边，
+  // 想看往左滑。
+  //
+  // 没写依赖数组：这一行的内容是服务端渲染的，分配、改单、刷新之后 DOM 会换一批，
+  // 每次渲染完都重新对齐一次才不会停在半路。DOM 操作很便宜，一屏也就几十个。
+  useEffect(() => {
+    document.querySelectorAll<HTMLElement>(".booked-row").forEach((el) => {
+      el.scrollLeft = el.scrollWidth;
+    });
+  });
+
   useEffect(() => {
     function onWheel(e: WheelEvent) {
+      // 两处单行横滚：分配色块里「已配的资源」，以及左边资源清单上「已排 …」。
+      // 后者只在这个资源当前配得出去时才带 data-scrollable —— 那一列是个纵向滚动的
+      // 长列表，每个资源都吃掉滚轮的话列表本身就滚不动了。
       const el = (e.target as HTMLElement | null)?.closest?.(
-        "#assign-active-block .cards-row"
+        "#assign-active-block .cards-row, .booked-row[data-scrollable]"
       ) as HTMLElement | null;
       if (!el) return;
 

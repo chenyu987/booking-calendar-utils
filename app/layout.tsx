@@ -20,6 +20,17 @@ export default function RootLayout({
     >
       <head>
         <meta name="color-scheme" content="light" />
+        {/* 藏掉 Chrome 给 <input list> 画的那个 ▾ 按钮：色块里那个地点名框只有
+            几十像素宽，一个 ▾ 就占掉一大截还挡字。藏了之后补全照样有。
+            放这儿是因为项目没有全局样式表（全是内联样式），而这条规则四个页面都要。
+            用 dangerouslySetInnerHTML：JSX 会把属性选择器里的引号转义成 &quot;，
+            那条 CSS 就成了死的 —— 这个坑踩过一次（#21）。 */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html:
+              "input.location-input::-webkit-calendar-picker-indicator{display:none!important}",
+          }}
+        />
       </head>
       <body
         style={{

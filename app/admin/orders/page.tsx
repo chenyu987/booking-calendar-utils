@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
-import LocationDatalist, { LOCATION_LIST_ID } from "@/components/LocationDatalist";
+import LocationInput from "@/components/LocationInput";
 import { isUnknownLocation, locationHintFor } from "@/lib/locations";
 import { formatParty } from "@/lib/party";
 import { computeNeed, formatNeed } from "@/lib/assignment";
@@ -197,7 +197,6 @@ export default async function OrdersAdminPage({
   });
   return (
     <main>
-      <LocationDatalist />
       <h1 style={pageTitleStyle}>Order 管理</h1>
       <p style={helpTextStyle}>
         新增时金额按「单价 × 天数 × 人数」自动算。编辑时日期用逗号分隔，不连续的天也能填，
@@ -215,7 +214,7 @@ export default async function OrdersAdminPage({
             </option>
           ))}
         </select>
-        <input name="location" list={LOCATION_LIST_ID} placeholder="地点" style={inputStyle} />
+        <LocationInput name="location" placeholder="地点" style={inputStyle} />
         <input
           name="male_count"
           type="number"
@@ -272,9 +271,8 @@ export default async function OrdersAdminPage({
               />
             </div>
             <div style={{ ...cellStyle, flex: 1 }}>
-              <input
+              <LocationInput
                 name="location"
-                list={LOCATION_LIST_ID}
                 defaultValue={filters.location}
                 placeholder="地点"
                 style={filterInputStyle}
@@ -404,9 +402,8 @@ export default async function OrdersAdminPage({
               </select>
             </div>
             <div style={{ ...cellStyle, flex: 1 }}>
-              <input
+              <LocationInput
                 name="location"
-                list={LOCATION_LIST_ID}
                 defaultValue={o.location ?? ""}
                 style={{ ...inputStyle, width: "100%" }}
               />

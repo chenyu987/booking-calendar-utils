@@ -6,7 +6,7 @@ import ZoomableCalendar from "./ZoomableCalendar";
 import ResizableOrderBlock from "./ResizableOrderBlock";
 import OptimisticEditForm from "./OptimisticEditForm";
 import NewOrderSelector from "./NewOrderSelector";
-import DeleteOrderButton from "./DeleteOrderButton";
+import AssigningBar from "./AssigningBar";
 import PanelScroller from "./PanelScroller";
 import CollapsibleResourcePanel from "./CollapsibleResourcePanel";
 import CollapsibleFilters from "./CollapsibleFilters";
@@ -43,7 +43,13 @@ import {
   formatGap,
 } from "@/lib/assignment";
 import { isUnknownLocation, locationHintFor } from "@/lib/locations";
-import LocationDatalist, { LOCATION_LIST_ID } from "@/components/LocationDatalist";
+import LocationInput from "@/components/LocationInput";
+import {
+  formatRun,
+  sortChronologically,
+  toBookingRuns,
+  type Booking,
+} from "@/lib/booking";
 import {
   recommendResources,
   explain,
@@ -305,10 +311,17 @@ export default async function OverviewPage({
 
   // 推荐分配要看的历史：每个资源以前被配给过哪些单、那些单去了哪、走到哪一步了。
   // 这些数据上面已经查出来了，这里只是换个形状，不额外查库。
+  // 资源清单那行「已排 …」要按订单分组显示（哪几天去哪个地点），
+  // 跟 bookedDays 那个并集不是一回事：并起来就丢了「哪几天去哪」
+  const bookingsByResource = new Map<string, Booking[]>();
   const assignHistory: PastUse[] = [];
   for (const a of assignments ?? []) {
     const o: any = orderById.get(a.order_id);
     if (!o) continue;
+    bookingsByResource.set(a.resource_id, [
+      ...(bookingsByResource.get(a.resource_id) ?? []),
+      { days: o.demand_days ?? [], location: o.location ?? null },
+    ]);
     assignHistory.push({
       resourceId: a.resource_id,
       customerId: o.customer_id ?? null,
@@ -453,6 +466,73 @@ export default async function OverviewPage({
     ? computeNeed(assigningOrder, assignedTo.get((assigningOrder as any).id) ?? [])
     : null;
 
+  // 顶上那条浮动条里「输入物主名字分配」的候选。
+  //
+  // 用的是 allResources 不是筛选后的 resources：打名字本来就是绕开左边筛选的快捷方式，
+  // 筛掉的资源也该能直接叫出来。四条校验一条不少 —— 这里只是把「点得到」变成
+  // 「叫得出」，能不能配还是服务端说了算（route.ts 会再校验一遍）。
+  const assignableByName = (() => {
+    if (!assigningOrder || !assigningNeed) return [];
+    const order: any = assigningOrder;
+    const assignedIds = new Set(
+      (assignedTo.get(order.id) ?? []).map((x: any) => x.id)
+    );
+    const ok = (allResources ?? []).filter((s: any) => {
+      if (assignedIds.has(s.id)) return false;
+      if (s.status !== "active") return false;
+      if (itemConflictReason(s, order.location)) return false;
+      if (!coversOrder(s, order.demand_days)) return false;
+      const booked = new Set(bookedDays.get(s.id) ?? []);
+      if ((order.demand_days ?? []).some((d: string) => booked.has(d))) return false;
+      // 这个性别还有缺口才算数：男资源配齐了就别再让人叫出男资源
+      const gapForGender =
+        s.holder_gender === "male"
+          ? assigningNeed.maleGap
+          : s.holder_gender === "female"
+            ? assigningNeed.femaleGap
+            : 0;
+      return gapForGender > 0;
+    });
+
+    // 推荐的排前面 —— 打字时列表第一个就是最该配的那张
+    const scored = new Map(
+      recommendResources({
+        order: {
+          customerId: order.customer_id ?? null,
+          location: order.location ?? null,
+          demandDays: order.demand_days ?? [],
+        },
+        customerAge: calcAge(order.customers?.date_of_birth),
+        candidates: ok.map((s: any) => ({
+          id: s.id,
+          itemType: s.item_type ?? null,
+          holderDateOfBirth: s.holder_date_of_birth ?? null,
+          providerId: s.provider_id ?? null,
+          bookedDays: bookedDays.get(s.id) ?? [],
+        })),
+        history: assignHistory,
+        assignedProviderIds: (assignedTo.get(order.id) ?? []).map((x: any) => x.provider_id),
+      }).map((x) => [x.resourceId, x])
+    );
+
+    return ok
+      .map((s: any) => ({
+        id: s.id,
+        name: (s.holder_name ?? "").trim(),
+        hint: [
+          s.holder_gender === "male" ? "男" : s.holder_gender === "female" ? "女" : "",
+          calcAge(s.holder_date_of_birth) ? `${calcAge(s.holder_date_of_birth)}岁` : "",
+          s.item_type ?? "",
+          scored.get(s.id)?.top ? "★ 推荐" : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        score: scored.get(s.id)?.score ?? 0,
+      }))
+      .filter((c) => c.name)
+      .sort((a, b) => b.score - a.score);
+  })();
+
   const qs = (extra: Record<string, string>) => {
     const p = new URLSearchParams();
     if (f.item) p.set("item", f.item);
@@ -519,6 +599,17 @@ export default async function OverviewPage({
         }
         #assign-active-block .cards-row::-webkit-scrollbar { display: none; }
 
+        /* 资源清单上「已排 …」那一行：单行，超出部分横着滚。
+           右边渐隐是在说「后面还有」，比省略号更省地方 */
+        .booked-row {
+          overflow-x: auto;
+          overflow-y: hidden;
+          scrollbar-width: none;
+          /* 不做边缘渐隐：那层朦胧看着像没加载完，反而比硬切一刀更碍眼。
+             溢出与否，滑一下就知道了 */
+        }
+        .booked-row::-webkit-scrollbar { display: none; }
+
         /* 备注框平时只占一个小方块（姓名和地点优先，它俩每单都有），
            点进去自动撑到一半宽好打字，挪走又缩回去。
            transition 让这一下不至于跳得太突兀。 */
@@ -546,7 +637,6 @@ export default async function OverviewPage({
       {/* 让分配模式那一行的「已配的资源」能用纵向滚轮横着滚，够到后面的人 */}
       <CardsRowScroll />
       {/* 填地点名的输入框共用这一份补全列表 */}
-      <LocationDatalist />
 
       {/* 统计 / 状态图例 / 缩放 / 资源面板 / 日历 全交给 ZoomableCalendar 排版。
           缩放状态在客户端、统计是服务端渲染的，两者要挤在同一行就得由同一个
@@ -555,6 +645,7 @@ export default async function OverviewPage({
         panel={
           <ResourcePanel
             assignHistory={assignHistory}
+            bookingsByResource={bookingsByResource}
             // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
             initialCollapsed={cookies().get("resource_panel_collapsed")?.value === "1"}
             // 筛选默认收起：平时都是直接看资源列表，筛选是偶尔为之
@@ -949,10 +1040,9 @@ export default async function OverviewPage({
                                 style={{ display: "flex", minWidth: 40, flexShrink: 1 }}
                               >
                                 <input type="hidden" name="order_id" value={o.id} />
-                                <input
+                                <LocationInput
                                   name="location"
                                   placeholder="地点"
-                                  list={LOCATION_LIST_ID}
                                   defaultValue={o.location ?? ""}
                                   data-original={o.location ?? ""}
                                   title={locationHint || undefined}
@@ -1253,16 +1343,6 @@ export default async function OverviewPage({
                                 }}
                               />
                             </OptimisticEditForm>
-                            {/* 删除订单放在右下角：离上面几个输入框最远的一个角，
-                                手滑点到的概率最低。前面留 6px 的空，别贴着金额框。 */}
-                            <span className="assign-delete" style={{ display: "flex", flexShrink: 0 }}>
-                              <DeleteOrderButton
-                                orderId={o.id}
-                                deleteAction={deleteOrder}
-                                exitHref={qs({ assign: "" })}
-                                style={{ flexShrink: 0, marginLeft: 6, width: 14 }}
-                              />
-                            </span>
                             </div>
                             </div>
                           </>
@@ -1316,6 +1396,21 @@ export default async function OverviewPage({
       </ZoomableCalendar>
 
       {assigningOrder && (
+        <AssigningBar
+          orderId={(assigningOrder as any).id}
+          candidates={assignableByName}
+          label={[
+            (assigningOrder as any).customers?.first_name ?? "?",
+            (assigningOrder as any).location,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          deleteAction={deleteOrder}
+          exitHref={qs({ assign: "" })}
+        />
+      )}
+
+      {assigningOrder && (
         <ClickOutsideDeselect
           exitHref={qs({ assign: "" })}
           orderId={(assigningOrder as any).id}
@@ -1327,6 +1422,7 @@ export default async function OverviewPage({
 
 function ResourcePanel({
   assignHistory,
+  bookingsByResource,
   resources,
   filters,
   hasFilter,
@@ -1340,6 +1436,7 @@ function ResourcePanel({
   filtersCollapsed,
 }: {
   assignHistory: PastUse[];
+  bookingsByResource: Map<string, Booking[]>;
   resources: any[];
   filters: { item: string; gender: string; sstatus: string; q: string };
   hasFilter: boolean;
@@ -1480,6 +1577,7 @@ function ResourcePanel({
             gap={assigningNeed?.maleGap ?? 0}
             alreadyAssigned={alreadyAssigned}
             assignHistory={assignHistory}
+            bookingsByResource={bookingsByResource}
             allResources={resources}
           />
           <ResourceGroup
@@ -1491,6 +1589,7 @@ function ResourcePanel({
             gap={assigningNeed?.femaleGap ?? 0}
             alreadyAssigned={alreadyAssigned}
             assignHistory={assignHistory}
+            bookingsByResource={bookingsByResource}
             allResources={resources}
           />
           {other.length > 0 && (
@@ -1503,6 +1602,7 @@ function ResourcePanel({
               gap={0}
               alreadyAssigned={alreadyAssigned}
               assignHistory={assignHistory}
+              bookingsByResource={bookingsByResource}
               allResources={resources}
             />
           )}
@@ -1521,6 +1621,7 @@ function ResourceGroup({
   gap,
   alreadyAssigned,
   assignHistory,
+  bookingsByResource,
   allResources,
 }: {
   title: string;
@@ -1531,6 +1632,7 @@ function ResourceGroup({
   gap: number;
   alreadyAssigned: Set<string>;
   assignHistory: PastUse[];
+  bookingsByResource: Map<string, Booking[]>;
   allResources: any[];
 }) {
   if (list.length === 0) return null;
@@ -1548,6 +1650,10 @@ function ResourceGroup({
 
   // 推荐按性别分组各算各的：一单要一张男资源加一张女资源，
   // 两边各自挑自己的最优，不能混在一起比
+  // 这一组里真正配得出去的有几张 —— 「还差 N 张」只说了缺口，
+  // 不说手上还有多少可选，看到「还差 2 张」时不知道是有得挑还是根本没资源
+  const assignable = assigningOrder ? list.filter(canAssignResource) : [];
+
   const recommendations = new Map<string, Scored>();
   if (assigningOrder) {
     const assignedProviderIds = allResources
@@ -1561,7 +1667,7 @@ function ResourceGroup({
       },
       // 客户生日基本没人填（CLAUDE.md 待决定 #4），拿不到年龄这条就自动不参与
       customerAge: calcAge(assigningOrder.customers?.date_of_birth),
-      candidates: list.filter(canAssignResource).map((s: any) => ({
+      candidates: assignable.map((s: any) => ({
         id: s.id,
         itemType: s.item_type ?? null,
         holderDateOfBirth: s.holder_date_of_birth ?? null,
@@ -1589,7 +1695,19 @@ function ResourceGroup({
           {symbol} {title}（{list.length}）
         </span>
         {assigningOrder && gap > 0 && (
-          <span style={{ color: "#a8620d" }}>还差 {gap} 张</span>
+          <span style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
+            <span style={{ color: "#a8620d" }}>还差 {gap} 张</span>
+            <span
+              style={{ color: assignable.length > 0 ? "#1f5c33" : "#c0392b" }}
+              title={
+                assignable.length > 0
+                  ? "有效期覆盖、当天没被占、类型也对得上的资源"
+                  : "没有资源同时满足：挂牌中、有效期覆盖这几天、当天没被占、类型对得上"
+              }
+            >
+              {assignable.length > 0 ? `可选 ${assignable.length} 张` : "无资源可选"}
+            </span>
+          </span>
         )}
       </div>
 
@@ -1597,6 +1715,13 @@ function ResourceGroup({
         {list.map((s) => {
           const isAssigned = alreadyAssigned.has(s.id);
           const booked = [...new Set(bookedDays.get(s.id) ?? [])].sort();
+          // 按订单分段、越近的越靠前。地方就那么点，排前面的才露得出来 ——
+          // 一个资源去年排过十次跟今天要配的这单没关系，下周那次才有关系
+          // 正序排，但这一行默认滚到最右边（CardsRowScroll 干的），
+          // 所以一眼看到的是最近一次；早期的踪迹在左边，往左滑才出来
+          const runs = sortChronologically(
+            toBookingRuns(bookingsByResource.get(s.id) ?? [], todayIso())
+          );
           const badge = abnormalBadge(s);
           const listingOk = s.status === "active";
           // 卡在「订单那几天」有效即可，跟今天过没过期无关
@@ -1632,6 +1757,10 @@ function ResourceGroup({
             >
               <Link
                 href={`/admin/resources?edit=${s.id}`}
+                // 有效期不占一行了 —— 它只在「配不了」的时候才有用，
+                // 而那种时候按钮位置本来就会写明「订单日期超出有效期（…）」。
+                // 平时想查就悬停看这里。
+                title={`有效期 ${s.date_range_start} ~ ${s.date_range_end}`}
                 style={{ textDecoration: "none", color: "inherit", display: "block" }}
               >
                 <div
@@ -1661,9 +1790,6 @@ function ResourceGroup({
                   {calcAge(s.holder_date_of_birth) ?? "?"}岁
                   {s.holder_date_of_birth ? ` · ${s.holder_date_of_birth}` : ""}
                 </div>
-                <div style={{ fontSize: 11, color: "#aaa", marginTop: 3 }}>
-                  有效期 {s.date_range_start} ~ {s.date_range_end}
-                </div>
                 <div
                   style={{
                     fontSize: 12,
@@ -1672,10 +1798,42 @@ function ResourceGroup({
                     justifyContent: "space-between",
                     gap: 6,
                   }}
+                  title={
+                    runs.length > 0
+                      ? runs.map(formatRun).join("\n")
+                      : undefined
+                  }
                 >
-                  <span style={{ color: booked.length > 0 ? "#1c4e78" : "#bbb" }}>
-                    {booked.length > 0 ? `已排 ${formatDayRanges(booked)}` : "未排期"}
-                  </span>
+                  {/* 就一行，高度跟原来一样。段数多了靠横滚看后面的 ——
+                      多行会把每个资源撑高，一屏能看到的资源就少了，那是更贵的代价。
+                      只在「这个资源现在配得出去」时才接管纵向滚轮（见 CardsRowScroll）：
+                      左边是个纵向滚动的长列表，每个资源都吃掉滚轮的话列表就滚不动了 */}
+                  <div
+                    className="booked-row"
+                    data-scrollable={canAssign ? "1" : undefined}
+                    style={{ minWidth: 0, whiteSpace: "nowrap" }}
+                  >
+                    {runs.length === 0 ? (
+                      <span style={{ color: "#bbb" }}>未排期</span>
+                    ) : (
+                      <>
+                        <span style={{ color: "#999" }}>已排 </span>
+                        {runs.map((r, i) => (
+                          <span
+                            key={`${r.start}-${r.location ?? ""}-${i}`}
+                            // 过去的淡一点，注意力留给还没到的
+                            style={{ opacity: r.past ? 0.5 : 1 }}
+                          >
+                            {i > 0 && <span style={{ color: "#ccc" }}> · </span>}
+                            <span style={{ color: "#1c4e78" }}>{r.label}</span>{" "}
+                            <span style={{ color: r.location ? "#555" : "#bbb" }}>
+                              {r.location ?? "地点没填"}
+                            </span>
+                          </span>
+                        ))}
+                      </>
+                    )}
+                  </div>
                   {badge && (
                     <span style={{ flexShrink: 0, color: badge.color }}>
                       {badge.text}

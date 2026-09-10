@@ -1,0 +1,121 @@
+import { describe, expect, it } from "vitest";
+import { formatRun, sortChronologically, toBookingRuns } from "./booking";
+
+const TODAY = "2026-09-10";
+
+describe("toBookingRuns", () => {
+  it("每段都带上那一单去的地点", () => {
+    const runs = toBookingRuns(
+      [{ days: ["2026-09-12", "2026-09-13"], location: "locbi" }],
+      TODAY
+    );
+    expect(runs).toHaveLength(1);
+    expect(runs[0].label).toBe("9/12~9/13");
+    expect(runs[0].location).toBe("locbi");
+  });
+
+  it("同一单里不连续的日子各算一段，地点跟着走", () => {
+    const runs = toBookingRuns(
+      [{ days: ["2026-09-24", "2026-09-25", "2026-09-27"], location: "locbg" }],
+      TODAY
+    );
+    expect(runs.map((r) => r.label)).toEqual(["9/24~9/25", "9/27"]);
+    expect(runs.every((r) => r.location === "locbg")).toBe(true);
+  });
+
+  it("不同订单不会被并到一起 —— 并了就看不出哪几天去哪", () => {
+    const runs = toBookingRuns(
+      [
+        { days: ["2026-09-12"], location: "locbi" },
+        { days: ["2026-09-13"], location: "locbg" },
+      ],
+      TODAY
+    );
+    // 日期挨着，但分属两单两个地点，必须分开显示
+    expect(runs.map((r) => [r.label, r.location])).toEqual([
+      ["9/12", "locbi"],
+      ["9/13", "locbg"],
+    ]);
+  });
+
+  it("地点名空白当没填", () => {
+    expect(toBookingRuns([{ days: ["2026-09-12"], location: "   " }], TODAY)[0].location).toBeNull();
+    expect(toBookingRuns([{ days: ["2026-09-12"], location: null }], TODAY)[0].location).toBeNull();
+  });
+
+  it("结束日期在今天之前的算过去", () => {
+    const runs = toBookingRuns(
+      [
+        { days: ["2026-09-01"], location: "locad" },
+        { days: ["2026-09-10"], location: "locad" }, // 就是今天，不算过去
+        { days: ["2026-09-20"], location: "locad" },
+      ],
+      TODAY
+    );
+    expect(runs.map((r) => r.past)).toEqual([true, false, false]);
+  });
+});
+
+describe("sortChronologically（正序，最近的靠右）", () => {
+  it("按时间正序 —— 时间轴该往哪走就往哪走", () => {
+    const runs = toBookingRuns(
+      [
+        { days: ["2026-09-20"], location: "最晚" },
+        { days: ["2026-09-10", "2026-09-11"], location: "最早" },
+        { days: ["2026-09-15"], location: "中间" },
+      ],
+      TODAY
+    );
+    expect(sortChronologically(runs).map((r) => r.location)).toEqual([
+      "最早",
+      "中间",
+      "最晚",
+    ]);
+  });
+
+  it("过去的和未来的一起排，不分两堆", () => {
+    const runs = toBookingRuns(
+      [
+        { days: ["2026-09-20"], location: "下周" },
+        { days: ["2026-08-01"], location: "上个月" },
+        { days: ["2026-09-09"], location: "昨天" },
+      ],
+      TODAY
+    );
+    expect(sortChronologically(runs).map((r) => r.location)).toEqual([
+      "上个月",
+      "昨天",
+      "下周",
+    ]);
+  });
+
+  it("开始日期一样时短的排前面", () => {
+    const runs = toBookingRuns(
+      [
+        { days: ["2026-09-10", "2026-09-11", "2026-09-12"], location: "长" },
+        { days: ["2026-09-10"], location: "短" },
+      ],
+      TODAY
+    );
+    expect(sortChronologically(runs).map((r) => r.location)).toEqual(["短", "长"]);
+  });
+
+  it("不改原数组", () => {
+    const runs = toBookingRuns(
+      [{ days: ["2026-09-20"], location: "b" }, { days: ["2026-09-01"], location: "a" }],
+      TODAY
+    );
+    const before = runs.map((r) => r.location);
+    sortChronologically(runs);
+    expect(runs.map((r) => r.location)).toEqual(before);
+  });
+});
+
+describe("formatRun", () => {
+  it("有地点就带上，没地点就说没填", () => {
+    const [withM] = toBookingRuns([{ days: ["2026-09-12"], location: "locbe" }], TODAY);
+    const [without] = toBookingRuns([{ days: ["2026-09-12"], location: null }], TODAY);
+    expect(formatRun(withM)).toBe("9/12 locbe");
+    expect(formatRun(without)).toContain("没填");
+  });
+});

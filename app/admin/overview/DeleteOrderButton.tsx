@@ -14,11 +14,14 @@ export default function DeleteOrderButton({
   deleteAction,
   exitHref,
   style,
+  /** 按钮文字。默认是那个红叉；浮动条上地方够，写成「删除这单」更清楚 */
+  label = "×",
 }: {
   orderId: string;
   deleteAction: (formData: FormData) => Promise<void>;
   exitHref: string;
   style?: React.CSSProperties;
+  label?: string;
 }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
@@ -69,7 +72,7 @@ export default function DeleteOrderButton({
         ...style,
       }}
     >
-      ×
+      {deleting ? "删除中…" : label}
     </button>
   );
 }
