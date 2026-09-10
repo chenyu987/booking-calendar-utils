@@ -11,6 +11,7 @@ import {
   COL_GAP,
   MIN_BAND_DAYS,
   MAX_BAND_DAYS,
+  DEFAULT_BAND_DAYS,
 } from "./bandDays";
 
 describe("clampBandDays", () => {
@@ -21,7 +22,7 @@ describe("clampBandDays", () => {
   });
 
   it("坏值退回原来的四周，不会算出 0 列把渲染卡死", () => {
-    expect(clampBandDays(NaN)).toBe(MAX_BAND_DAYS);
+    expect(clampBandDays(NaN)).toBe(DEFAULT_BAND_DAYS);
   });
 
   it("不是周的倍数也行 —— 就是要精确到天", () => {
@@ -60,7 +61,7 @@ describe("bandDaysForWidth", () => {
   });
 
   it("缩放是 0 这种坏值不返回 0 列", () => {
-    expect(bandDaysForWidth(w(6), 0)).toBe(MAX_BAND_DAYS);
+    expect(bandDaysForWidth(w(6), 0)).toBe(DEFAULT_BAND_DAYS);
   });
 });
 
@@ -103,9 +104,9 @@ describe("dragDelta", () => {
 
 describe("量不到宽度的时候", () => {
   it("宽度是 0 不能当成「只放得下 3 天」——那是页面没渲染，不是地方小", () => {
-    expect(bandDaysForWidth(0)).toBe(MAX_BAND_DAYS);
-    expect(bandDaysForWidth(-100)).toBe(MAX_BAND_DAYS);
-    expect(bandDaysForWidth(NaN)).toBe(MAX_BAND_DAYS);
+    expect(bandDaysForWidth(0)).toBe(DEFAULT_BAND_DAYS);
+    expect(bandDaysForWidth(-100)).toBe(DEFAULT_BAND_DAYS);
+    expect(bandDaysForWidth(NaN)).toBe(DEFAULT_BAND_DAYS);
   });
 });
 
@@ -157,5 +158,22 @@ describe("clampRailWidth", () => {
 
   it("坏值退回整栏，不会莫名其妙收起来", () => {
     expect(clampRailWidth(NaN)).toBe(RAIL_WIDTH);
+  });
+});
+
+describe("默认跟上限是两回事", () => {
+  it("上限比默认宽 —— 想拖更开可以，但不该一进来就那样", () => {
+    expect(MAX_BAND_DAYS).toBeGreaterThan(DEFAULT_BAND_DAYS);
+  });
+
+  it("拖得到上限", () => {
+    expect(clampBandDays(MAX_BAND_DAYS)).toBe(MAX_BAND_DAYS);
+    expect(clampBandDays(MAX_BAND_DAYS + 10)).toBe(MAX_BAND_DAYS);
+    expect(bandDaysForWidth(widthForBandDays(MAX_BAND_DAYS))).toBe(MAX_BAND_DAYS);
+  });
+
+  it("**兜底一律回默认，不是回上限** —— 一有闪失就摊成一大片最难受", () => {
+    expect(clampBandDays(NaN)).toBe(DEFAULT_BAND_DAYS);
+    expect(bandDaysForWidth(0)).toBe(DEFAULT_BAND_DAYS);
   });
 });

@@ -1,16 +1,23 @@
 import { supabase } from "@/lib/supabase";
 import { isIsoDate } from "@/lib/timelineStart";
+import { clampBandDays, DEFAULT_BAND_DAYS } from "@/lib/bandDays";
 
 // 后台设置项的读写。库里是一张 key/value 表，这里包一层，
 // 让调用方拿到的是「已经验过的值」而不是裸字符串。
 //
-// **只放跨设备该一致的东西。** 缩放、资源面板收起没收起、每行排几天，那些是
-// 「这台机器上我习惯怎么看」，继续留 cookie —— 搬进库等于换个屏幕就被另一台
-// 的习惯覆盖掉。
+// **放跨设备该一致的东西。** 缩放、资源面板收起没收起、右边那一栏拖多宽，
+// 这些还是「这台机器上我习惯怎么看」，继续留 cookie。
+//
+// 「每行几天」曾经也在 cookie 里，后来搬进来了 —— 因为设置页也要能改它。
+// 一个值两个地方存，就是 CLAUDE.md 里栽过四次的那个模式（改了一处忘了另一处，
+// 到用的时候对不上），所以搬就搬彻底：拖拽也写库，cookie 那份删掉。
+// 代价是换台屏幕宽度差很多的机器时得重新拖一次，认了。
 
 export const SETTING_KEYS = {
   /** 排期总览的日历从哪天开始显示 */
   overviewStart: "overview_start",
+  /** 排期总览每行排几天 */
+  overviewBandDays: "overview_band_days",
 } as const;
 
 async function readSetting(key: string): Promise<string | null> {
@@ -50,4 +57,17 @@ export async function setOverviewStart(value: string | null) {
     SETTING_KEYS.overviewStart,
     isIsoDate(value ?? undefined) ? value : null
   );
+}
+
+/**
+ * 排期总览每行排几天。没设、或者库里是个不合法的数，都退回默认的四周一行（不是上限） ——
+ * clampBandDays 会把 NaN 也接住，不会算出「一行 0 天」把渲染卡死。
+ */
+export async function getOverviewBandDays(): Promise<number> {
+  const raw = await readSetting(SETTING_KEYS.overviewBandDays);
+  return raw === null ? DEFAULT_BAND_DAYS : clampBandDays(Number(raw));
+}
+
+export async function setOverviewBandDays(value: number) {
+  await writeSetting(SETTING_KEYS.overviewBandDays, String(clampBandDays(value)));
 }

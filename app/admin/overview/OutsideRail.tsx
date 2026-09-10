@@ -7,6 +7,7 @@ import {
   clampRailWidth,
   dragDelta,
   autoStepSpeed,
+  DEFAULT_BAND_DAYS,
   MAX_BAND_DAYS,
   MIN_BAND_DAYS,
   RAIL_WIDTH,
@@ -148,7 +149,8 @@ export default function OutsideRail({
       settleRail(RAIL_WIDTH);
       return;
     }
-    onCommit(clampBandDays(days > 7 ? 7 : MAX_BAND_DAYS));
+    // 双击是「回默认」不是「拉到上限」——上限八周一行，一下摊那么开多半不是想要的
+            onCommit(clampBandDays(days > 7 ? 7 : DEFAULT_BAND_DAYS));
   }
 
   const dragging = mode !== null;

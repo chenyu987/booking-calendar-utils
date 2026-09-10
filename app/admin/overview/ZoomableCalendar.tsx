@@ -97,8 +97,15 @@ export default function ZoomableCalendar({
   // 一次重排要跑一整轮查询，每吃掉一列就发一次太浪费。
   function commit(next: number) {
     setPreview(next);
-    document.cookie = `overview_band_days=${next}; path=/; max-age=31536000`;
-    router.refresh();
+    // 这个值存库不存 cookie（设置页也要能改它，一个值不能两个地方存）。
+    // 写库那一下不等它 —— 拖完立刻按新的画，落库和重渲染在后台跑
+    fetch("/admin/overview/band-days", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days: next }),
+    })
+      .then(() => router.refresh())
+      .catch(() => router.refresh());
     // preview 要撑到重排落地才退场，直接清会先闪一下旧布局
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setPreview(null), 600);

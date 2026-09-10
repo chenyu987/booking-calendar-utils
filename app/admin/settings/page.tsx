@@ -1,8 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { getOverviewStart, setOverviewStart } from "@/lib/appSettings";
+import {
+  getOverviewStart,
+  setOverviewStart,
+  getOverviewBandDays,
+  setOverviewBandDays,
+} from "@/lib/appSettings";
 import { isIsoDate } from "@/lib/timelineStart";
+import { MIN_BAND_DAYS, MAX_BAND_DAYS } from "@/lib/bandDays";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +24,11 @@ async function saveSettings(formData: FormData) {
 
   await setOverviewStart(raw || null);
 
+  // 超范围的不报错、直接夹到范围内（clampBandDays）：这个值也能靠拖拽改，
+  // 拖到头本来就是夹住，两条路的行为得一样
+  const days = Number((formData.get("band_days") as string) ?? "");
+  if (Number.isFinite(days)) await setOverviewBandDays(days);
+
   revalidatePath("/admin/settings");
   revalidatePath("/admin/overview");
   redirect("/admin/settings?saved=1");
@@ -28,14 +39,17 @@ export default async function SettingsPage({
 }: {
   searchParams: { saved?: string; error?: string };
 }) {
-  const overviewStart = await getOverviewStart();
+  const [overviewStart, bandDays] = await Promise.all([
+    getOverviewStart(),
+    getOverviewBandDays(),
+  ]);
 
   return (
     <main>
       <h1 style={{ fontSize: 20, margin: "0 0 4px" }}>设置</h1>
       <p style={{ color: "#666", fontSize: 13, marginTop: 0 }}>
         这里改的是「以后每次进来都这样」，存在库里，换台机器也一样。
-        缩放、面板收起、每行排几天那些是各自机器上的习惯，不在这儿。
+        缩放、面板收起、右边那一栏拖多宽，那些是各自机器上的习惯，不在这儿。
       </p>
 
       {searchParams.saved && (
@@ -62,6 +76,23 @@ export default async function SettingsPage({
             name="overview_start"
             defaultValue={overviewStart ?? ""}
             style={inputStyle}
+          />
+        </section>
+
+        <section style={{ ...sectionStyle, marginTop: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>排期总览：每行排几天</div>
+          <p style={hintStyle}>
+            {MIN_BAND_DAYS}~{MAX_BAND_DAYS} 天。也可以直接在排期总览里拖右边那根竖条改，
+            两边改的是同一个值。行短了一屏能看到更多周，行长了跨天的单子不容易被切断。
+          </p>
+          <input
+            key={`days-${bandDays}`}
+            type="number"
+            name="band_days"
+            min={MIN_BAND_DAYS}
+            max={MAX_BAND_DAYS}
+            defaultValue={bandDays}
+            style={{ ...inputStyle, width: 90 }}
           />
         </section>
 

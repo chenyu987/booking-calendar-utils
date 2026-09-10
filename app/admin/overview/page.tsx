@@ -29,9 +29,9 @@ import {
 } from "@/lib/dates";
 import { rescaleAmount } from "@/lib/pricing";
 import { isPeakDate } from "@/lib/peakDates";
-import { clampBandDays, clampRailWidth } from "@/lib/bandDays";
+import { clampRailWidth } from "@/lib/bandDays";
 import { resolveTimelineStart, ordersBeforeStart } from "@/lib/timelineStart";
-import { getOverviewStart } from "@/lib/appSettings";
+import { getOverviewStart, getOverviewBandDays } from "@/lib/appSettings";
 import DayNote from "./DayNote";
 import { readNoteText } from "@/lib/orderNote";
 import {
@@ -274,6 +274,7 @@ export default async function OverviewPage({
     { data: orderNotes },
     { data: dayNotes },
     overviewStart,
+    bandDaysSetting,
   ] = await Promise.all([
     supabase
       .from("orders")
@@ -298,6 +299,7 @@ export default async function OverviewPage({
     // 日历从哪天开始。**跟上面几条并排跑**，不要单独 await 一次 ——
     // 这一页渲染一次本来就要 0.6~1.3 秒，再串一个来回纯属白等
     getOverviewStart(),
+    getOverviewBandDays(),
   ]);
 
   const noteByDay = new Map<string, string>(
@@ -444,11 +446,10 @@ export default async function OverviewPage({
     return d.toISOString().slice(0, 10);
   };
 
-  // 每行排几天：右边帘子的手柄拖到哪儿决定的，存在 cookie 里，服务端读出来
-  // 算泳道。客户端算不了 —— 泳道要看整段里哪些单子重叠，段一变就全变。
-  const DAYS_PER_BAND = clampBandDays(
-    Number(cookies().get("overview_band_days")?.value ?? NaN)
-  );
+  // 每行排几天。拖右边那根条改，设置页里也能改 —— 两边写的是同一处（库里的
+  // app_settings），不是各存一份。服务端拿它切段：泳道要看整段里哪些单子重叠，
+  // 段一变就全变，客户端算不了。
+  const DAYS_PER_BAND = bandDaysSetting;
 
   const todayForTimeline = todayIso();
 

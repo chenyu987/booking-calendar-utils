@@ -20,11 +20,13 @@ export const RAIL_TOTAL_WIDTH = 245;
 export const SCROLLBAR_ALLOWANCE = 16;
 
 export const MIN_BAND_DAYS = 3;
-/** 四周一行是原来的样子，也是上限：再宽也不往下堆了 */
-export const MAX_BAND_DAYS = 28;
+/** 四周一行 —— 没设过、量不到、双击「放回去」，都回到这个数 */
+export const DEFAULT_BAND_DAYS = 28;
+/** 上限八周。默认跟上限是两回事：默认是「进来先看到什么」，上限只是「最多能拖到哪」 */
+export const MAX_BAND_DAYS = 56;
 
 export function clampBandDays(days: number): number {
-  if (!Number.isFinite(days)) return MAX_BAND_DAYS;
+  if (!Number.isFinite(days)) return DEFAULT_BAND_DAYS;
   return Math.min(MAX_BAND_DAYS, Math.max(MIN_BAND_DAYS, Math.floor(days)));
 }
 
@@ -41,8 +43,9 @@ export function widthForBandDays(days: number, zoom = 1): number {
 export function bandDaysForWidth(availableCssPx: number, zoom = 1): number {
   if (!Number.isFinite(availableCssPx) || availableCssPx <= 0 || zoom <= 0) {
     // 量出来是 0 说明这块地这会儿根本没渲染（页面在后台标签页、被 display:none
-    // 盖着）。这时候**不能**当成「只放得下 3 天」，那会把布局压扁并写进 cookie
-    return MAX_BAND_DAYS;
+    // 盖着）。这时候**不能**当成「只放得下 3 天」，那会把布局压扁并存下来。
+    // 回默认而不是回上限：上限现在是八周，拿它当兜底等于一有闪失就摊成一大片
+    return DEFAULT_BAND_DAYS;
   }
   const usable = availableCssPx / zoom;
   return clampBandDays(Math.floor((usable + COL_GAP) / (COL_WIDTH + COL_GAP)));
