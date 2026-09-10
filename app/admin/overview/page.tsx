@@ -257,6 +257,7 @@ export default async function OverviewPage({
     region?: string;
     mtn?: string;
     sregion?: string;
+    smtn?: string;
   };
 }) {
   const [
@@ -349,16 +350,16 @@ export default async function OverviewPage({
   // 取的是**最近一次**（按结束日期最大），跟卡片上「已排 …」那一行默认停在最右边
   // 是同一个意思：最近去哪对配下一单最有参考价值。
   // 认不出地点名的那几段跳过，不能因为写错一个名字就让整个资源归错区。
-  const lastRegionOf = (resourceId: string): Region | null => {
-    let best: { end: string; region: Region } | null = null;
+  const lastVenueOf = (resourceId: string) => {
+    let best: { end: string; venue: ReturnType<typeof normalizeLocation> } | null = null;
     for (const b of bookingsByResource.get(resourceId) ?? []) {
-      const region = normalizeLocation(b.location)?.region;
-      if (!region) continue;
+      const venue = normalizeLocation(b.location);
+      if (!venue) continue;
       const end = [...(b.days ?? [])].sort().at(-1);
       if (!end) continue;
-      if (!best || end > best.end) best = { end, region };
+      if (!best || end > best.end) best = { end, venue };
     }
-    return best?.region ?? null;
+    return best?.venue ?? null;
   };
 
   // 左边卡片清单的筛选
@@ -368,29 +369,31 @@ export default async function OverviewPage({
     gender: searchParams.gender ?? "",
     sstatus: searchParams.sstatus || "active",
     q: (searchParams.q ?? "").trim().toLowerCase(),
-    // 上次去的区域。"none" 是「还没排过 / 认不出地点名」那一档
+    // 上次去的区域 / 具体的地点。"none" 是「只看还没排过的」那一档
     sregion: searchParams.sregion ?? "",
+    smtn: searchParams.smtn ?? "",
   };
   const resources = (allResources ?? []).filter((s: any) => {
     if (f.item && s.item_type !== f.item) return false;
     if (f.gender && s.holder_gender !== f.gender) return false;
     if (f.sstatus !== "all" && s.status !== f.sstatus) return false;
     if (f.q && !(s.holder_name ?? "").toLowerCase().includes(f.q)) return false;
-    if (f.sregion) {
-      const last = lastRegionOf(s.id);
+    if (f.sregion || f.smtn) {
+      const last = lastVenueOf(s.id);
       if (f.sregion === "none") {
         // 只看还没排过的
         if (last !== null) return false;
-      } else if (last !== null && last !== f.sregion) {
-        // **还没排过的资源不筛掉**：它不属于任何一片，但对哪一片都可用，
+      } else if (last !== null) {
+        // **还没排过的资源一律不筛掉**：它不属于任何一片，但对哪一片都可用，
         // 筛掉等于把最灵活的那批资源藏起来，正好跟这个筛选的目的相反
-        return false;
+        if (f.smtn && last.canonical !== f.smtn) return false;
+        if (f.sregion && last.region !== f.sregion) return false;
       }
     }
     return true;
   });
   const hasFilter = Boolean(
-    f.item || f.gender || f.q || f.sregion || f.sstatus !== "active"
+    f.item || f.gender || f.q || f.sregion || f.smtn || f.sstatus !== "active"
   );
   const resourceTotal = (allResources ?? []).length;
 
@@ -601,6 +604,7 @@ export default async function OverviewPage({
     if (f.sstatus !== "active") p.set("sstatus", f.sstatus); // active 是默认，不写进 URL
     if (f.q) p.set("q", f.q);
     if (f.sregion) p.set("sregion", f.sregion);
+    if (f.smtn) p.set("smtn", f.smtn);
     if (searchParams.assign) p.set("assign", searchParams.assign);
     if (searchParams.allcards) p.set("allcards", searchParams.allcards);
     if (searchParams.region) p.set("region", searchParams.region);
@@ -1573,7 +1577,14 @@ function ResourcePanel({
   showAllHref: string;
   hideUnusableHref: string;
   resources: any[];
-  filters: { item: string; gender: string; sstatus: string; q: string; sregion: string };
+  filters: {
+    item: string;
+    gender: string;
+    sstatus: string;
+    q: string;
+    sregion: string;
+    smtn: string;
+  };
   orderRegion: string;
   orderMtn: string;
   hasFilter: boolean;
@@ -1683,21 +1694,40 @@ function ResourcePanel({
         {/* 上次去的区域。顶上按区域筛订单、这里按同一片筛资源，
             就能只在「一直在这一片用」的资源里配 —— 资源的使用轨迹前后一致，
             也正是推荐算法里「同一片区域」那条信号 */}
-        <select
-          key={`sregion-${filters.sregion}`}
-          name="sregion"
-          defaultValue={filters.sregion}
-          style={{ ...selectStyle, width: "100%" }}
-        >
-          <option value="">上次去哪都行</option>
-          {(Object.keys(REGION_LABELS) as Region[]).map((r) => (
-            <option key={r} value={r}>
-              上次去过 {REGION_LABELS[r]}
-            </option>
-          ))}
-          <option value="none">只看还没排过的</option>
-        </select>
-        {filters.sregion && filters.sregion !== "none" && (
+        <div style={{ display: "flex", gap: 6 }}>
+          <select
+            key={`sregion-${filters.sregion}`}
+            name="sregion"
+            defaultValue={filters.sregion}
+            style={{ ...selectStyle, flex: 1, minWidth: 0 }}
+          >
+            <option value="">上次去哪都行</option>
+            {(Object.keys(REGION_LABELS) as Region[]).map((r) => (
+              <option key={r} value={r}>
+                上次去过 {REGION_LABELS[r]}
+              </option>
+            ))}
+            <option value="none">只看还没排过的</option>
+          </select>
+          {/* 具体到地点。选了「只看还没排过的」就没得筛了 —— 那批资源本来就没去过地点 */}
+          <select
+            key={`smtn-${filters.smtn}`}
+            name="smtn"
+            defaultValue={filters.smtn}
+            disabled={filters.sregion === "none"}
+            style={{ ...selectStyle, flex: 1, minWidth: 0 }}
+          >
+            <option value="">哪个地点都行</option>
+            {LOCATION_OPTIONS.filter(
+              (m) => !filters.sregion || m.region === filters.sregion
+            ).map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.value} · {m.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {(filters.smtn || (filters.sregion && filters.sregion !== "none")) && (
           <span style={{ fontSize: 11, color: "#aaa", marginTop: -2 }}>
             还没排过的资源不受这条影响，一直显示
           </span>
