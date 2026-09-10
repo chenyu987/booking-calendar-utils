@@ -16,7 +16,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "body 不是合法 JSON" }, { status: 400 });
   }
 
-  const raw = Number(body.days);
+  // **先看类型再 Number()**：Number(null) 是 0、Number([]) 也是 0，都能过
+  // Number.isFinite，然后被 clamp 成 3 天悄悄存进去 —— 一个坏请求把「每行几天」
+  // 改成最窄，还什么都不报。集成测试就是抓着这个的。
+  const raw =
+    typeof body.days === "number"
+      ? body.days
+      : typeof body.days === "string" && body.days.trim() !== ""
+        ? Number(body.days)
+        : NaN;
   if (!Number.isFinite(raw)) {
     return NextResponse.json({ error: "days 不是数字" }, { status: 400 });
   }
