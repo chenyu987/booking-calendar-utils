@@ -180,7 +180,7 @@ export default function OutsideRail({
           width: 5,
           flexShrink: 0,
           cursor: "col-resize",
-          borderLeft: `1px solid ${dragging ? "#999" : "#e5e5e5"}`,
+          borderLeft: `1px solid ${dragging ? "var(--text-faint)" : "var(--border)"}`,
         }}
       />
       <aside
@@ -199,7 +199,7 @@ export default function OutsideRail({
           <div
             style={{
               fontSize: 12,
-              color: mode === "days" ? "#333" : "#999",
+              color: mode === "days" ? "var(--text)" : "var(--text-faint)",
               fontWeight: 500,
               margin: "8px 0 10px",
               lineHeight: "20px",
@@ -215,7 +215,7 @@ export default function OutsideRail({
                 href={l.href}
                 style={{
                   display: "block",
-                  border: "1px solid #e5e5e5",
+                  border: "1px solid var(--border)",
                   borderRadius: 6,
                   padding: "8px 10px",
                   textDecoration: "none",
@@ -223,7 +223,7 @@ export default function OutsideRail({
                 }}
               >
                 <div style={{ fontSize: 13, fontWeight: 500 }}>{l.label}</div>
-                <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{l.desc}</div>
+                <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{l.desc}</div>
               </Link>
             ))}
           </div>

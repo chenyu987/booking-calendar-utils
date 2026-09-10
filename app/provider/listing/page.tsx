@@ -62,11 +62,11 @@ export default async function ProviderListingPage({}: {
 
   return (
     <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
-      <Link href="/provider" style={{ fontSize: 13, color: "#1c4e78" }}>
+      <Link href="/provider" style={{ fontSize: 13, color: "var(--link)" }}>
         ← 我的资源
       </Link>
       <h1 style={{ fontSize: 20 }}>挂出可租资源</h1>
-      <p style={{ color: "#666", fontSize: 13 }}>
+      <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
         填一下你手上的额度信息，有人要租的话管理员会联系你。
       </p>
 
@@ -81,7 +81,7 @@ export default async function ProviderListingPage({}: {
 
         <div
           style={{
-            border: "1px solid #eee",
+            border: "1px solid var(--border)",
             borderRadius: 6,
             padding: 12,
             display: "flex",
@@ -90,7 +90,7 @@ export default async function ProviderListingPage({}: {
           }}
         >
           <div style={{ fontSize: 13, fontWeight: 500 }}>持有人信息</div>
-          <p style={{ fontSize: 12, color: "#888", margin: 0 }}>
+          <p style={{ fontSize: 12, color: "var(--text-faint)", margin: 0 }}>
             物品是登记了使用人的，客户得跟持有人性别年龄对得上才能核验时。
             如果你手上有好几个人的资源，一个资源挂一次。
           </p>
@@ -134,7 +134,7 @@ export default async function ProviderListingPage({}: {
           <input name="end_date" type="date" required style={inputStyle} />
         </label>
         <fieldset style={fieldsetStyle}>
-          <legend style={{ fontSize: 12, color: "#666", padding: "0 4px" }}>
+          <legend style={{ fontSize: 12, color: "var(--text-muted)", padding: "0 4px" }}>
             怎么联系你（有人要租的时候用）
           </legend>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -169,7 +169,7 @@ export default async function ProviderListingPage({}: {
 
 const inputStyle: React.CSSProperties = {
   padding: 8,
-  border: "1px solid #ccc",
+  border: "1px solid var(--border-strong)",
   borderRadius: 4,
   fontSize: 14,
 };
@@ -178,10 +178,10 @@ const labelStyle: React.CSSProperties = {
   flexDirection: "column",
   gap: 4,
   fontSize: 13,
-  color: "#444",
+  color: "var(--text-muted)",
 };
 const fieldsetStyle: React.CSSProperties = {
-  border: "1px solid #ddd",
+  border: "1px solid var(--border)",
   borderRadius: 4,
   padding: 10,
   margin: 0,
@@ -189,8 +189,8 @@ const fieldsetStyle: React.CSSProperties = {
 const buttonStyle: React.CSSProperties = {
   padding: "10px 12px",
   border: "none",
-  background: "#111",
-  color: "#fff",
+  background: "var(--solid-bg)",
+  color: "var(--on-solid)",
   borderRadius: 4,
   cursor: "pointer",
   fontSize: 14,

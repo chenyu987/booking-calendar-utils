@@ -128,7 +128,7 @@ export default function ZoomableCalendar({
       >
         {toolbar}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "#888" }}>缩放</span>
+          <span style={{ fontSize: 12, color: "var(--text-faint)" }}>缩放</span>
           <select
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}

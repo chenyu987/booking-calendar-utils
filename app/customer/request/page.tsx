@@ -83,16 +83,16 @@ export default async function CustomerRequestPage({
 
   return (
     <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
-      <Link href="/customer" style={{ fontSize: 13, color: "#1c4e78" }}>
+      <Link href="/customer" style={{ fontSize: 13, color: "var(--link)" }}>
         ← 我的订单
       </Link>
       <h1 style={{ fontSize: 20 }}>发一个租借需求</h1>
-      <p style={{ color: "#666", fontSize: 13 }}>
+      <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
         填完提交，管理员会帮你匹配物主，匹配好了会联系你。
       </p>
 
       {searchParams.error && (
-        <p style={{ color: "#c0392b", fontSize: 13 }}>
+        <p style={{ color: "var(--danger)", fontSize: 13 }}>
           {errorText[searchParams.error] ?? "出了点问题，再试一次"}
         </p>
       )}
@@ -106,7 +106,7 @@ export default async function CustomerRequestPage({
           <div style={{ marginTop: 6 }}>
             <Link
               href="/customer?edit=profile&next=request"
-              style={{ color: "#8a4b00", fontWeight: 500 }}
+              style={{ color: "var(--warn)", fontWeight: 500 }}
             >
               去填（填完自动回到这里）→
             </Link>
@@ -137,7 +137,7 @@ export default async function CustomerRequestPage({
             <input name="female_count" type="number" min={0} defaultValue={0} style={inputStyle} />
           </label>
         </div>
-        <p style={{ fontSize: 12, color: "#888", margin: 0 }}>
+        <p style={{ fontSize: 12, color: "var(--text-faint)", margin: 0 }}>
           物品是登记了使用人的，核验时要跟持有人对得上，所以男女要分开填 —— 一个人一个资源。
         </p>
         <div style={{ display: "flex", gap: 10 }}>
@@ -154,7 +154,7 @@ export default async function CustomerRequestPage({
           每人每天预算（美元）
           <input name="budget" type="number" min={0} placeholder="默认 40" style={inputStyle} />
         </label>
-        <p style={{ fontSize: 12, color: "#888", margin: 0 }}>
+        <p style={{ fontSize: 12, color: "var(--text-faint)", margin: 0 }}>
           总价 = 预算 × 天数 × 人数
         </p>
 
@@ -168,7 +168,7 @@ export default async function CustomerRequestPage({
 
 const inputStyle: React.CSSProperties = {
   padding: 8,
-  border: "1px solid #ccc",
+  border: "1px solid var(--border-strong)",
   borderRadius: 4,
   fontSize: 14,
 };
@@ -177,12 +177,12 @@ const labelStyle: React.CSSProperties = {
   flexDirection: "column",
   gap: 4,
   fontSize: 13,
-  color: "#444",
+  color: "var(--text-muted)",
 };
 const noticeStyle: React.CSSProperties = {
-  background: "#fdf3e3",
-  border: "1px solid #e9c893",
-  color: "#8a4b00",
+  background: "var(--notice-bg)",
+  border: "1px solid var(--notice-border)",
+  color: "var(--warn)",
   borderRadius: 4,
   padding: "10px 12px",
   fontSize: 13,
@@ -192,8 +192,8 @@ const noticeStyle: React.CSSProperties = {
 const buttonStyle: React.CSSProperties = {
   padding: "10px 12px",
   border: "none",
-  background: "#111",
-  color: "#fff",
+  background: "var(--solid-bg)",
+  color: "var(--on-solid)",
   borderRadius: 4,
   cursor: "pointer",
   fontSize: 14,

@@ -134,7 +134,7 @@ export default function BulkSelect() {
      ` +
     (safeIds.length > 0
       ? `${safeIds.map((id) => `[data-order-id="${id}"]`).join(",")}{
-           outline:2px solid #2563eb;outline-offset:-2px;
+           outline:2px solid var(--link);outline-offset:-2px;
            box-shadow:0 0 0 3px rgba(37,99,235,0.18);
          }`
       : "");
@@ -167,8 +167,8 @@ export default function BulkSelect() {
             gap: 10,
             padding: "6px 14px",
             // 用跟选中框一样的蓝，一眼看出这条和那几个蓝框是一回事
-            background: "#1d4ed8",
-            color: "#fff",
+            background: "var(--link)",
+            color: "var(--on-solid)",
             borderRadius: 999,
             boxShadow: "0 4px 16px rgba(29,78,216,0.45)",
             fontSize: 12,
@@ -203,8 +203,8 @@ export default function BulkSelect() {
               borderRadius: 999,
               border: "none",
               cursor: busy ? "default" : "pointer",
-              background: busy ? "rgba(255,255,255,0.35)" : "#fff",
-              color: busy ? "#fff" : "#1d4ed8",
+              background: busy ? "rgba(255,255,255,0.35)" : "var(--on-solid)",
+              color: busy ? "var(--on-solid)" : "var(--link)",
             }}
           >
             {busy ? "改中…" : "应用"}
@@ -221,7 +221,7 @@ export default function BulkSelect() {
               borderRadius: 999,
               border: "1px solid rgba(255,255,255,0.45)",
               background: "transparent",
-              color: "#fff",
+              color: "var(--on-solid)",
               cursor: "pointer",
             }}
           >

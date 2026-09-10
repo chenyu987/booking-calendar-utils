@@ -28,10 +28,10 @@ export function coversOrder(resource: any, demandDays: string[]): boolean {
 
 // 卡片上那个小标签：优先显示挂牌状态，其次显示是不是过期了
 export function statusBadge(resource: any): { text: string; color: string } {
-  if (resource.status === "archived") return { text: "已下架", color: "#999" };
-  if (resource.status === "paused") return { text: "暂停", color: "#a8620d" };
-  if (isExpired(resource)) return { text: "已过期", color: "#999" };
-  return { text: "出租中", color: "#1f5c33" };
+  if (resource.status === "archived") return { text: "已下架", color: "var(--text-faint)" };
+  if (resource.status === "paused") return { text: "暂停", color: "var(--warn)" };
+  if (isExpired(resource)) return { text: "已过期", color: "var(--text-faint)" };
+  return { text: "出租中", color: "var(--ok)" };
 }
 
 // 只在「不正常」时才给标签。正常出租中是默认情况，不用占地方提醒。

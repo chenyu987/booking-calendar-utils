@@ -78,7 +78,7 @@ export default function ResizableNav({
           cursor: "col-resize",
           // 这条 1px 线就是原来 nav 上的 borderRight，挪到手柄左边缘，
           // 位置不变但现在整根都能拖
-          borderLeft: "1px solid #eee",
+          borderLeft: "1px solid var(--border)",
         }}
       />
     </>

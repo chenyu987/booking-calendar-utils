@@ -9,7 +9,7 @@ export default function BackToHome() {
         display: "inline-block",
         marginBottom: 12,
         fontSize: 13,
-        color: "#666",
+        color: "var(--text-muted)",
         textDecoration: "none",
       }}
     >

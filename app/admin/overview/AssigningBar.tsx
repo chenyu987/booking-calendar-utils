@@ -38,8 +38,8 @@ export default function AssigningBar({
         display: "flex",
         alignItems: "center",
         gap: 10,
-        background: "#1c4e78",
-        color: "#fff",
+        background: "var(--link)",
+        color: "var(--on-solid)",
         borderRadius: 6,
         padding: "6px 10px",
         boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
@@ -76,7 +76,7 @@ export default function AssigningBar({
             border: "1px solid rgba(255,255,255,0.5)",
             borderRadius: 4,
             background: "transparent",
-            color: "#fff",
+            color: "var(--on-solid)",
             fontSize: 12,
             lineHeight: 1.4,
           }}
@@ -87,7 +87,7 @@ export default function AssigningBar({
       <Link
         href={exitHref}
         style={{
-          color: "#fff",
+          color: "var(--on-solid)",
           opacity: 0.85,
           textDecoration: "none",
           flexShrink: 0,

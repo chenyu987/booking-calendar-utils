@@ -16,7 +16,7 @@ export default function HomePage() {
   return (
     <main style={{ padding: 32, maxWidth: 860, margin: "0 auto" }}>
       <h1 style={{ fontSize: 22, marginBottom: 4 }}>Beta / Alpha 租借平台</h1>
-      <p style={{ color: "#666", fontSize: 14, marginTop: 0 }}>
+      <p style={{ color: "var(--text-muted)", fontSize: 14, marginTop: 0 }}>
         物品匹配与订单管理
       </p>
 
@@ -35,7 +35,7 @@ function Section({
 }) {
   return (
     <section style={{ marginTop: 28 }}>
-      <h2 style={{ fontSize: 14, color: "#888", fontWeight: 500, marginBottom: 10 }}>
+      <h2 style={{ fontSize: 14, color: "var(--text-faint)", fontWeight: 500, marginBottom: 10 }}>
         {title}
       </h2>
       <div
@@ -51,7 +51,7 @@ function Section({
             href={l.href}
             style={{
               display: "block",
-              border: "1px solid #e5e5e5",
+              border: "1px solid var(--border)",
               borderRadius: 8,
               padding: "12px 14px",
               textDecoration: "none",
@@ -59,7 +59,7 @@ function Section({
             }}
           >
             <div style={{ fontSize: 14, fontWeight: 500 }}>{l.label}</div>
-            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{l.desc}</div>
+            <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 2 }}>{l.desc}</div>
           </Link>
         ))}
       </div>

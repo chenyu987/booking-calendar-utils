@@ -124,7 +124,7 @@ export default function CalendarScroller({
         .cal-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
         .cal-scroll::-webkit-scrollbar-track { background: transparent; }
         .cal-scroll::-webkit-scrollbar-thumb {
-          background: rgba(0, 0, 0, var(--cal-thumb-a, 0));
+          background: rgba(var(--scrollbar-thumb), var(--cal-thumb-a, 0));
           border-radius: 5px;
         }
       `}</style>

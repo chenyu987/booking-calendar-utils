@@ -261,7 +261,7 @@ export default async function OrdersAdminPage({
           常驻显示，不做收起——它只占一行，藏起来反而多一次点击。
           也没有「筛选」按钮：改一个条件就自动筛，见 FilterForm。 */}
       <FilterForm action="/admin/orders">
-        <div style={{ ...rowStyle, background: "#fafafa" }}>
+        <div style={{ ...rowStyle, background: "var(--surface-2)" }}>
             <div style={{ ...cellStyle, flex: 1 }}>
               <input
                 name="customer"
@@ -295,7 +295,7 @@ export default async function OrdersAdminPage({
                 title="从这天起"
                 style={{ ...filterInputStyle, flex: 1, minWidth: 0 }}
               />
-              <span style={{ color: "#999", flexShrink: 0 }}>~</span>
+              <span style={{ color: "var(--text-faint)", flexShrink: 0 }}>~</span>
               <input
                 type="date"
                 name="to"
@@ -319,7 +319,7 @@ export default async function OrdersAdminPage({
                 placeholder="最低"
                 style={{ ...filterInputStyle, flex: 1, minWidth: 0 }}
               />
-              <span style={{ color: "#999", flexShrink: 0, fontSize: 11 }}>~</span>
+              <span style={{ color: "var(--text-faint)", flexShrink: 0, fontSize: 11 }}>~</span>
               <input
                 // 用 text 不用 number：number 会带上下箭头，靠 CSS 干掉那个
                 // vendor 伪元素在不同浏览器上不一定都生效。text + inputMode=numeric
@@ -357,7 +357,7 @@ export default async function OrdersAdminPage({
             style={{
               ...cellStyle,
               width: 110,
-              color: "#999",
+              color: "var(--text-faint)",
               fontSize: 11,
               display: "flex",
               alignItems: "center",
@@ -366,7 +366,7 @@ export default async function OrdersAdminPage({
           >
             {filtering ? (
               <>
-                <span style={{ color: "#a8620d" }}>{visibleOrders.length} 单</span>
+                <span style={{ color: "var(--warn)" }}>{visibleOrders.length} 单</span>
                 <Link href="/admin/orders" style={linkButtonStyle}>
                   清除
                 </Link>
@@ -442,7 +442,7 @@ export default async function OrdersAdminPage({
                 style={{ ...inputStyle, width: "100%" }}
               />
             </div>
-            <div style={{ ...cellStyle, flex: 1.4, color: "#888", fontSize: 11 }}>
+            <div style={{ ...cellStyle, flex: 1.4, color: "var(--text-faint)", fontSize: 11 }}>
               分配请去
               <br />
               排期总览
@@ -483,9 +483,9 @@ export default async function OrdersAdminPage({
             <div style={{ ...cellStyle, width: 70 }}>
               {formatParty(o.male_count, o.female_count)}
             </div>
-            <div style={{ ...cellStyle, flex: 1.6, color: "#555" }}>
+            <div style={{ ...cellStyle, flex: 1.6, color: "var(--text-muted)" }}>
               {o.demand_days?.length ?? 0} 天
-              <span style={{ color: "#999", marginLeft: 6, fontSize: 12 }}>
+              <span style={{ color: "var(--text-faint)", marginLeft: 6, fontSize: 12 }}>
                 {o.demand_days?.[0]}
                 {o.demand_days?.length > 1
                   ? ` ~ ${o.demand_days[o.demand_days.length - 1]}`
@@ -493,7 +493,7 @@ export default async function OrdersAdminPage({
               </span>
             </div>
             <div style={{ ...cellStyle, width: 130 }}>{o.amount ?? "-"}</div>
-            <div style={{ ...cellStyle, flex: 1.4, color: "#555" }}>
+            <div style={{ ...cellStyle, flex: 1.4, color: "var(--text-muted)" }}>
               {(() => {
                 const cards = assignedTo.get(o.id) ?? [];
                 const need = computeNeed(o, cards);
@@ -503,12 +503,12 @@ export default async function OrdersAdminPage({
                       style={{
                         fontSize: 12,
                         fontWeight: 500,
-                        color: need.isComplete ? "#1f5c33" : "#a8620d",
+                        color: need.isComplete ? "var(--ok)" : "var(--warn)",
                       }}
                     >
                       {formatNeed(need)}
                     </div>
-                    <div style={{ fontSize: 11, color: "#888" }}>
+                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
                       {cards.length > 0
                         ? cards
                             .map(
@@ -548,9 +548,9 @@ function LocationCell({ value }: { value: string }) {
     <span
       title={locationHintFor(value)}
       style={{
-        color: "#c0392b",
+        color: "var(--danger)",
         fontWeight: 600,
-        textDecoration: "underline wavy #c0392b",
+        textDecoration: "underline wavy var(--danger)",
         textUnderlineOffset: 2,
         cursor: "help",
       }}

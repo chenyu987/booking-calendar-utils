@@ -65,7 +65,7 @@ export default function DeleteOrderButton({
         border: "none",
         padding: 0,
         cursor: "pointer",
-        color: "#c0392b",
+        color: "var(--danger)",
         fontSize: 14,
         lineHeight: 1,
         fontWeight: 700,

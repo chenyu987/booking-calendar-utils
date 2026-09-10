@@ -109,19 +109,19 @@ export default async function CustomerHomePage({
             marginBottom: editing ? 10 : 6,
           }}
         >
-          <h2 style={{ fontSize: 14, margin: 0, color: "#444" }}>个人资料</h2>
+          <h2 style={{ fontSize: 14, margin: 0, color: "var(--text-muted)" }}>个人资料</h2>
           {!editing && (
-            <Link href="/customer?edit=profile" style={{ fontSize: 13, color: "#1c4e78" }}>
+            <Link href="/customer?edit=profile" style={{ fontSize: 13, color: "var(--link)" }}>
               编辑
             </Link>
           )}
         </div>
 
         {searchParams.saved && !editing && (
-          <p style={{ color: "#1f5c33", fontSize: 13, margin: "0 0 8px" }}>已保存</p>
+          <p style={{ color: "var(--ok)", fontSize: 13, margin: "0 0 8px" }}>已保存</p>
         )}
         {searchParams.error && (
-          <p style={{ color: "#c0392b", fontSize: 13, margin: "0 0 8px" }}>
+          <p style={{ color: "var(--danger)", fontSize: 13, margin: "0 0 8px" }}>
             没存上，再试一次
           </p>
         )}
@@ -157,7 +157,7 @@ export default async function CustomerHomePage({
                 style={inputStyle}
               />
             </label>
-            <p style={{ fontSize: 12, color: "#888", margin: 0 }}>
+            <p style={{ fontSize: 12, color: "var(--text-faint)", margin: 0 }}>
               全部选填。生日只是方便分配时对得上年龄 —— 物品是登记了使用人的。
             </p>
             <div style={{ display: "flex", gap: 8 }}>
@@ -170,7 +170,7 @@ export default async function CustomerHomePage({
             </div>
           </form>
         ) : (
-          <dl style={{ margin: 0, fontSize: 13, color: "#444", lineHeight: 1.9 }}>
+          <dl style={{ margin: 0, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.9 }}>
             <Row label="登录邮箱" value={user.email ?? "-"} />
             <Row label="账号" value={me?.chat} />
             <Row label="手机号" value={me?.phone_number} />
@@ -179,7 +179,7 @@ export default async function CustomerHomePage({
               value={me?.date_of_birth ? `${me.date_of_birth}${age !== null ? `（${age}岁）` : ""}` : null}
             />
             {noContact && (
-              <p style={{ fontSize: 12, color: "#a8620d", margin: "6px 0 0" }}>
+              <p style={{ fontSize: 12, color: "var(--warn)", margin: "6px 0 0" }}>
                 留个手机号或者聊天吧 —— 配到资源之后我们要能找到你。
               </p>
             )}
@@ -200,12 +200,12 @@ export default async function CustomerHomePage({
       </div>
 
       {searchParams.created && (
-        <p style={{ color: "#1f5c33", fontSize: 13, margin: "8px 0 0" }}>
+        <p style={{ color: "var(--ok)", fontSize: 13, margin: "8px 0 0" }}>
           需求提交成功，管理员会帮你匹配物主。
           {noContact && (
             <>
               {" "}
-              <Link href="/customer?edit=profile" style={{ color: "#8a4b00" }}>
+              <Link href="/customer?edit=profile" style={{ color: "var(--warn)" }}>
                 但你还没留聊天或手机号，配到资源我们不好通知你 —— 现在补一下 →
               </Link>
             </>
@@ -218,7 +218,7 @@ export default async function CustomerHomePage({
       </Link>
 
       {!orders || orders.length === 0 ? (
-        <p style={{ marginTop: 20, color: "#666", fontSize: 14 }}>
+        <p style={{ marginTop: 20, color: "var(--text-muted)", fontSize: 14 }}>
           你还没有订单，点上面那个按钮发一个。
         </p>
       ) : (
@@ -269,21 +269,21 @@ export default async function CustomerHomePage({
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
     <div style={{ display: "flex", gap: 8 }}>
-      <dt style={{ color: "#888", width: 72, flexShrink: 0 }}>{label}</dt>
-      <dd style={{ margin: 0 }}>{value || <span style={{ color: "#bbb" }}>未填</span>}</dd>
+      <dt style={{ color: "var(--text-faint)", width: 72, flexShrink: 0 }}>{label}</dt>
+      <dd style={{ margin: 0 }}>{value || <span style={{ color: "var(--text-faint)" }}>未填</span>}</dd>
     </div>
   );
 }
 
 const cardStyle: React.CSSProperties = {
-  border: "1px solid #e2e2e2",
+  border: "1px solid var(--border)",
   borderRadius: 6,
   padding: "12px 14px",
   marginTop: 14,
 };
 const inputStyle: React.CSSProperties = {
   padding: 8,
-  border: "1px solid #ccc",
+  border: "1px solid var(--border-strong)",
   borderRadius: 4,
   fontSize: 14,
 };
@@ -292,31 +292,31 @@ const labelStyle: React.CSSProperties = {
   flexDirection: "column",
   gap: 4,
   fontSize: 13,
-  color: "#444",
+  color: "var(--text-muted)",
 };
 const buttonStyle: React.CSSProperties = {
   padding: "8px 14px",
   border: "none",
-  background: "#111",
-  color: "#fff",
+  background: "var(--solid-bg)",
+  color: "var(--on-solid)",
   borderRadius: 4,
   cursor: "pointer",
   fontSize: 14,
 };
 const cancelStyle: React.CSSProperties = {
   padding: "8px 14px",
-  border: "1px solid #ccc",
+  border: "1px solid var(--border-strong)",
   borderRadius: 4,
   fontSize: 14,
-  color: "#444",
+  color: "var(--text-muted)",
   textDecoration: "none",
 };
 const newOrderStyle: React.CSSProperties = {
   display: "block",
   marginTop: 12,
   padding: "10px 12px",
-  background: "#111",
-  color: "#fff",
+  background: "var(--solid-bg)",
+  color: "var(--on-solid)",
   borderRadius: 4,
   fontSize: 14,
   textAlign: "center",
@@ -324,10 +324,10 @@ const newOrderStyle: React.CSSProperties = {
 };
 const signOutStyle: React.CSSProperties = {
   background: "none",
-  border: "1px solid #ccc",
+  border: "1px solid var(--border-strong)",
   borderRadius: 4,
   padding: "3px 10px",
   fontSize: 12,
-  color: "#666",
+  color: "var(--text-muted)",
   cursor: "pointer",
 };

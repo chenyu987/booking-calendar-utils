@@ -49,7 +49,7 @@ export default function DragAssign() {
       if (target.current === el) return;
       if (target.current) target.current.style.removeProperty("box-shadow");
       target.current = el;
-      if (el) el.style.boxShadow = "0 0 0 3px #1f5c33";
+      if (el) el.style.boxShadow = "0 0 0 3px var(--ok)";
     }
 
     function autoScroll() {
@@ -189,8 +189,8 @@ export default function DragAssign() {
             top: ghost.y + 12,
             zIndex: 100,
             pointerEvents: "none",
-            background: "#1f5c33",
-            color: "#fff",
+            background: "var(--ok)",
+            color: "var(--on-solid)",
             fontSize: 12,
             padding: "4px 10px",
             borderRadius: 4,

@@ -155,7 +155,7 @@ export default async function ProvidersAdminPage({
                 style={{ ...inputStyle, width: "100%" }}
               />
             </div>
-            <div style={{ ...cellStyle, width: 50, color: "#999" }}>自动</div>
+            <div style={{ ...cellStyle, width: 50, color: "var(--text-faint)" }}>自动</div>
             <div style={{ ...cellStyle, width: 100 }}>
               <select
                 name="status"

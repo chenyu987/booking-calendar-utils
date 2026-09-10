@@ -46,10 +46,10 @@ export default async function ResetPasswordPage({
   return (
     <main style={{ padding: 24, maxWidth: 420, margin: "0 auto" }}>
       <h1 style={{ fontSize: 20 }}>设一个新密码</h1>
-      <p style={{ color: "#666", fontSize: 13 }}>{user.email}</p>
+      <p style={{ color: "var(--text-muted)", fontSize: 13 }}>{user.email}</p>
 
       {searchParams.error && (
-        <p style={{ color: "#c0392b", fontSize: 13, margin: "8px 0 0" }}>
+        <p style={{ color: "var(--danger)", fontSize: 13, margin: "8px 0 0" }}>
           {errorText[searchParams.error] ?? "出了点问题，再试一次"}
         </p>
       )}
@@ -85,15 +85,15 @@ export default async function ResetPasswordPage({
 
 const inputStyle: React.CSSProperties = {
   padding: 10,
-  border: "1px solid #ccc",
+  border: "1px solid var(--border-strong)",
   borderRadius: 4,
   fontSize: 14,
 };
 const buttonStyle: React.CSSProperties = {
   padding: "10px 12px",
   border: "none",
-  background: "#111",
-  color: "#fff",
+  background: "var(--solid-bg)",
+  color: "var(--on-solid)",
   borderRadius: 4,
   cursor: "pointer",
   fontSize: 14,

@@ -26,14 +26,14 @@ const filterInputStyle: React.CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
   padding: "3px 6px",
-  border: "1px solid #ddd",
+  border: "1px solid var(--border)",
   borderRadius: 3,
   fontSize: 12,
 };
 
 const filterThStyle: React.CSSProperties = {
   padding: "0 8px 8px",
-  borderBottom: "1px solid #ddd",
+  borderBottom: "1px solid var(--border)",
   verticalAlign: "top",
 };
 
@@ -109,7 +109,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
           gap: 12,
           marginTop: 16,
           fontSize: 13,
-          color: "#666",
+          color: "var(--text-muted)",
         }}
       >
         <span>
@@ -123,7 +123,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
               background: "none",
               border: "none",
               padding: 0,
-              color: "#666",
+              color: "var(--text-muted)",
               fontSize: 13,
               cursor: "pointer",
               textDecoration: "underline",
@@ -179,7 +179,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
                   inputMode="numeric"
                   style={filterInputStyle}
                 />
-                <span style={{ color: "#bbb", fontSize: 12 }}>~</span>
+                <span style={{ color: "var(--text-faint)", fontSize: 12 }}>~</span>
                 <input
                   value={ageMax}
                   onChange={(e) => setAgeMax(e.target.value)}
@@ -233,7 +233,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
                 <td style={tdStyle}>{r.note}</td>
                 <td style={tdStyle}>
                   {r.segments.length === 0 ? (
-                    <span style={{ color: "#bbb" }}>-</span>
+                    <span style={{ color: "var(--text-faint)" }}>-</span>
                   ) : (
                     <div
                       style={{
@@ -252,8 +252,8 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
                             borderRadius: 3,
                             fontSize: 12,
                             whiteSpace: "nowrap",
-                            background: s.inactive ? "#f6f6f6" : "#eef4fa",
-                            color: s.inactive ? "#aaa" : "#28527a",
+                            background: s.inactive ? "var(--surface-2)" : "var(--row-tint)",
+                            color: s.inactive ? "var(--text-faint)" : "var(--link)",
                             textDecoration: s.inactive ? "line-through" : "none",
                           }}
                         >
@@ -268,7 +268,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
                             background: "none",
                             border: "none",
                             padding: 0,
-                            color: "#666",
+                            color: "var(--text-muted)",
                             fontSize: 12,
                             cursor: "pointer",
                           }}
@@ -284,7 +284,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
                             background: "none",
                             border: "none",
                             padding: 0,
-                            color: "#666",
+                            color: "var(--text-muted)",
                             fontSize: 12,
                             cursor: "pointer",
                           }}
@@ -292,7 +292,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
                           收起
                         </button>
                       )}
-                      <span style={{ color: "#aaa", fontSize: 12 }}>
+                      <span style={{ color: "var(--text-faint)", fontSize: 12 }}>
                         共 {r.orderCount} 单
                       </span>
                     </div>
@@ -305,7 +305,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
       </table>
 
       {filtered.length === 0 && rows.length > 0 && (
-        <p style={{ color: "#666", fontSize: 13 }}>没有符合筛选条件的 Customer</p>
+        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>没有符合筛选条件的 Customer</p>
       )}
     </>
   );

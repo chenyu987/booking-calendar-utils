@@ -81,13 +81,13 @@ export default function DayNote({
         }}
         style={{
           width: "100%",
-          border: "1px solid #999",
+          border: "1px solid var(--text-faint)",
           borderRadius: 3,
           padding: "0 3px",
           fontSize: 11,
           lineHeight: "15px",
-          background: "#fff",
-          color: "#333",
+          background: "var(--surface)",
+          color: "var(--text)",
           outline: "none",
         }}
       />
@@ -108,7 +108,7 @@ export default function DayNote({
         fontSize: 11,
         lineHeight: "15px",
         cursor: "text",
-        color: failed ? "#c0392b" : "#333",
+        color: failed ? "var(--danger)" : "var(--text)",
         fontWeight: shown ? 500 : 400,
         // 一列 150px 宽，长备注截断，全文在 title 里
         overflow: "hidden",

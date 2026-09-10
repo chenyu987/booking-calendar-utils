@@ -66,10 +66,10 @@ export default async function ProviderHomePage({
           </button>
         </form>
       </div>
-      <p style={{ color: "#888", fontSize: 12, marginTop: 4 }}>{user.email}</p>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: 4 }}>{user.email}</p>
 
       {searchParams.listed && (
-        <p style={{ color: "#1f5c33", fontSize: 13, margin: "8px 0 0" }}>
+        <p style={{ color: "var(--ok)", fontSize: 13, margin: "8px 0 0" }}>
           资源挂上了，有人要租我们会联系你。
         </p>
       )}
@@ -79,7 +79,7 @@ export default async function ProviderHomePage({
       </Link>
 
       {!resources || resources.length === 0 ? (
-        <p style={{ marginTop: 20, color: "#666", fontSize: 14 }}>
+        <p style={{ marginTop: 20, color: "var(--text-muted)", fontSize: 14 }}>
           你还没挂过资源，点上面那个按钮挂一个。
         </p>
       ) : (
@@ -99,30 +99,30 @@ export default async function ProviderHomePage({
                 >
                   <span style={{ fontWeight: 500 }}>
                     {s.holder_name || "（没填持有人）"}
-                    <span style={{ fontWeight: 400, color: "#666", fontSize: 13 }}>
+                    <span style={{ fontWeight: 400, color: "var(--text-muted)", fontSize: 13 }}>
                       {" "}
                       {formatHolder(s.holder_gender, s.holder_date_of_birth)}
                     </span>
                   </span>
-                  <span style={{ fontSize: 12, color: "#666" }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
                     {s.item_type ?? "-"}
                   </span>
                 </div>
-                <div style={{ fontSize: 13, color: "#444", marginTop: 4 }}>
+                <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>
                   有效期 {s.date_range_start} ~ {s.date_range_end}
                 </div>
                 <div style={{ fontSize: 13, marginTop: 4 }}>
                   {booked.length > 0 ? (
-                    <span style={{ color: "#1f5c33" }}>
+                    <span style={{ color: "var(--ok)" }}>
                       已排 {formatDayRanges(booked)}（共 {new Set(booked).size} 天）
                     </span>
                   ) : (
-                    <span style={{ color: "#888" }}>还没排出去</span>
+                    <span style={{ color: "var(--text-faint)" }}>还没排出去</span>
                   )}
                 </div>
-                <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 4 }}>
                   {RESOURCE_STATUS_LABELS[s.status] ?? s.status}
-                  {expired && <span style={{ color: "#a8620d" }}> · 已过有效期</span>}
+                  {expired && <span style={{ color: "var(--warn)" }}> · 已过有效期</span>}
                 </div>
               </div>
             );
@@ -130,7 +130,7 @@ export default async function ProviderHomePage({
         </div>
       )}
 
-      <p style={{ fontSize: 12, color: "#999", marginTop: 20, lineHeight: 1.7 }}>
+      <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 20, lineHeight: 1.7 }}>
         要改资源信息或者暂停出租，先联系我们 —— 自助编辑还没做。
       </p>
     </main>
@@ -138,7 +138,7 @@ export default async function ProviderHomePage({
 }
 
 const cardStyle: React.CSSProperties = {
-  border: "1px solid #e2e2e2",
+  border: "1px solid var(--border)",
   borderRadius: 6,
   padding: "10px 12px",
 };
@@ -146,8 +146,8 @@ const primaryLinkStyle: React.CSSProperties = {
   display: "block",
   marginTop: 12,
   padding: "10px 12px",
-  background: "#111",
-  color: "#fff",
+  background: "var(--solid-bg)",
+  color: "var(--on-solid)",
   borderRadius: 4,
   fontSize: 14,
   textAlign: "center",
@@ -155,10 +155,10 @@ const primaryLinkStyle: React.CSSProperties = {
 };
 const signOutStyle: React.CSSProperties = {
   background: "none",
-  border: "1px solid #ccc",
+  border: "1px solid var(--border-strong)",
   borderRadius: 4,
   padding: "3px 10px",
   fontSize: 12,
-  color: "#666",
+  color: "var(--text-muted)",
   cursor: "pointer",
 };

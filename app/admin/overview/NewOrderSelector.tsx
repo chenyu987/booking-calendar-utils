@@ -340,8 +340,8 @@ export default function NewOrderSelector({
               top: 16,
               left: "50%",
               transform: "translateX(-50%)",
-              background: "#c0392b",
-              color: "#fff",
+              background: "var(--danger)",
+              color: "var(--on-solid)",
               fontSize: 13,
               padding: "8px 14px",
               borderRadius: 4,
@@ -364,7 +364,7 @@ export default function NewOrderSelector({
             width,
             height: rowHeight,
             background: "rgba(28, 78, 120, 0.1)",
-            border: "1px dashed #1c4e78",
+            border: "1px dashed var(--link)",
             borderRadius: 4,
             pointerEvents: "none",
           }}
@@ -381,14 +381,14 @@ export default function NewOrderSelector({
               (Math.abs(pending.end - pending.start) + 1) * colWidth +
               Math.abs(pending.end - pending.start) * GAP,
             height: rowHeight,
-            background: "#f3f4f6",
-            border: "1px solid #bbb",
+            background: "var(--surface-2)",
+            border: "1px solid var(--border-strong)",
             borderRadius: 4,
             padding: "3px 6px",
             boxSizing: "border-box",
             fontSize: 12,
             lineHeight: 1.3,
-            color: "#666",
+            color: "var(--text-muted)",
             overflow: "hidden",
             pointerEvents: "none",
             opacity: 0.75,
@@ -437,8 +437,8 @@ export default function NewOrderSelector({
             left: popupPos.left,
             width: POPUP_WIDTH,
             boxSizing: "border-box",
-            background: "#fff",
-            border: "1px solid #ccc",
+            background: "var(--surface)",
+            border: "1px solid var(--border-strong)",
             borderRadius: 6,
             boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
             padding: 14,
@@ -452,7 +452,7 @@ export default function NewOrderSelector({
           <div
             style={{
               fontWeight: 500,
-              color: "#222",
+              color: "var(--text)",
               display: "flex",
               alignItems: "center",
               flexWrap: "wrap",
@@ -467,7 +467,7 @@ export default function NewOrderSelector({
                 setDateStart(v);
                 if (dateEnd < v) setDateEnd(v);
               }}
-              style={{ fontSize: 12, color: "#222" }}
+              style={{ fontSize: 12, color: "var(--text)" }}
             />
             <span>~</span>
             <input
@@ -479,7 +479,7 @@ export default function NewOrderSelector({
                 setDateEnd(v);
                 if (v < dateStart) setDateStart(v);
               }}
-              style={{ fontSize: 12, color: "#222" }}
+              style={{ fontSize: 12, color: "var(--text)" }}
             />
             {dateStart && dateEnd && dateEnd >= dateStart && (
               <span>（{dateRangeToArray(dateStart, dateEnd).length}天）</span>
@@ -491,7 +491,7 @@ export default function NewOrderSelector({
             placeholder="客人姓名"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            style={{ fontSize: 13, padding: "6px 8px", color: "#222" }}
+            style={{ fontSize: 13, padding: "6px 8px", color: "var(--text)" }}
           />
           <style>{`
             .new-order-qty-input::-webkit-calendar-picker-indicator { display: none; }
@@ -506,7 +506,7 @@ export default function NewOrderSelector({
                 className="new-order-qty-input"
                 value={male}
                 onChange={(e) => setMale(Number(e.target.value))}
-                style={{ width: "100%", fontSize: 13, padding: "6px 4px", color: "#222" }}
+                style={{ width: "100%", fontSize: 13, padding: "6px 4px", color: "var(--text)" }}
               />
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: 4, flex: 1 }}>
@@ -518,7 +518,7 @@ export default function NewOrderSelector({
                 className="new-order-qty-input"
                 value={female}
                 onChange={(e) => setFemale(Number(e.target.value))}
-                style={{ width: "100%", fontSize: 13, padding: "6px 4px", color: "#222" }}
+                style={{ width: "100%", fontSize: 13, padding: "6px 4px", color: "var(--text)" }}
               />
             </label>
             <datalist id="new-order-count-options">
@@ -532,13 +532,13 @@ export default function NewOrderSelector({
               placeholder="去哪个地点（选填）"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
-              style={{ flex: 1, minWidth: 0, fontSize: 13, padding: "6px 8px", color: "#222" }}
+              style={{ flex: 1, minWidth: 0, fontSize: 13, padding: "6px 8px", color: "var(--text)" }}
             />
             <input
               placeholder="备注（选填）"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              style={{ flex: 1, minWidth: 0, fontSize: 13, padding: "6px 8px", color: "#222" }}
+              style={{ flex: 1, minWidth: 0, fontSize: 13, padding: "6px 8px", color: "var(--text)" }}
             />
           </div>
           <div style={{ display: "flex", gap: 10 }}>
@@ -551,7 +551,7 @@ export default function NewOrderSelector({
                 placeholder="单价"
                 value={perDayPrice}
                 onChange={(e) => handlePerDayChange(e.target.value)}
-                style={{ width: "100%", fontSize: 13, padding: "6px 4px", color: "#222" }}
+                style={{ width: "100%", fontSize: 13, padding: "6px 4px", color: "var(--text)" }}
               />
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: 4, flex: 1 }}>
@@ -563,11 +563,11 @@ export default function NewOrderSelector({
                 placeholder="选填"
                 value={totalPrice}
                 onChange={(e) => setTotalPrice(e.target.value)}
-                style={{ width: "100%", fontSize: 13, padding: "6px 4px", color: "#222" }}
+                style={{ width: "100%", fontSize: 13, padding: "6px 4px", color: "var(--text)" }}
               />
             </label>
           </div>
-          {error && <div style={{ fontSize: 12, color: "#c0392b" }}>{error}</div>}
+          {error && <div style={{ fontSize: 12, color: "var(--danger)" }}>{error}</div>}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button
               type="button"
@@ -583,8 +583,8 @@ export default function NewOrderSelector({
                 fontSize: 13,
                 padding: "4px 10px",
                 cursor: formInvalid ? "default" : "pointer",
-                background: "#1f5c33",
-                color: "#fff",
+                background: "var(--ok)",
+                color: "var(--on-solid)",
                 border: "none",
                 borderRadius: 3,
               }}

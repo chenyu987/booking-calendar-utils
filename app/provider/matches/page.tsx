@@ -78,30 +78,30 @@ export default async function ProviderMatchesPage({
 
   return (
     <main style={{ padding: 24, maxWidth: 640, margin: "0 auto" }}>
-      <Link href="/provider" style={{ fontSize: 13, color: "#1c4e78" }}>
+      <Link href="/provider" style={{ fontSize: 13, color: "var(--link)" }}>
         ← 我的资源
       </Link>
       <h1 style={{ fontSize: 20 }}>看看有哪些需求</h1>
-      <p style={{ color: "#666", fontSize: 13 }}>
+      <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
         下面是还没配到资源、并且你手上的资源有效期能覆盖的需求。觉得能接就提一个意向，
         管理员确认之后才算数。
       </p>
 
       {searchParams.proposed && (
-        <p style={{ color: "#1f5c33", fontSize: 13 }}>已提交意向，等管理员确认。</p>
+        <p style={{ color: "var(--ok)", fontSize: 13 }}>已提交意向，等管理员确认。</p>
       )}
       {searchParams.error && (
-        <p style={{ color: "#c0392b", fontSize: 13 }}>
+        <p style={{ color: "var(--danger)", fontSize: 13 }}>
           {errorText[searchParams.error] ?? "出了点问题，再试一次"}
         </p>
       )}
 
       {myResources.length === 0 ? (
-        <p style={{ color: "#666", fontSize: 14, marginTop: 16 }}>
+        <p style={{ color: "var(--text-muted)", fontSize: 14, marginTop: 16 }}>
           你名下没有在出租的资源。<Link href="/provider/listing">先去挂一个 →</Link>
         </p>
       ) : openOrders.length === 0 ? (
-        <p style={{ color: "#666", fontSize: 14, marginTop: 16 }}>
+        <p style={{ color: "var(--text-muted)", fontSize: 14, marginTop: 16 }}>
           现在没有你的资源能接的需求，过两天再来看看。
         </p>
       ) : (
@@ -113,12 +113,12 @@ export default async function ProviderMatchesPage({
               <div key={o.id} style={cardStyle}>
                 <div style={{ fontWeight: 500 }}>
                   {formatDayRanges(o.demand_days ?? [])}
-                  <span style={{ fontWeight: 400, color: "#666" }}>
+                  <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>
                     {" "}
                     · {o.demand_days?.length ?? 0}天
                   </span>
                 </div>
-                <div style={{ fontSize: 13, color: "#444", marginTop: 2 }}>
+                <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>
                   {o.location ? `${o.location} · ` : ""}
                   {formatParty(o.male_count, o.female_count)}
                   {o.amount != null ? ` · $${o.amount}` : ""}
@@ -150,21 +150,21 @@ export default async function ProviderMatchesPage({
 }
 
 const cardStyle: React.CSSProperties = {
-  border: "1px solid #e2e2e2",
+  border: "1px solid var(--border)",
   borderRadius: 6,
   padding: "10px 12px",
 };
 const inputStyle: React.CSSProperties = {
   padding: 8,
-  border: "1px solid #ccc",
+  border: "1px solid var(--border-strong)",
   borderRadius: 4,
   fontSize: 14,
 };
 const buttonStyle: React.CSSProperties = {
   padding: "8px 14px",
   border: "none",
-  background: "#111",
-  color: "#fff",
+  background: "var(--solid-bg)",
+  color: "var(--on-solid)",
   borderRadius: 4,
   cursor: "pointer",
   fontSize: 14,

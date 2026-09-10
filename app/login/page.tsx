@@ -140,17 +140,17 @@ export default async function LoginPage({
         <BackToHome />
         <h1 style={{ fontSize: 20 }}>重置密码</h1>
         {searchParams.sent ? (
-          <p style={{ color: "#1f5c33", fontSize: 13, lineHeight: 1.7 }}>
+          <p style={{ color: "var(--ok)", fontSize: 13, lineHeight: 1.7 }}>
             如果这个邮箱注册过，重置链接已经发过去了。去邮箱点那条链接就能设新密码。
             没看到的话翻一下垃圾邮件。
           </p>
         ) : (
           <>
-            <p style={{ color: "#666", fontSize: 13 }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
               填注册用的邮箱，我们发一条重置链接给你。
             </p>
             {searchParams.error && (
-              <p style={{ color: "#c0392b", fontSize: 13, margin: "8px 0 0" }}>
+              <p style={{ color: "var(--danger)", fontSize: 13, margin: "8px 0 0" }}>
                 {errorText[searchParams.error] ?? "出了点问题，再试一次"}
               </p>
             )}
@@ -189,14 +189,14 @@ export default async function LoginPage({
         {isProvider ? "物主" : "客户"}
         {isSignup ? "注册" : "登录"}
       </h1>
-      <p style={{ color: "#666", fontSize: 13 }}>
+      <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
         {isSignup
           ? "填邮箱、设一个密码就行，不用收验证码。"
           : "用邮箱和密码登录。"}
       </p>
 
       {searchParams.error && (
-        <p style={{ color: "#c0392b", fontSize: 13, margin: "8px 0 0", lineHeight: 1.6 }}>
+        <p style={{ color: "var(--danger)", fontSize: 13, margin: "8px 0 0", lineHeight: 1.6 }}>
           {errorText[searchParams.error] ?? "出了点问题，再试一次"}
         </p>
       )}
@@ -262,17 +262,17 @@ export default async function LoginPage({
 
 const inputStyle: React.CSSProperties = {
   padding: 10,
-  border: "1px solid #ccc",
+  border: "1px solid var(--border-strong)",
   borderRadius: 4,
   fontSize: 14,
 };
 const buttonStyle: React.CSSProperties = {
   padding: "10px 12px",
   border: "none",
-  background: "#111",
-  color: "#fff",
+  background: "var(--solid-bg)",
+  color: "var(--on-solid)",
   borderRadius: 4,
   cursor: "pointer",
   fontSize: 14,
 };
-const linkStyle: React.CSSProperties = { color: "#1c4e78" };
+const linkStyle: React.CSSProperties = { color: "var(--link)" };

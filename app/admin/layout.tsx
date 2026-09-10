@@ -3,6 +3,8 @@ import Link from "next/link";
 import BackToHome from "@/components/BackToHome";
 import ResizableNav from "./ResizableNav";
 import { parseNavWidth } from "@/lib/navWidth";
+import SettingsTrigger from "@/components/SettingsTrigger";
+import { parseTheme, THEME_COOKIE } from "@/lib/theme";
 
 const navItems = [
   { href: "/admin/overview", label: "排期总览" },
@@ -12,7 +14,6 @@ const navItems = [
   { href: "/admin/resources", label: "Resource" },
   { href: "/admin/payments", label: "Payment" },
   { href: "/admin/matches", label: "Match" },
-  { href: "/admin/settings", label: "设置" },
 ];
 
 export default function AdminLayout({
@@ -23,6 +24,7 @@ export default function AdminLayout({
   // 侧边栏宽度存 cookie，服务端读出来当初始值，所以跳页面不会丢、首屏不会闪。
   // Next 14.2 的 cookies() 是同步的（15 开始变 Promise，又一个不能升级的理由）。
   const initialWidth = parseNavWidth(cookies().get("admin_nav_width")?.value);
+  const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
@@ -34,7 +36,7 @@ export default function AdminLayout({
             marginBottom: 12,
             fontSize: 14,
             paddingTop: 8,
-            borderTop: "1px solid #eee",
+            borderTop: "1px solid var(--border)",
             whiteSpace: "nowrap",
           }}
         >
@@ -44,12 +46,17 @@ export default function AdminLayout({
           <div key={item.href} style={{ marginBottom: 8, whiteSpace: "nowrap" }}>
             <Link
               href={item.href}
-              style={{ color: "#333", textDecoration: "none", fontSize: 14 }}
+              style={{ color: "var(--text)", textDecoration: "none", fontSize: 14 }}
             >
               {item.label}
             </Link>
           </div>
         ))}
+        {/* 设置是弹框不是页面：顺手调一下不该把手上的位置（滚到哪一周、
+            正在配哪一单）弄丢 */}
+        <div style={{ marginBottom: 8, whiteSpace: "nowrap" }}>
+          <SettingsTrigger theme={theme} />
+        </div>
       </ResizableNav>
       {/* minWidth:0 不能省：flex 子项默认 min-width:auto，不加的话排期总览那个很宽的
           日历会把整个页面撑宽，横向滚动条跑到 body 上——侧边栏和统计区跟着一起滑走。

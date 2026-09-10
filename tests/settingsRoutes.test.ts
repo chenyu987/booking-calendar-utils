@@ -42,6 +42,8 @@ const dayNote = (body: unknown) =>
   post(() => import("@/app/admin/overview/day-note/route"), "/admin/overview/day-note", body);
 const bandDays = (body: unknown) =>
   post(() => import("@/app/admin/overview/band-days/route"), "/admin/overview/band-days", body);
+const saveSettings = (body: unknown) =>
+  post(() => import("@/app/admin/settings/route"), "/admin/settings", body);
 
 beforeEach(() => {
   vi.resetModules();
@@ -153,5 +155,52 @@ describe("起始日期这条设置", () => {
     seed({ app_settings: [{ key: "overview_start", value: "2026-02-31" }] });
     const { getOverviewStart } = await import("@/lib/appSettings");
     expect(await getOverviewStart()).toBeNull();
+  });
+});
+
+describe("设置弹框那条接口", () => {
+  it("读回来的是库里的值", async () => {
+    seed({
+      app_settings: [
+        { key: "overview_start", value: "2026-12-01" },
+        { key: "overview_band_days", value: "14" },
+      ],
+    });
+    const { GET } = await import("@/app/admin/settings/route");
+    const json = await (await GET()).json();
+    expect(json).toEqual({ overview_start: "2026-12-01", band_days: 14 });
+  });
+
+  it("一次存两项", async () => {
+    const r = await saveSettings({ overview_start: "2026-12-01", band_days: "14" });
+    expect(r.status).toBe(200);
+    const rows = Object.fromEntries(fake.db.app_settings.map((x: any) => [x.key, x.value]));
+    expect(rows).toEqual({ overview_start: "2026-12-01", overview_band_days: "14" });
+  });
+
+  it("起始日期留空 = 清掉这条设置", async () => {
+    await saveSettings({ overview_start: "2026-12-01" });
+    await saveSettings({ overview_start: "" });
+    expect(fake.db.app_settings.find((x: any) => x.key === "overview_start")).toBeUndefined();
+  });
+
+  it("**日子不存在就整个拒掉**，别让日历从一个说不清的地方开始", async () => {
+    const r = await saveSettings({ overview_start: "2026-02-31", band_days: "14" });
+    expect(r.status).toBe(400);
+    // 拒了就一项都别存 —— 半存半不存最难查
+    expect(fake.db.app_settings).toHaveLength(0);
+  });
+
+  it("每行几天：超范围夹住，坏类型拒掉", async () => {
+    await saveSettings({ band_days: 999 });
+    expect(fake.db.app_settings[0].value).toBe(String(MAX_BAND_DAYS));
+
+    for (const band_days of [null, "", [], {}, true]) {
+      expect((await saveSettings({ band_days })).status).toBe(400);
+    }
+  });
+
+  it("body 不是 JSON → 400", async () => {
+    expect((await saveSettings("nope")).status).toBe(400);
   });
 });

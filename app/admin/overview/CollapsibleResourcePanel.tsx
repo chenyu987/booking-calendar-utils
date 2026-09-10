@@ -53,10 +53,10 @@ export default function CollapsibleResourcePanel({
             fontSize: 12,
             lineHeight: 1,
             cursor: "pointer",
-            border: "1px solid #ddd",
+            border: "1px solid var(--border)",
             borderRadius: 4,
-            background: "#fafafa",
-            color: "#666",
+            background: "var(--surface-2)",
+            color: "var(--text-muted)",
           }}
         >
           ›
@@ -78,10 +78,10 @@ export default function CollapsibleResourcePanel({
               lineHeight: 1,
               padding: "2px 6px",
               cursor: "pointer",
-              border: "1px solid #ddd",
+              border: "1px solid var(--border)",
               borderRadius: 4,
-              background: "#fafafa",
-              color: "#666",
+              background: "var(--surface-2)",
+              color: "var(--text-muted)",
             }}
           >
             ‹ 收起

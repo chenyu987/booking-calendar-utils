@@ -51,11 +51,11 @@ export default function CollapsibleFilters({
             lineHeight: 1,
             padding: "4px 8px",
             cursor: "pointer",
-            border: "1px solid #ddd",
+            border: "1px solid var(--border)",
             borderRadius: 4,
             // 有筛选生效时按钮也高亮一下，收起状态下更容易注意到
-            background: hasFilter ? "#fff4e5" : "#fafafa",
-            color: hasFilter ? "#a8620d" : "#666",
+            background: hasFilter ? "var(--danger-soft-bg)" : "var(--surface-2)",
+            color: hasFilter ? "var(--warn)" : "var(--text-muted)",
             flexShrink: 0,
           }}
         >
@@ -69,7 +69,7 @@ export default function CollapsibleFilters({
               title={summary}
               style={{
                 fontSize: 12,
-                color: "#a8620d",
+                color: "var(--warn)",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -82,7 +82,7 @@ export default function CollapsibleFilters({
               href={clearHref}
               style={{
                 fontSize: 12,
-                color: "#666",
+                color: "var(--text-muted)",
                 flexShrink: 0,
                 textDecoration: "underline",
               }}

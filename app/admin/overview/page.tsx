@@ -846,7 +846,7 @@ export default async function OverviewPage({
             ))}
           </select>
           {hasOrderFilter && (
-            <Link href={qs({ region: "", mtn: "" })} style={{ fontSize: 12, color: "#888" }}>
+            <Link href={qs({ region: "", mtn: "" })} style={{ fontSize: 12, color: "var(--text-faint)" }}>
               清除
             </Link>
           )}
@@ -856,7 +856,7 @@ export default async function OverviewPage({
         {hiddenBeforeStart > 0 && (
           <Link
             href="/admin/settings"
-            style={{ fontSize: 12, color: "#8a4b00", whiteSpace: "nowrap" }}
+            style={{ fontSize: 12, color: "var(--warn)", whiteSpace: "nowrap" }}
             title="去设置里改起始日期"
           >
             起始日期之前还有 {hiddenBeforeStart} 单没显示 →
@@ -887,7 +887,7 @@ export default async function OverviewPage({
         }
       >
         {timeline.length === 0 ? (
-          <p style={{ color: "#666" }}>
+          <p style={{ color: "var(--text-muted)" }}>
             还没有带日期的订单。去 <Link href="/admin/orders">Order 管理</Link> 建一个。
           </p>
         ) : (
@@ -927,7 +927,7 @@ export default async function OverviewPage({
                       style={{
                         gridRow: "1 / -1",
                         gridColumn: i + 1,
-                        background: "#f4efff",
+                        background: "var(--peak-stripe)",
                         pointerEvents: "none",
                         zIndex: 0,
                       }}
@@ -950,11 +950,11 @@ export default async function OverviewPage({
                         gridRow: 1,
                         gridColumn: i + 1,
                         padding: "4px 6px",
-                        background: peak ? "#e9e0fb" : weekend ? "#fdefdb" : "#fafafa",
+                        background: peak ? "var(--peak-bg)" : weekend ? "var(--weekend-bg)" : "var(--surface-2)",
                         borderBottom:
-                          d === today ? "2px solid #333" : "1px solid #e5e5e5",
+                          d === today ? "2px solid var(--text)" : "1px solid var(--border)",
                         fontSize: 12,
-                        color: peak ? "#5b3fa8" : weekend ? "#a8620d" : "#666",
+                        color: peak ? "var(--peak)" : weekend ? "var(--warn)" : "var(--text-muted)",
                         // 竖着滚的时候日期条黏在顶上，不然滚下去就不知道是哪天了。
                         // zIndex 要压过订单色块（1）和空白选框（0）
                         position: "sticky",
@@ -1021,8 +1021,8 @@ export default async function OverviewPage({
                       // 编辑态**不能**用更粗的边框：2px vs 1px 会把整块内容往下推 1px，
                       // 进出编辑时所有字都跳一下。改成同样的 1px，加粗的观感交给
                       // box-shadow——阴影不参与布局，几何一模一样。
-                      border: `1px solid ${isAssigning ? "#1c4e78" : c.border}`,
-                      boxShadow: isAssigning ? "0 0 0 1px #1c4e78" : undefined,
+                      border: `1px solid ${isAssigning ? "var(--link)" : c.border}`,
+                      boxShadow: isAssigning ? "0 0 0 1px var(--link)" : undefined,
                       color: c.text,
                       borderRadius: 4,
                       padding: "2px 6px",
@@ -1091,8 +1091,8 @@ export default async function OverviewPage({
                                         badLocation
                                           ? {
                                               fontWeight: 500,
-                                              color: "#c0392b",
-                                              textDecoration: "underline wavy #c0392b",
+                                              color: "var(--danger)",
+                                              textDecoration: "underline wavy var(--danger)",
                                               textUnderlineOffset: 2,
                                             }
                                           : { fontWeight: 400, opacity: 0.7 }
@@ -1151,7 +1151,7 @@ export default async function OverviewPage({
                                 <span
                                   style={{
                                     fontWeight: 500,
-                                    color: need.isComplete ? "#1f5c33" : "#a8620d",
+                                    color: need.isComplete ? "var(--ok)" : "var(--warn)",
                                     whiteSpace: "nowrap",
                                     overflow: "hidden",
                                     textOverflow: "ellipsis",
@@ -1263,7 +1263,7 @@ export default async function OverviewPage({
                                     fontSize: 11,
                                     padding: "0 3px",
                                     // 地点名库里认不出来就标红。这里正好是能当场改掉的地方
-                                    color: badLocation ? "#c0392b" : "inherit",
+                                    color: badLocation ? "var(--danger)" : "inherit",
                                     fontWeight: badLocation ? 600 : 400,
                                     background: "transparent",
                                     // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
@@ -1400,7 +1400,7 @@ export default async function OverviewPage({
                                 <input type="hidden" name="order_id" value={o.id} />
                                 <span
                                   style={{
-                                    color: need.maleGap === 0 ? "#1f5c33" : "#a8620d",
+                                    color: need.maleGap === 0 ? "var(--ok)" : "var(--warn)",
                                     flexShrink: 0,
                                     whiteSpace: "nowrap",
                                   }}
@@ -1434,7 +1434,7 @@ export default async function OverviewPage({
                                 </span>
                                 <span
                                   style={{
-                                    color: need.femaleGap === 0 ? "#1f5c33" : "#a8620d",
+                                    color: need.femaleGap === 0 ? "var(--ok)" : "var(--warn)",
                                     flexShrink: 0,
                                     whiteSpace: "nowrap",
                                   }}
@@ -1500,7 +1500,7 @@ export default async function OverviewPage({
                                   lineHeight: "14px",
                                   padding: "0 2px",
                                   boxSizing: "border-box",
-                                  color: "#222",
+                                  color: "var(--text)",
                                   // 允许被挤扁，但留 24px 的底：再窄就只剩一条缝，
                                   // 看不出那是个下拉框、也点不中
                                   width: "100%",
@@ -1588,8 +1588,8 @@ export default async function OverviewPage({
                         resizeAction={resizeOrderRun}
                         style={{
                           background: c.bg,
-                          border: "1px solid #1c4e78",
-                          boxShadow: "0 0 0 1px #1c4e78",
+                          border: "1px solid var(--link)",
+                          boxShadow: "0 0 0 1px var(--link)",
                           color: c.text,
                           borderRadius: 4,
                           overflow: "hidden",
@@ -1712,8 +1712,8 @@ function ResourcePanel({
           style={{
             color: "crimson",
             fontSize: 12,
-            border: "1px solid #eab3aa",
-            background: "#fbe9e7",
+            border: "1px solid var(--st-payment-border)",
+            background: "var(--st-payment-bg)",
             borderRadius: 4,
             padding: 8,
           }}
@@ -1807,7 +1807,7 @@ function ResourcePanel({
           </select>
         </div>
         {(filters.smtn || (filters.sregion && filters.sregion !== "none")) && (
-          <span style={{ fontSize: 11, color: "#aaa", marginTop: -2 }}>
+          <span style={{ fontSize: 11, color: "var(--text-faint)", marginTop: -2 }}>
             还没排过的资源不受这条影响，一直显示
           </span>
         )}
@@ -1828,20 +1828,20 @@ function ResourcePanel({
         <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
           {hasFilter ? (
             <>
-              <span style={{ color: "#a8620d" }}>{resources.length} 张</span>
+              <span style={{ color: "var(--warn)" }}>{resources.length} 张</span>
               <Link href="/admin/overview" style={linkButtonStyle}>
                 清除
               </Link>
             </>
           ) : (
-            <span style={{ color: "#aaa" }}>选完自动筛</span>
+            <span style={{ color: "var(--text-faint)" }}>选完自动筛</span>
           )}
         </div>
       </FilterForm>
       </CollapsibleFilters>
 
       {resources.length === 0 ? (
-        <p style={{ color: "#888", fontSize: 13 }}>
+        <p style={{ color: "var(--text-faint)", fontSize: 13 }}>
           {hasFilter ? "没有符合条件的资源。" : "还没挂资源。"}
         </p>
       ) : (
@@ -1995,7 +1995,7 @@ function ResourceGroup({
       <div
         style={{
           fontSize: 12,
-          color: "#888",
+          color: "var(--text-faint)",
           marginBottom: 6,
           display: "flex",
           justifyContent: "space-between",
@@ -2007,9 +2007,9 @@ function ResourceGroup({
         </span>
         {assigningOrder && gap > 0 && (
           <span style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
-            <span style={{ color: "#a8620d" }}>还差 {gap} 张</span>
+            <span style={{ color: "var(--warn)" }}>还差 {gap} 张</span>
             <span
-              style={{ color: assignable.length > 0 ? "#1f5c33" : "#c0392b" }}
+              style={{ color: assignable.length > 0 ? "var(--ok)" : "var(--danger)" }}
               title={
                 assignable.length > 0
                   ? "有效期覆盖、当天没被占、类型也对得上的资源"
@@ -2024,7 +2024,7 @@ function ResourceGroup({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {visible.length === 0 && (
-          <div style={{ fontSize: 12, color: "#bbb", padding: "2px 0" }}>
+          <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "2px 0" }}>
             没有能配的资源
           </div>
         )}
@@ -2070,10 +2070,10 @@ function ResourceGroup({
             <div
               key={s.id}
               style={{
-                border: `1px solid ${isAssigned ? "#a8d5b5" : "#e5e5e5"}`,
+                border: `1px solid ${isAssigned ? "var(--st-complete-border)" : "var(--border)"}`,
                 borderRadius: 6,
                 padding: "8px 10px",
-                background: isAssigned ? "#f2f9f4" : "#fff",
+                background: isAssigned ? "var(--assigned-tint)" : "var(--surface)",
                 // 右上角那块操作区要绝对定位（见下面 hasAction）
                 position: "relative",
                 // 可以拿起来拖到订单上分配（DragAssign）
@@ -2122,12 +2122,12 @@ function ResourceGroup({
                   {/* 分配时这个位置让给「配这单」和推荐标记 —— 类型平时才显示。
                       能配的资源类型一定是对的（第四条校验拦过了），分配那一刻它没信息量 */}
                   {!hasAction && (
-                    <span style={{ fontSize: 11, color: "#888", flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, color: "var(--text-faint)", flexShrink: 0 }}>
                       {s.item_type ?? "?"}
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
                   {calcAge(s.holder_date_of_birth) ?? "?"}岁
                   {s.holder_date_of_birth ? ` · ${s.holder_date_of_birth}` : ""}
                 </div>
@@ -2155,19 +2155,19 @@ function ResourceGroup({
                     style={{ minWidth: 0, whiteSpace: "nowrap" }}
                   >
                     {runs.length === 0 ? (
-                      <span style={{ color: "#bbb" }}>未排期</span>
+                      <span style={{ color: "var(--text-faint)" }}>未排期</span>
                     ) : (
                       <>
-                        <span style={{ color: "#999" }}>已排 </span>
+                        <span style={{ color: "var(--text-faint)" }}>已排 </span>
                         {runs.map((r, i) => (
                           <span
                             key={`${r.start}-${r.location ?? ""}-${i}`}
                             // 过去的淡一点，注意力留给还没到的
                             style={{ opacity: r.past ? 0.5 : 1 }}
                           >
-                            {i > 0 && <span style={{ color: "#ccc" }}> · </span>}
-                            <span style={{ color: "#1c4e78" }}>{r.label}</span>{" "}
-                            <span style={{ color: r.location ? "#555" : "#bbb" }}>
+                            {i > 0 && <span style={{ color: "var(--text-faint)" }}> · </span>}
+                            <span style={{ color: "var(--link)" }}>{r.label}</span>{" "}
+                            <span style={{ color: r.location ? "var(--text-muted)" : "var(--text-faint)" }}>
                               {r.location ?? "地点没填"}
                             </span>
                           </span>
@@ -2202,7 +2202,7 @@ function ResourceGroup({
                       style={{
                         fontSize: 11,
                         cursor: "help",
-                        color: rec.top ? "#a8620d" : "#bbb",
+                        color: rec.top ? "var(--warn)" : "var(--text-faint)",
                         fontWeight: rec.top ? 600 : 400,
                         whiteSpace: "nowrap",
                       }}
@@ -2211,7 +2211,7 @@ function ResourceGroup({
                     </span>
                   )}
                   {isAssigned ? (
-                    <span style={{ fontSize: 11, color: "#1f5c33", whiteSpace: "nowrap" }}>
+                    <span style={{ fontSize: 11, color: "var(--ok)", whiteSpace: "nowrap" }}>
                       ✓ 已配给这单
                     </span>
                   ) : (
@@ -2222,7 +2222,7 @@ function ResourceGroup({
                         ...buttonStyle,
                         padding: "2px 8px",
                         fontSize: 11,
-                        background: "#1f5c33",
+                        background: "var(--ok)",
                       }}
                     />
                   )}
@@ -2237,7 +2237,7 @@ function ResourceGroup({
                   style={{
                     marginTop: 6,
                     fontSize: 11,
-                    color: itemConflict ? "#c0392b" : "#bbb",
+                    color: itemConflict ? "var(--danger)" : "var(--text-faint)",
                   }}
                 >
                   {!listingOk
@@ -2261,11 +2261,11 @@ function ResourceGroup({
       {assigningOrder && (hiddenCount > 0 || showAllCards) && (
         <div style={{ fontSize: 11, marginTop: 6 }}>
           {showAllCards ? (
-            <Link href={hideUnusableHref} style={{ color: "#888" }}>
+            <Link href={hideUnusableHref} style={{ color: "var(--text-faint)" }}>
               只看能配的
             </Link>
           ) : (
-            <Link href={showAllHref} style={{ color: "#888" }}>
+            <Link href={showAllHref} style={{ color: "var(--text-faint)" }}>
               还有 {hiddenCount} 张配不了，点开看看为什么 →
             </Link>
           )}
@@ -2286,12 +2286,12 @@ function Stat({
 }) {
   return (
     <div>
-      <div style={{ fontSize: 12, color: "#888" }}>{label}</div>
+      <div style={{ fontSize: 12, color: "var(--text-faint)" }}>{label}</div>
       <div
         style={{
           fontSize: 20,
           fontWeight: 500,
-          color: highlight ? "#a8620d" : "#222",
+          color: highlight ? "var(--warn)" : "var(--text)",
         }}
       >
         {value}

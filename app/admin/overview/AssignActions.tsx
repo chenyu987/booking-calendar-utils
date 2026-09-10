@@ -76,8 +76,8 @@ export function ErrorToast({ message, onClose }: { message: string; onClose: () 
         gap: 10,
         maxWidth: "min(90vw, 560px)",
         padding: "8px 14px",
-        background: "#b91c1c",
-        color: "#fff",
+        background: "var(--danger)",
+        color: "var(--on-solid)",
         borderRadius: 8,
         boxShadow: "0 4px 16px rgba(185,28,28,0.45)",
         fontSize: 12,
@@ -98,7 +98,7 @@ export function ErrorToast({ message, onClose }: { message: string; onClose: () 
           background: "rgba(255,255,255,0.2)",
           border: "none",
           borderRadius: 4,
-          color: "#fff",
+          color: "var(--on-solid)",
           cursor: "pointer",
           fontSize: 12,
         }}
@@ -255,7 +255,7 @@ export function AssignByNameInput({
             borderRadius: 4,
             border: notFound ? "1px solid #ffb3ab" : "1px solid rgba(255,255,255,0.45)",
             background: notFound ? "#fff2f0" : "rgba(255,255,255,0.12)",
-            color: notFound ? "#c0392b" : "#fff",
+            color: notFound ? "var(--danger)" : "var(--on-solid)",
           }}
         />
         <button
@@ -267,7 +267,7 @@ export function AssignByNameInput({
             borderRadius: 4,
             border: "1px solid rgba(255,255,255,0.45)",
             background: "transparent",
-            color: "#fff",
+            color: "var(--on-solid)",
             cursor: pending ? "default" : "pointer",
             opacity: pending || candidates.length === 0 ? 0.5 : 1,
           }}

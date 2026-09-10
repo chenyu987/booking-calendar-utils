@@ -229,7 +229,7 @@ export default async function ResourcesAdminPage({
           年龄和有效期那几列本来太窄放不下输入框，一并加宽了，表头/编辑态/展示
           都跟着改，列还是对齐的。 */}
       <FilterForm action="/admin/resources">
-        <div style={{ ...rowStyle, background: "#fafafa" }}>
+        <div style={{ ...rowStyle, background: "var(--surface-2)" }}>
           <div style={{ ...cellStyle, flex: 1.1 }}>
             <input name="provider" defaultValue={filters.provider} placeholder="Provider" style={filterInputStyle} />
           </div>
@@ -251,7 +251,7 @@ export default async function ResourcesAdminPage({
             </select>
           </div>
           {/* 生日这一格不放控件：年龄就是从生日算出来的，两个都给反而让人纠结用哪个 */}
-          <div style={{ ...cellStyle, width: 96, color: "#bbb", fontSize: 11 }}>按年龄筛 →</div>
+          <div style={{ ...cellStyle, width: 96, color: "var(--text-faint)", fontSize: 11 }}>按年龄筛 →</div>
           <div style={{ ...cellStyle, width: 70, display: "flex", alignItems: "center", gap: 2 }}>
             <input
               name="agemin"
@@ -261,7 +261,7 @@ export default async function ResourcesAdminPage({
               placeholder="最小"
               style={{ ...filterInputStyle, flex: 1, minWidth: 0 }}
             />
-            <span style={{ color: "#999", flexShrink: 0, fontSize: 11 }}>~</span>
+            <span style={{ color: "var(--text-faint)", flexShrink: 0, fontSize: 11 }}>~</span>
             <input
               name="agemax"
               inputMode="numeric"
@@ -298,7 +298,7 @@ export default async function ResourcesAdminPage({
             style={{
               ...cellStyle,
               width: 110,
-              color: "#999",
+              color: "var(--text-faint)",
               fontSize: 11,
               display: "flex",
               alignItems: "center",
@@ -307,7 +307,7 @@ export default async function ResourcesAdminPage({
           >
             {filtering ? (
               <>
-                <span style={{ color: "#a8620d" }}>{visibleResources.length} 张</span>
+                <span style={{ color: "var(--warn)" }}>{visibleResources.length} 张</span>
                 <Link href="/admin/resources" style={linkButtonStyle}>
                   清除
                 </Link>
@@ -378,7 +378,7 @@ export default async function ResourcesAdminPage({
                 style={{ ...inputStyle, width: "100%" }}
               />
             </div>
-            <div style={{ ...cellStyle, width: 70, color: "#999" }}>自动</div>
+            <div style={{ ...cellStyle, width: 70, color: "var(--text-faint)" }}>自动</div>
             <div style={{ ...cellStyle, width: 130 }}>
               <input
                 name="date_range_start"
@@ -397,7 +397,7 @@ export default async function ResourcesAdminPage({
                 style={{ ...inputStyle, width: "100%" }}
               />
             </div>
-            <div style={{ ...cellStyle, flex: 1.8, color: "#999", fontSize: 11 }}>
+            <div style={{ ...cellStyle, flex: 1.8, color: "var(--text-faint)", fontSize: 11 }}>
               排期由订单决定，改不了
             </div>
             <div style={{ ...cellStyle, width: 110 }}>
@@ -447,15 +447,15 @@ export default async function ResourcesAdminPage({
                 return (
                   <>
                     {bookings.length === 0 ? (
-                      <span style={{ color: "#bbb", fontSize: 12 }}>还没排过</span>
+                      <span style={{ color: "var(--text-faint)", fontSize: 12 }}>还没排过</span>
                     ) : (
                       bookings.map((o: any) => (
                         <div key={o.id} style={{ fontSize: 12, lineHeight: 1.5 }}>
-                          <span style={{ color: "#1c4e78" }}>
+                          <span style={{ color: "var(--link)" }}>
                             {formatDayRanges(o.demand_days ?? [])}
                           </span>{" "}
                           {o.location ?? "?"}
-                          <span style={{ color: "#888" }}>
+                          <span style={{ color: "var(--text-faint)" }}>
                             {" "}
                             · {o.customers?.first_name ?? "?"} ·{" "}
                             {ORDER_STATUS_LABELS[o.status] ?? o.status}

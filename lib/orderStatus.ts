@@ -1,13 +1,13 @@
 // 排期表上每个状态一个颜色，跟 Sheet 里手工标色一个作用
 export const STATUS_COLORS: Record<string, { bg: string; border: string; text: string }> =
   {
-    created: { bg: "#f1f1f1", border: "#d0d0d0", text: "#444" },
-    itemAssigned: { bg: "#e3f0fb", border: "#a9cdeb", text: "#1c4e78" },
-    pendingPickUp: { bg: "#fdf0dc", border: "#e9c68a", text: "#7a5312" },
-    pendingPayment: { bg: "#fbe9e7", border: "#eab3aa", text: "#8a2f21" },
-    complete: { bg: "#e6f4e9", border: "#a8d5b5", text: "#1f5c33" },
-    cancelled: { bg: "#eeeeee", border: "#cccccc", text: "#888" },
-    refunded: { bg: "#efe7f5", border: "#c9b0dc", text: "#5a3878" },
+    created: { bg: "var(--st-created-bg)", border: "var(--st-created-border)", text: "var(--text-muted)" },
+    itemAssigned: { bg: "var(--st-assigned-bg)", border: "var(--st-assigned-border)", text: "var(--link)" },
+    pendingPickUp: { bg: "var(--st-pickup-bg)", border: "var(--st-pickup-border)", text: "var(--st-pickup-text)" },
+    pendingPayment: { bg: "var(--st-payment-bg)", border: "var(--st-payment-border)", text: "var(--st-payment-text)" },
+    complete: { bg: "var(--st-complete-bg)", border: "var(--st-complete-border)", text: "var(--ok)" },
+    cancelled: { bg: "var(--st-cancelled-bg)", border: "var(--st-cancelled-border)", text: "var(--text-faint)" },
+    refunded: { bg: "var(--st-refunded-bg)", border: "var(--st-refunded-border)", text: "var(--st-refunded-text)" },
   };
 
 export const STATUS_LABELS: Record<string, string> = {

@@ -223,14 +223,14 @@ export default async function MatchesAdminPage() {
               </td>
               <td style={tdStyle}>
                 {m.resources?.holder_name ?? "-"}{" "}
-                <span style={{ color: "#888" }}>
+                <span style={{ color: "var(--text-faint)" }}>
                   {formatHolder(
                     m.resources?.holder_gender,
                     m.resources?.holder_date_of_birth
                   )}
                 </span>
                 <br />
-                <span style={{ color: "#888", fontSize: 12 }}>
+                <span style={{ color: "var(--text-faint)", fontSize: 12 }}>
                   {m.resources?.item_type} {m.resources?.date_range_start}~
                   {m.resources?.date_range_end}
                 </span>
