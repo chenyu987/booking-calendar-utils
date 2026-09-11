@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
+import { useScrollbarFade, scrollbarFadeCss } from "./ScrollbarFade";
 
 // 资源列表自己滚，别把整页撑长。
 //
@@ -32,21 +33,12 @@ export default function PanelScroller({ children }: { children: React.ReactNode 
     return () => ro.disconnect();
   }, []);
 
+  // 滚的时候显出来，停手一会儿再慢慢淡掉 —— 跟日历那几根同一份实现
+  useScrollbarFade(ref);
+
   return (
     <>
-      {/* 滚动条平时透明，鼠标移上来才淡出来，跟日历那边保持一致 */}
-      <style>{`
-        .panel-scroll::-webkit-scrollbar { width: 8px; }
-        .panel-scroll::-webkit-scrollbar-track { background: transparent; }
-        .panel-scroll::-webkit-scrollbar-thumb {
-          background: transparent;
-          border-radius: 4px;
-          transition: background 0.3s ease;
-        }
-        .panel-scroll:hover::-webkit-scrollbar-thumb {
-          background: rgba(0, 0, 0, 0.2);
-        }
-      `}</style>
+      <style>{scrollbarFadeCss("panel-scroll")}</style>
       <div ref={ref} className="panel-scroll" style={{ overflowY: "auto" }}>
         {children}
       </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { fadeAlpha } from "@/lib/scrollbarFade";
+import { useScrollbarFade, scrollbarFadeCss } from "./ScrollbarFade";
 
 const STORAGE_KEY = "overview-calendar-scroll";
 
@@ -68,29 +68,15 @@ export default function CalendarScroller({
     return () => ro.disconnect();
   }, []);
 
+  // 滚动条的淡出跟资源面板共用一份实现（ScrollbarFade），别再各写各的
+  useScrollbarFade(ref);
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     let timer: ReturnType<typeof setTimeout>;
-    let lastScroll = 0;
-    let fading: ReturnType<typeof setInterval> | null = null;
-
-    function paint() {
-      const a = fadeAlpha(Date.now() - lastScroll);
-      el!.style.setProperty("--cal-thumb-a", String(a));
-      if (a === 0 && fading !== null) {
-        clearInterval(fading);
-        fading = null;
-      }
-    }
 
     function onScroll() {
-      // 滚的时候把滚动条显出来，停手先停一会儿，然后慢慢淡掉，平时视野干净
-      lastScroll = Date.now();
-      paint();
-      // 40ms 一格：五秒淡完就是一百多格，看着是连续的
-      if (fading === null) fading = setInterval(paint, 40);
-
       clearTimeout(timer);
       // 滚动事件很密，停下来再存，别每一帧都写一次
       timer = setTimeout(() => {
@@ -104,30 +90,12 @@ export default function CalendarScroller({
     return () => {
       el.removeEventListener("scroll", onScroll);
       clearTimeout(timer);
-      if (fading !== null) clearInterval(fading);
     };
   }, []);
 
   return (
     <>
-      {/* 滚动条平时透明、滚的时候才显出来，停手一会儿再慢慢淡掉。
-          槽的宽度始终不变（只改 thumb 的颜色），显示/隐藏不会挤动内容。
-
-          **不透明度靠 JS 逐格改 `--cal-thumb-a`，不是 CSS transition。**
-          Chrome 不给 `::-webkit-scrollbar-*` 跑 transition，写了不报错但完全
-          不生效，颜色一跳到底（实测 0.1 的下一帧就是 0）。伪元素倒是读得到
-          宿主元素上的自定义属性，所以改成由 JS 按时间把它降下来。
-
-          **也别加 `.cal-scroll:hover` 那条**。看着挺合理，实际上鼠标基本一直
-          在日历上，等于滚动条常驻——本来要的就是「不动就看不见」。 */}
-      <style>{`
-        .cal-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
-        .cal-scroll::-webkit-scrollbar-track { background: transparent; }
-        .cal-scroll::-webkit-scrollbar-thumb {
-          background: rgba(var(--scrollbar-thumb), var(--cal-thumb-a, 0));
-          border-radius: 5px;
-        }
-      `}</style>
+      <style>{scrollbarFadeCss("cal-scroll")}</style>
     <div
       ref={ref}
       className="cal-scroll"

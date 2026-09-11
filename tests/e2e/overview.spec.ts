@@ -457,6 +457,63 @@ test.describe("资源卡片要扁", () => {
   });
 });
 
+test.describe("滚动条「不动就看不见」", () => {
+  // 这套在日历那边修过三轮（transition 是死的、:hover 会让它常驻、颜色太深），
+  // 而资源面板那份各写各的、一轮都没跟上 —— 正是 CLAUDE.md 记的那个老毛病：
+  // 同一件事两份实现，改了一边忘了另一边。现在合成一份（ScrollbarFade），
+  // 这两条盯着别再分家。
+  test("日历和资源面板用的是同一份滚动条样式", async ({ page }) => {
+    await gotoOverview(page);
+    const css = await page.evaluate(() => {
+      const all = Array.from(document.querySelectorAll("style"))
+        .map((s) => s.textContent || "")
+        .join("\n");
+      const grab = (cls: string) => {
+        const m = all.match(
+          new RegExp("\\." + cls + "::-webkit-scrollbar-thumb\\s*\\{([^}]*)\\}")
+        );
+        return m ? m[1].replace(/\s+/g, " ").trim() : null;
+      };
+      return {
+        cal: grab("cal-scroll"),
+        panel: grab("panel-scroll"),
+        // :hover 那条会让滚动条常驻 —— 鼠标本来就一直在这些区域上
+        hover: /\.(cal|panel)-scroll:hover/.test(all),
+      };
+    });
+    expect(css.cal, "日历的滚动条样式没找到").toBeTruthy();
+    expect(css.panel, "资源面板的滚动条样式没找到").toBeTruthy();
+    expect(css.panel, "两边的滚动条样式又分家了").toBe(css.cal);
+    expect(css.hover, "加了 :hover，滚动条会一直显示着").toBe(false);
+    // 颜色走 token，不是写死的 rgba —— 写死的黑在暗色模式下是黑压黑
+    expect(css.cal).toContain("var(--scrollbar-thumb)");
+  });
+
+  test("资源面板滚完会自己淡掉", async ({ page }) => {
+    // 把视口压矮，让这几个资源真的撑出滚动条（种子里只有三张）
+    await page.setViewportSize({ width: 1280, height: 420 });
+    await gotoOverview(page);
+    const panel = page.locator(".panel-scroll");
+    await panel.waitFor();
+
+    const scrollable = await panel.evaluate((el) => el.scrollHeight > el.clientHeight + 1);
+    expect(scrollable, "面板没溢出，这条测不到东西（视口再压矮点）").toBe(true);
+
+    await panel.evaluate((el) => { el.scrollTop = 40; });
+    const peak = await panel.evaluate((el) =>
+      Number(el.style.getPropertyValue("--cal-thumb-a"))
+    );
+    expect(peak, "滚了之后滚动条没显出来").toBeGreaterThan(0);
+
+    // 停手 1.4 秒之后开始淡，这里等到淡出区间里再看一眼
+    await page.waitForTimeout(2600);
+    const later = await panel.evaluate((el) =>
+      Number(el.style.getPropertyValue("--cal-thumb-a"))
+    );
+    expect(later, `停手之后没有在淡（一直是 ${peak}）`).toBeLessThan(peak);
+  });
+});
+
 test.describe("推荐分配", () => {
   test("只看**这一单之前**那一次去的区域", async ({ page }) => {
     await gotoOverview(page, `?assign=${MAIN}`);
