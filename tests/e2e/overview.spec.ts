@@ -552,6 +552,48 @@ test.describe("色块里的物主名字", () => {
   });
 });
 
+test.describe("日期带和订单色块一样高", () => {
+  // 两边都是两行，高度就该一样 —— 对不上看着像没对齐。
+  // 一度是 46 对 42：日期带的上下内边距是 4，色块是 2。
+  // 现在 HEADER_ROW_HEIGHT 直接就是 ROW_HEIGHT，这条盯着别再分开。
+  test("两个的高度是同一个数", async ({ page }) => {
+    await gotoOverview(page);
+    const h = await page.evaluate(() => {
+      const head = document.querySelector("[data-today]") as HTMLElement | null;
+      const blk = document.querySelector("a[data-order-id]") as HTMLElement | null;
+      if (!head || !blk) throw new Error("日期带或订单色块没找到");
+      const need = (el: HTMLElement) => {
+        const cs = getComputedStyle(el);
+        const rows = Array.from(el.children).map(
+          (c) => (c as HTMLElement).getBoundingClientRect().height
+        );
+        const gap = parseFloat(cs.rowGap || "0") || 0;
+        return +(
+          rows.reduce((a, x) => a + x, 0) +
+          gap * (rows.length - 1) +
+          parseFloat(cs.paddingTop) +
+          parseFloat(cs.paddingBottom) +
+          parseFloat(cs.borderTopWidth) +
+          parseFloat(cs.borderBottomWidth)
+        ).toFixed(2);
+      };
+      return {
+        head: +head.getBoundingClientRect().height.toFixed(2),
+        blk: +blk.getBoundingClientRect().height.toFixed(2),
+        // 各自装不装得下 —— 高度一样但有一边不够装，也不算对。
+        // **不能用 scrollHeight 判断**：这两个盒子 overflow 不是 scroll，
+        // 装不下的时候 scrollHeight 不一定大于 clientHeight，那样写出来是条
+        // 永远绿的死断言（试过，压到 38px 都照样通过）。直接把行高加起来比。
+        headNeed: need(head),
+        blkNeed: need(blk),
+      };
+    });
+    expect(h.head, `日期带 ${h.head}px、订单色块 ${h.blk}px，两边都是两行，高度该一样`).toBe(h.blk);
+    expect(h.head, `日期带只有 ${h.head}px，装下两行要 ${h.headNeed}px`).toBeGreaterThanOrEqual(h.headNeed);
+    expect(h.blk, `订单色块只有 ${h.blk}px，装下两行要 ${h.blkNeed}px`).toBeGreaterThanOrEqual(h.blkNeed);
+  });
+});
+
 test.describe("推荐分配", () => {
   test("只看**这一单之前**那一次去的区域", async ({ page }) => {
     await gotoOverview(page, `?assign=${MAIN}`);

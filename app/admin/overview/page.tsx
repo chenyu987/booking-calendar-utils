@@ -90,13 +90,6 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// COL_WIDTH 从 lib/bandDays 来 —— 帘子那边算「一行排得下几天」用的是同一个数，
-// 各写一份迟早对不上（见那边的注释）
-// 日期带那一行的高度。52 → 46：备注从单独的第三行挪到「周几」右边之后，
-// 内容量出来是 15（日期）+ 17（周几那行，按编辑时的输入框给）+ 内边距 8
-// + 下边框 1 = 42，留 4px。
-// 一屏上二三十列，每列都空着一条第三行，白白高出一截
-const HEADER_ROW_HEIGHT = 46;
 // 所有行统一这个高度。**不要改成 auto/minmax** —— 那样分配的那一行会比别的行高，
 // 每次进出编辑模式色块都跳一下，看久了很晃眼（试过，被否了）。
 //
@@ -123,6 +116,18 @@ const HEADER_ROW_HEIGHT = 46;
 // 为 1px 不值。竖直方向可以比横向贴得紧（行高是字号乘出来的，跟字体的字宽无关），
 // 但也别贴到 0。
 const ROW_HEIGHT = 42;
+
+// COL_WIDTH 从 lib/bandDays 来 —— 帘子那边算「一行排得下几天」用的是同一个数，
+// 各写一份迟早对不上（见那边的注释）
+// 日期带那一行的高度。**跟订单色块的 ROW_HEIGHT 是同一个数**：
+// 两边都是两行，高度对不上的话看着像没对齐。
+//
+// 52 → 42：备注从单独的第三行挪到「周几」右边（省一行），上下内边距
+// 又从 4 收到 2 跟色块看齐。内容量出来是 15（日期）+ 17（周几那行，
+// 按编辑时的输入框给，不是按文字）+ 内边距 4 + 边框 2 = 38，留 4px。
+//
+// 改其中一个的时候记得看另一个 —— 它俩现在是一对。
+const HEADER_ROW_HEIGHT = ROW_HEIGHT;
 
 // Chrome 123+ 的 field-sizing:content——输入框跟着内容宽窄走。
 // 分配模式的「姓名 · 地点」靠它才能像平时状态那样紧挨着；否则两个 flex:1 的框
@@ -1059,7 +1064,10 @@ export default async function OverviewPage({
                       style={{
                         gridRow: 1,
                         gridColumn: i + 1,
-                        padding: "4px 6px",
+                        // 上下内边距跟订单色块一样是 2（左右保持 6）。
+                        // 原来是 4，日期带就比色块高 4px —— 两边都是两行，
+                        // 高度却对不上，看着像没对齐
+                        padding: "2px 6px",
                         background: peak ? "var(--peak-bg)" : weekend ? "var(--weekend-bg)" : "var(--surface-2)",
                         borderBottom:
                           d === today ? "2px solid var(--text)" : "1px solid var(--border)",
