@@ -12,16 +12,20 @@ export default function OptimisticEditForm({
   style,
   className,
   children,
+  // 透传 data-* ：测试拿它们当锚点（比如 data-need 钉住「男女那一格」）。
+  // 不透传的话属性会被这个组件默默吃掉，选择器在 DOM 上什么都找不到
+  ...rest
 }: {
   exitHref: string;
   style?: React.CSSProperties;
   className?: string;
   children: React.ReactNode;
-}) {
+} & Record<`data-${string}`, string | undefined>) {
   const router = useRouter();
 
   return (
     <form
+      {...rest}
       className={className}
       style={style}
       onSubmit={async (e) => {

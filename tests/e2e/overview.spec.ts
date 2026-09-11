@@ -37,7 +37,9 @@ async function anchors(page: Page, orderId: string) {
     const put = (k: string, r: DOMRect) => {
       if (!(k in out)) out[k] = { x: +r.x.toFixed(1), w: +r.width.toFixed(1) };
     };
-    const CHARS = ["♀", "女", "$", "·"];
+    // 「♀」这个锚点没了 —— 物主名字前面的性别符号去掉了（看名字就知道男女，
+    // 那两个符号在一行里挺占地方）。那一段改用 [data-card] 钉住，见下面
+    const CHARS = ["女", "$", "·"];
     const walk = (el: Element) => {
       for (const c of Array.from(el.childNodes)) {
         if (c.nodeType === 3 && c.textContent?.trim()) {
@@ -66,6 +68,10 @@ async function anchors(page: Page, orderId: string) {
       }
     };
     walk(block);
+    // 物主名字那一段：两个状态都给第一个资源打了 data-card，量它的左边缘。
+    // 不量整行容器 —— 容器是靠右锚的，右边缘天然对齐，量不出里面有没有错位
+    const firstCard = block.querySelector("[data-card]");
+    if (firstCard) put("资源", firstCard.getBoundingClientRect());
     const cs = getComputedStyle(block);
     return {
       anchors: out,
@@ -511,6 +517,37 @@ test.describe("滚动条「不动就看不见」", () => {
       Number(el.style.getPropertyValue("--cal-thumb-a"))
     );
     expect(later, `停手之后没有在淡（一直是 ${peak}）`).toBeLessThan(peak);
+  });
+});
+
+test.describe("男女进度不许被挤掉", () => {
+  // 真出过：一天的单子配了两个资源，「男1/1 女1/1」被压成「男1/1 女…」——
+  // 而「要几个资源、配了几张」正是这一格里最该先看见的东西。
+  // 挤不下该让的是右边的物主名字。
+  // 不去造一个刚好溢出的色块来测（那要靠字体宽度，换个平台就不准），
+  // 直接钉住这个决定本身：两个状态都不许收缩。
+  for (const [name, qs] of [["普通态", ""], ["分配态", `?assign=${MAIN}`]] as const) {
+    test(`${name}：男女那一格 flex-shrink 是 0`, async ({ page }) => {
+      await gotoOverview(page, qs);
+      const el = page.locator(`[data-order-id="${MAIN}"] [data-need]`).first();
+      await expect(el).toBeVisible();
+      await expect(el).toHaveCSS("flex-shrink", "0");
+    });
+  }
+});
+
+test.describe("色块里的物主名字", () => {
+  // 撞名怎么补字母由 lib/holderName.test.ts 管（12 条）。这条只管**接线**：
+  // 页面真的用上了那张表，而不是还在写全名
+  test("只写 first name，不写全名", async ({ page }) => {
+    await gotoOverview(page);
+    const row = page.locator(`[data-order-id="${MAIN}"] [data-card]`).first();
+    await expect(row).toHaveText("sara");
+
+    // 性别符号也去掉了 —— 看名字就知道男女，一行里两个符号挺占地方
+    const block = page.locator(`[data-order-id="${MAIN}"]`).first();
+    await expect(block).not.toContainText("♀");
+    await expect(block).not.toContainText("♂");
   });
 });
 

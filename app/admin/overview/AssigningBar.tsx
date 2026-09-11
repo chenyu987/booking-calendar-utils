@@ -3,6 +3,7 @@
 import Link from "next/link";
 import DeleteOrderButton from "./DeleteOrderButton";
 import { AssignByNameInput } from "./AssignActions";
+import NoteInput from "./NoteInput";
 
 /**
  * 分配模式的浮动操作条。
@@ -17,12 +18,14 @@ import { AssignByNameInput } from "./AssignActions";
 export default function AssigningBar({
   orderId,
   label,
+  note,
   candidates,
   deleteAction,
   exitHref,
 }: {
   orderId: string;
   label: string;
+  note: string;
   candidates: { id: string; name: string; hint: string }[];
   deleteAction: (formData: FormData) => Promise<void>;
   exitHref: string;
@@ -69,6 +72,19 @@ export default function AssigningBar({
       <span style={{ flexShrink: 0 }}>
         <AssignByNameInput orderId={orderId} candidates={candidates} />
       </span>
+
+      {/* **只有这单还没备注的时候**才在这儿加。
+          已经有备注的就在色块里直接改 —— 那时候它本来就显示在那儿，
+          就地改最顺手，挤一点也认了。
+          空着的输入框才是真浪费：多数单子没有备注，却让每个资源的编辑态
+          常年挤着一个空框，还把姓名地点往里压。
+          两处永远只出现一个，也就不会有「两个地方编辑同一个字段、
+          谁覆盖谁」的问题 */}
+      {!note && (
+        <span style={{ flexShrink: 0 }}>
+          <NoteInput orderId={orderId} defaultValue="" />
+        </span>
+      )}
 
       <span style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
         <DeleteOrderButton

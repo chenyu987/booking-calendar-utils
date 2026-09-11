@@ -31,6 +31,9 @@ export default function OptimisticAssign() {
   // 注入 CSS 规则两个毛病都没有：跟节点的生死无关，也碰不到 React 那一份。
   // （BulkSelect 的高亮一直是这么干的，CLAUDE.md 里记了这条。）
   const [paintedId, setPaintedId] = useState<string | null>(null);
+  // 真条上「加备注」那个框只在这单还没备注时才有。假条得跟着 ——
+  // 不跟的话接管那一刻整条会横着跳一下，正是这层想消掉的那种毛躁
+  const [needsNote, setNeedsNote] = useState(false);
 
   useEffect(() => {
     // 用 pointerdown 不用 click：按下就给反馈，不等抬手，能再抢出几十毫秒
@@ -53,6 +56,7 @@ export default function OptimisticAssign() {
       flushSync(() => {
         setPaintedId(id);
         setLabel(el.dataset.orderLabel || "…");
+        setNeedsNote(el.dataset.orderHasNote !== "1");
       });
 
       // 兜底：导航要是没成（网断了、被别的导航顶掉了），假条不能一直挂着骗人
@@ -177,6 +181,23 @@ export default function OptimisticAssign() {
           }}
         />
       </span>
+      {needsNote && (
+        <span style={{ flexShrink: 0 }}>
+          {/* 跟真条那个 NoteInput 一份不差的尺寸，接上的那一刻才不会跳 */}
+          <input
+            placeholder="备注"
+            style={{
+              width: 150,
+              fontSize: 12,
+              padding: "3px 6px",
+              borderRadius: 4,
+              border: "1px solid rgba(255,255,255,0.45)",
+              background: "rgba(255,255,255,0.12)",
+              color: "var(--on-solid)",
+            }}
+          />
+        </span>
+      )}
       {/* 删除和完成先摆着但不接事件：这半秒里真按下去，请求打给谁都不对。
           摆着是为了几何一致——少两个按钮的话，真条接上时整条会横着跳一下 */}
       <span

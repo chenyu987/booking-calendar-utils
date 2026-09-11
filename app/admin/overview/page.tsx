@@ -28,7 +28,8 @@ import {
   formatDayRanges,
 } from "@/lib/dates";
 import { isPeakDate } from "@/lib/peakDates";
-import { clampRailWidth } from "@/lib/bandDays";
+import { COL_WIDTH, clampRailWidth } from "@/lib/bandDays";
+import { shortHolderNames } from "@/lib/holderName";
 import { resolveTimelineStart, ordersBeforeStart } from "@/lib/timelineStart";
 import { previousOrdersFor, type ResourceUse } from "@/lib/previousUse";
 import { findClashes, indexClashes, clashKey } from "@/lib/doubleBooking";
@@ -89,23 +90,35 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// 一天的单子色块就是这么宽。132 太挤了——编辑态里姓名、地点、备注三个框
-// 挤在第一行，名字基本看不见。加到 150 之后一天的单子也能正常看正常改。
-// 再宽就得多滑，一屏看到的天数会明显变少。
-const COL_WIDTH = 150;
+// COL_WIDTH 从 lib/bandDays 来 —— 帘子那边算「一行排得下几天」用的是同一个数，
+// 各写一份迟早对不上（见那边的注释）
 const HEADER_ROW_HEIGHT = 52;
 // 所有行统一这个高度。**不要改成 auto/minmax** —— 那样分配的那一行会比别的行高，
 // 每次进出编辑模式色块都跳一下，看久了很晃眼（试过，被否了）。
 //
-// 两个状态排成一一对应的 3 行，位置一样，所以进出编辑不跳、也看得出哪个字段对哪个框：
-//   1 姓名 · 地点 | 金额   ←→  姓名框 | 地点框 | 删除叉 | 金额框
-//   2 已配的资源             ←→  已配的资源（撤销叉绝对定位，hover 才出现，不占位置）
-//   3 男1/1 女1/1          ←→  男1/[框] 女1/[框] | 状态下拉框
+// 两个状态排成一一对应的 **2 行**，位置一样，所以进出编辑不跳、
+// 也看得出哪个字段对哪个框：
+//   1 姓名 · 地点 ……… 备注 | $金额   ←→  姓名框 | 地点框 ……… 状态框 | 备注框 | 金额框
+//   2 男1/1 女1/1 ……… 已配的资源       ←→  男1/[框] 女1/[框] ……… 已配的资源
 //
-// 第 3 行是「分配进度」和「几男几女」合并的结果：进度的分母本来就是要几个人，
+// 原来是 3 行（资源单独占一行、金额在第 3 行右下角）。一周上百单的时候，
+// 每单多一行就是整张表长一截，看来看去很累，所以压成两行。
+// 每行都靠一个**弹簧**（flex:1 的空 span）把右边那组顶到右边：分配态中间多出来
+// 一个状态框时，弹簧自己缩掉，备注和金额一像素都不挪 —— 这是「进出编辑不动」的关键。
+//
+// 第 2 行是「分配进度」和「几男几女」合并的结果：进度的分母本来就是要几个人，
 // 两行是同一份信息，所以分配模式把 male_count/female_count 的输入框直接摆在分母位置。
-// 高度取决于最高的那个状态（分配模式，输入框和下拉框比纯文字高）。
-const ROW_HEIGHT = 62;
+//
+// 62 → 42。两行内容量出来是：
+//   普通态 15.59 + 2 + 14.30 = 31.89，加内边距 4 和边框 2 → 37.89
+//   分配态 16.59 + 2 + 14.30 = 32.89，加内边距 4 和边框 2 → 38.89  ← 资源高度的是这个
+// 所以下限是 38.89，取 42 留 3.11px。
+//
+// 撑高分配态那 1px 的是状态下拉框（height:16，比普通态那行文字的 15.59 高）。
+// 真要再矮，得先把它压到 15 —— 但 11px 的字塞进 15px 的框，换个平台就可能切掉半行，
+// 为 1px 不值。竖直方向可以比横向贴得紧（行高是字号乘出来的，跟字体的字宽无关），
+// 但也别贴到 0。
+const ROW_HEIGHT = 42;
 
 // Chrome 123+ 的 field-sizing:content——输入框跟着内容宽窄走。
 // 分配模式的「姓名 · 地点」靠它才能像平时状态那样紧挨着；否则两个 flex:1 的框
@@ -118,7 +131,10 @@ const FIELD_SIZING_CONTENT = { fieldSizing: "content" } as React.CSSProperties;
 // 一样窄（5px 宽点不中），所以反过来让**普通态也占同样的格子**——两个状态一样宽，
 // 进出编辑那行就不动了。两边都用这一份，别各写各的。
 /** 「男…」和「女…」两组之间的间距。两个状态共用，别一边写 gap 一边靠空格 */
-const COUNT_GAP = 2;
+// 「男…」和「女…」两组之间的间距。两个状态共用，别一边写 gap 一边靠空格。
+// 2 → 1：分母那一格（COUNT_BOX）本来就只按一位数给，右边还有 1px 内边距，
+// 加起来看着仍然偏空。人数不会到两位数（真有也是拆成几单），所以能收就收
+const COUNT_GAP = 1;
 
 // 右下角那个金额。两个状态共用：普通态是文字、分配态是输入框，
 // 但**右边缘、字号、淡度、右对齐**必须一模一样，不然进出编辑钱会挪位置。
@@ -143,7 +159,9 @@ const COUNT_BOX: React.CSSProperties = {
   // 只留 8px 宽的时候整行正好卡死（本地量出来状态框拿到 39px、它要的也正好
   // 是 39px），CI 的 Linux 字体宽那么零点几，直接就破了（38.56 < 39）。
   // 零余量的布局等于没修好，只是在这台机器上碰巧成立
-  padding: "0 1px",
+  // 左 1 右 0：右边那 1px 全落在「1」和「女」中间，纯粹是空的。
+  // 左边留 1px 是不让数字贴死在「/」上
+  padding: "0 0 0 1px",
   textAlign: "left",
 };
 // 资源面板的宽度。卡片从三行压成两行之后加宽的：名字和「年龄·生日」并到同一行，
@@ -408,6 +426,13 @@ export default async function OverviewPage({
     sregion: searchParams.sregion ?? "",
     smtn: searchParams.smtn ?? "",
   };
+  // 色块里那行「已配的资源」显示成什么：默认只写 first name，撞名的才往后补姓氏字母。
+  // **用 allResources 而不是筛选后的 resources**：左边面板筛掉几个资源，不该让
+  // 日历上某个人的名字突然从「admin1C」变回「admin1」—— 撞名这件事跟筛选无关
+  const holderLabels = shortHolderNames(
+    (allResources ?? []).map((s: any) => s.holder_name ?? "")
+  );
+
   const resources = (allResources ?? []).filter((s: any) => {
     if (f.item && s.item_type !== f.item) return false;
     if (f.gender && s.holder_gender !== f.gender) return false;
@@ -971,7 +996,7 @@ export default async function OverviewPage({
                   gridTemplateRows: `${HEADER_ROW_HEIGHT}px`,
                   // 行高写死，不用 auto：auto 会让分配的那一行比别的行高，
                   // 每次进出编辑模式整块都跳一下，看久了很晃眼。
-                  // 两个状态排成同样的 4 行，写死高度就不会有跳变。
+                  // 两个状态排成同样的 2 行，写死高度就不会有跳变。
                   gridAutoRows: `${ROW_HEIGHT}px`,
                   gap: 2,
                   minWidth: "min-content",
@@ -1144,6 +1169,9 @@ export default async function OverviewPage({
                           data-order-start={orderStartDay(o) ?? ""}
                           // 点下去那一刻，客户端要立刻拿它拼出分配浮动条的标题 ——
                           // 从色块的文字里猜太脆，直接把服务端用的那份原样带上
+                          // 抢画那条假条要照着它决定放不放备注框 —— 真条只在
+                          // 「这单还没备注」时才有那个框，不跟着的话接管那一刻整条会横着跳
+                          data-order-has-note={note ? "1" : undefined}
                           data-order-label={[o.customers?.first_name ?? "?", o.location]
                             .filter(Boolean)
                             .join(" · ")}
@@ -1197,12 +1225,13 @@ export default async function OverviewPage({
                                     </span>
                                   ) : null}
                                 </span>
+                                {/* 弹簧：把右边那一组顶到右边。**两个状态都放这一个**，
+                                    位置就只由「右边那组各自多宽」决定 —— 分配态中间多出来
+                                    一个状态框时，弹簧自己缩掉，备注和金额一像素都不挪 */}
+                                <span style={{ flex: "1 1 0", minWidth: 0 }} />
                                 {note ? (
                                   <span
-                                    // marginLeft:auto 顶到右边，不用 justifyContent：
-                                    // 装不下的时候 auto 会自己变 0，不会往左边溢出去压住名字
                                     style={{
-                                      marginLeft: "auto",
                                       maxWidth: "50%",
                                       whiteSpace: "nowrap",
                                       overflow: "hidden",
@@ -1215,65 +1244,33 @@ export default async function OverviewPage({
                                     {note}
                                   </span>
                                 ) : null}
-                              </div>
-                              <div
-                                style={{
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  fontSize: 11,
-                                  opacity: 0.85,
-                                }}
-                              >
-                                {cards.length > 0
-                                  ? cards.map((s: any, i: number) => {
-                                      const clash = clashIndex.get(clashKey(o.id, s.id));
-                                      return (
-                                        <span
-                                          key={s.id}
-                                          // 冲突的资源标红：这个资源同一天还配在别的单上，
-                                          // 核验那儿只有一个人能过，必须有人去改
-                                          style={
-                                            clash
-                                              ? {
-                                                  color: "var(--danger)",
-                                                  fontWeight: 600,
-                                                  textDecoration:
-                                                    "underline wavy var(--danger)",
-                                                  textUnderlineOffset: 2,
-                                                }
-                                              : undefined
-                                          }
-                                          title={
-                                            clash
-                                              ? `⚠ ${s.holder_name} 在 ${clash[0].days.join("、")} 同时配给了「${orderNameById.get(clash[0].otherOrderId) ?? "另一单"}」`
-                                              : undefined
-                                          }
-                                        >
-                                          {i > 0 ? " " : ""}
-                                          {s.holder_gender === "male" ? "♂" : "♀"}
-                                          {s.holder_name}
-                                        </span>
-                                      );
-                                    })
-                                  : "未分配"}
+                                {/* 金额挪到右上角。$ 用跟分配态同一个 class：
+                                    色块窄到一定程度时两边一起藏，不然进出编辑一个有一个没有 */}
+                                <span style={MONEY_SLOT}>
+                                  <span className="assign-money-sign">$</span>
+                                  {o.amount ?? "?"}
+                                </span>
                               </div>
                               <div
                                 style={{
                                   display: "flex",
-                                  justifyContent: "space-between",
                                   alignItems: "baseline",
                                   gap: 4,
                                   fontSize: 11,
+                                  overflow: "hidden",
                                 }}
                               >
                                 <span
+                                  data-need="1"
                                   style={{
                                     fontWeight: 500,
                                     color: need.isComplete ? "var(--ok)" : "var(--warn)",
                                     whiteSpace: "nowrap",
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
+                                    // **不许被压。**「要几个资源、配了几张」是这一格里
+                                    // 最该先看见的东西。挤不下时该让的是右边的物主名字，
+                                    // 不是把「女1/1」截成「女…」——那等于把最关键的信息砍了。
+                                    // 分配态那边本来就是 flexShrink:0，这边跟上
+                                    flexShrink: 0,
                                   }}
                                 >
                                   {/* 不用 formatNeed 拼字符串：分母要单独套进 COUNT_BOX，
@@ -1302,12 +1299,54 @@ export default async function OverviewPage({
                                     </>
                                   )}
                                 </span>
-                                {/* $ 用跟分配态同一个 class：色块窄到 180px 以下时两边一起藏，
-                                    不然进出编辑一个有钱号一个没有 */}
-                                <span style={MONEY_SLOT}>
-                                  <span className="assign-money-sign">$</span>
-                                  {o.amount ?? "?"}
-                                </span>
+                              <div
+                                style={{
+                                  // 靠右：跟分配态那一份同一个锚。左边留给「男x/x 女x/x」
+                                  marginLeft: "auto",
+                                  minWidth: 0,
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  fontSize: 11,
+                                  opacity: 0.85,
+                                }}
+                              >
+                                {cards.length > 0
+                                  ? cards.map((s: any, i: number) => {
+                                      const clash = clashIndex.get(clashKey(o.id, s.id));
+                                      return (
+                                        <span
+                                          key={s.id}
+                                          // 给几何测试当锚点：原来量的是「♀」那个字符，
+                                          // 符号去掉之后得有别的东西钉住「卡片这一段挪没挪」
+                                          data-card="1"
+                                          // 冲突的资源标红：这个资源同一天还配在别的单上，
+                                          // 核验那儿只有一个人能过，必须有人去改
+                                          style={
+                                            clash
+                                              ? {
+                                                  color: "var(--danger)",
+                                                  fontWeight: 600,
+                                                  textDecoration:
+                                                    "underline wavy var(--danger)",
+                                                  textUnderlineOffset: 2,
+                                                }
+                                              : undefined
+                                          }
+                                          title={
+                                            clash
+                                              ? `⚠ ${s.holder_name} 在 ${clash[0].days.join("、")} 同时配给了「${orderNameById.get(clash[0].otherOrderId) ?? "另一单"}」`
+                                              : undefined
+                                          }
+                                        >
+                                          {i > 0 ? " " : ""}
+                                          {holderLabels.get(s.holder_name ?? "") ??
+                                            s.holder_name}
+                                        </span>
+                                      );
+                                    })
+                                  : "未分配"}
+                              </div>
                               </div>
                             </>
                           )}
@@ -1458,30 +1497,133 @@ export default async function OverviewPage({
                                   进出编辑不用重新找。右对齐是为了让文字结束的位置也对上。
                                   flex:1 吃掉中间剩余宽度，也让它第一个被压缩：
                                   姓名和地点用的是 field-sizing:content，本来就只占内容那么宽。 */}
+                              {/* 弹簧：把右边那一组顶到右边。跟普通态那一行放的是同一个 ——
+                                  有了它，分配态中间多出来的状态框只会把弹簧压扁，
+                                  备注和金额一像素都不挪。这是这一行「进出编辑不动」的关键 */}
+                              <span style={{ flex: "1 1 0", minWidth: 0 }} />
                               <OptimisticEditForm
                                 exitHref={qs({ assign: "" })}
-                                className="assign-note"
-                                // flex-basis 给 0：宽松时把剩下的空间全吃掉（备注框要多大有多大），
-                                // 紧张时自己先缩到 22 这个「还点得进去」的下限，把地方让给
-                                // 姓名和地点——那两个每单都有，备注偶尔才有。
-                                // 缩成小方块之后也不影响用：点进去（:focus-within）会自动
-                                // 撑到一半宽，写完一挪走又缩回去，见上面那段 CSS。
-                                // marginLeft 4：普通态那一行「姓名·地点」和备注之间是 gap:4，
-                                // 编辑态整行 gap 改成 0 了，这一段的间距挪到这儿单独给
-                                style={{ display: "flex", flex: "1 1 0", minWidth: 22, marginLeft: 4 }}
+                                className="assign-status"
+                                style={{
+                                  display: "flex",
+                                  gap: 4,
+                                  // 跟里面 select 的 minWidth 保持一致：只给 0 的话外层
+                                  // 缩到 0、里面的 select 撑出来，就压到金额上去了
+                                  minWidth: 24,
+                                  flexShrink: 1,
+                                }}
                               >
                                 <input type="hidden" name="order_id" value={o.id} />
-                                <input
-                                  name="note"
-                                  placeholder="备注"
-                                  defaultValue={note}
-                                  data-original={note}
+                                <select
+                                  name="status"
+                                  defaultValue={o.status}
+                                  data-original={o.status}
                                   style={{
-                                    width: "100%",
-                                    minWidth: 0,
-                                    textAlign: "right",
                                     fontSize: 11,
-                                    padding: "0 3px",
+                                    // 高度写死 16：浏览器给 select 的默认行高比 11px 字号
+                                    // 需要的多 3px，不压掉的话这几行正好撑出格子。
+                                    // boxSizing 不能省，不然 padding 又加回去了。
+                                    height: 16,
+                                    lineHeight: "14px",
+                                    padding: "0 2px",
+                                    boxSizing: "border-box",
+                                    color: "var(--text)",
+                                    // 允许被挤扁，但留 24px 的底：再窄就只剩一条缝，
+                                    // 看不出那是个下拉框、也点不中
+                                    width: "100%",
+                                    minWidth: 24,
+                                  }}
+                                >
+                                  {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                                    <option key={key} value={key}>
+                                      {label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </OptimisticEditForm>
+                              {/* **只有已经有备注的单子**才在色块里放这个框。
+                                  空着的框是纯浪费 —— 多数单子没有备注，却让每个资源的
+                                  编辑态常年挤着一个空框，还把姓名和地点往里压。
+                                  没备注的去顶上那条浮动条加（AssigningBar 里的 NoteInput），
+                                  两处永远只出现一个。
+                                  已经有的就在这儿直接改：它本来就显示在这个位置，就地改最顺手 */}
+                              {note ? (
+                                <OptimisticEditForm
+                                  exitHref={qs({ assign: "" })}
+                                  className="assign-note"
+                                  // flex-basis 给 0：宽松时把剩下的空间全吃掉（备注框要多大有多大），
+                                  // 紧张时自己先缩到 22 这个「还点得进去」的下限，把地方让给
+                                  // 姓名和地点——那两个每单都有，备注偶尔才有。
+                                  // 缩成小方块之后也不影响用：点进去（:focus-within）会自动
+                                  // 撑到一半宽，写完一挪走又缩回去，见上面那段 CSS。
+                                  // marginLeft 4：普通态那一行「姓名·地点」和备注之间是 gap:4，
+                                  // 编辑态整行 gap 改成 0 了，这一段的间距挪到这儿单独给
+                                  // **flex-basis 必须是 0**。改成 auto 试过一次，当场就被
+                                  // 几何测试逮住：基准按内容算的话，这个框会先占掉 71px，
+                                  // 把姓名压到 11px、地点压到 26px，「·」整个左移 9.2px。
+                                  // 基准 0 = 只吃剩余空间，永远不会从姓名地点嘴里抢。
+                                  // 上限跟普通态那段备注一样 50%；真打字时 :focus-within
+                                  // 会撑到 55%（见上面那段 CSS）
+                                  style={{ display: "flex", flex: "1 1 0", maxWidth: "50%", minWidth: 22, marginLeft: 4 }}
+                                >
+                                  <input type="hidden" name="order_id" value={o.id} />
+                                  <input
+                                    name="note"
+                                    placeholder="备注"
+                                    defaultValue={note}
+                                    data-original={note}
+                                    style={{
+                                      width: "100%",
+                                      minWidth: 0,
+                                      textAlign: "right",
+                                      fontSize: 11,
+                                      padding: "0 3px",
+                                      color: "inherit",
+                                      background: "transparent",
+                                      // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
+                                      // 就比普通态的 <span> 低几像素。行高对齐色块的 1.3。
+                                      // border 得显式写 none——只删掉声明的话，浏览器给 input 的默认
+                                      // 2px inset 边框会冒出来，反而更高、还看得见。原来那 1px 透明边框
+                                      // 占的横向位置，用内边距 +1 补回来。
+                                      border: "none",
+                                      lineHeight: 1.3,
+                                    }}
+                                  />
+                                </OptimisticEditForm>
+                              ) : null}
+                              <OptimisticEditForm
+                                exitHref={qs({ assign: "" })}
+                                style={{ display: "flex", alignItems: "center", flexShrink: 0 }}
+                              >
+                                <input type="hidden" name="order_id" value={o.id} />
+                                <span
+                                  className="assign-money-sign"
+                                  style={{ fontSize: 11, opacity: 0.8, flexShrink: 0 }}
+                                >
+                                  $
+                                </span>
+                                <input
+                                  name="amount"
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  defaultValue={o.amount ?? ""}
+                                  data-original={o.amount ?? ""}
+                                  style={{
+                                    ...FIELD_SIZING_CONTENT,
+                                    // 字号 / 淡度 / 右对齐跟普通态同一份（MONEY_SLOT）
+                                    ...MONEY_SLOT,
+                                    appearance: "textfield",
+                                    // 不写死宽度：让 field-sizing 跟着金额位数走，
+                                    // 三位数的单子就只占三位数的地方
+                                    // minWidth 别给大：给 26 的话三位数的金额（约 21px）
+                                    // 撑不满，输入框比文字宽，$ 被往左顶开五六像素，
+                                    // 进出编辑钱号就跳。18 够点得中，其余交给 field-sizing
+                                    minWidth: 18,
+                                    maxWidth: 64,
+                                    // 内边距 0：普通态的数字是贴着右边缘的，
+                                    // 留 2px 数字就往左挪 2px
+                                    padding: 0,
                                     color: "inherit",
                                     background: "transparent",
                                     // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
@@ -1500,79 +1642,6 @@ export default async function OverviewPage({
                                 截断之后后面的人够不着，所以这一行做成可以横着滚的
                                 （.cards-row，样式在上面那段 CSS 里）：触控板左右划、
                                 Shift+滚轮是浏览器原生的，纵向滚轮由 CardsRowScroll 接管。 */}
-                            <div
-                              className="cards-row"
-                              // gap 归 0、淡度对齐普通态的 0.85：普通态这一行是一整串
-                              // 「♂名字 ♀名字」，资源与资源之间就是个普通空格。用 flex gap
-                              // 去凑宽度永远差一点，直接照抄那个空格（见下面的分隔符）
-                              style={{
-                                display: "flex",
-                                flexWrap: "nowrap",
-                                gap: 0,
-                                fontSize: 11,
-                                opacity: 0.85,
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {cards.length > 0
-                                ? cards.map((s: any, i: number) => (
-                                    <span
-                                      key={s.id}
-                                      className="assign-card"
-                                      // relative：撤销那个叉靠它定位。叉是**绝对定位**的，
-                                      // 不占位置 —— 原来它排在文字后面，一进分配模式
-                                      // 后面所有东西就右移 14px，正是「进编辑东西动了」
-                                      style={{ position: "relative", whiteSpace: "pre" }}
-                                    >
-                                      {i > 0 ? " " : ""}
-                                      <span
-                                        // 分配态里同样标红 —— 两个状态得说同一件事
-                                        style={
-                                          clashIndex.get(clashKey(o.id, s.id))
-                                            ? {
-                                                color: "var(--danger)",
-                                                fontWeight: 600,
-                                                textDecoration: "underline wavy var(--danger)",
-                                                textUnderlineOffset: 2,
-                                              }
-                                            : undefined
-                                        }
-                                      >
-                                        {s.holder_gender === "male" ? "♂" : "♀"}
-                                        {s.holder_name}
-                                      </span>
-                                      <UnassignButton
-                                        orderId={o.id}
-                                        resourceId={s.id}
-                                        className="assign-card-x"
-                                        style={{
-                                          // 贴在这个资源的右上角，盖住后面一点点。
-                                          // 平时透明+不可点，鼠标移到这个资源上才浮出来
-                                          position: "absolute",
-                                          right: -3,
-                                          top: -4,
-                                          width: 14,
-                                          height: 14,
-                                          padding: 0,
-                                          margin: 0,
-                                          boxSizing: "border-box",
-                                          display: "inline-flex",
-                                          alignItems: "center",
-                                          justifyContent: "center",
-                                          borderRadius: 7,
-                                          // 底色跟色块一样：盖在字上面也看得清
-                                          background: c.bg,
-                                          border: `1px solid ${c.border}`,
-                                          color: "inherit",
-                                          fontSize: 11,
-                                          lineHeight: 1,
-                                          zIndex: 2,
-                                        }}
-                                      />
-                                    </span>
-                                  ))
-                                : "未分配"}
-                            </div>
                             {/* 进度和状态并排放一行：进度字很短，右边本来就空着。
                                 分成两行的话色块压到 80px 高就装不下，状态框会被裁掉 */}
                             <div
@@ -1593,6 +1662,7 @@ export default async function OverviewPage({
                                   不然想给纯男单加一个女生就没有框可以填。 */}
                               <OptimisticEditForm
                                 exitHref={qs({ assign: "" })}
+                                data-need="1"
                                 style={{
                                   display: "flex",
                                   alignItems: "center",
@@ -1675,93 +1745,83 @@ export default async function OverviewPage({
                                 那个在装不下的时候会往左边溢出去，压在分配进度上面（一天的单子
                                 只有一列宽，正好会遇到）。auto margin 装不下时自动变 0，
                                 多出来的部分往右边溢出，被上一层的 overflow:hidden 干净地切掉 */}
-                            <div style={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0, marginLeft: "auto" }}>
-                            <OptimisticEditForm
-                              exitHref={qs({ assign: "" })}
-                              className="assign-status"
-                              style={{
-                                display: "flex",
-                                gap: 4,
-                                // 跟里面 select 的 minWidth 保持一致：只给 0 的话外层
-                                // 缩到 0、里面的 select 撑出来，就压到金额上去了
-                                minWidth: 24,
-                                flexShrink: 1,
-                              }}
-                            >
-                              <input type="hidden" name="order_id" value={o.id} />
-                              <select
-                                name="status"
-                                defaultValue={o.status}
-                                data-original={o.status}
+                              <div
+                                className="cards-row"
+                                // gap 归 0、淡度对齐普通态的 0.85：普通态这一行是一整串
+                                // 「♂名字 ♀名字」，资源与资源之间就是个普通空格。用 flex gap
+                                // 去凑宽度永远差一点，直接照抄那个空格（见下面的分隔符）
                                 style={{
+                                  display: "flex",
+                                  flexWrap: "nowrap",
+                                  // 靠右，跟普通态那一份同一个锚。左边留给「男x/x 女x/x」
+                                  marginLeft: "auto",
+                                  minWidth: 0,
+                                  gap: 0,
                                   fontSize: 11,
-                                  // 高度写死 16：浏览器给 select 的默认行高比 11px 字号
-                                  // 需要的多 3px，不压掉的话这几行正好撑出格子。
-                                  // boxSizing 不能省，不然 padding 又加回去了。
-                                  height: 16,
-                                  lineHeight: "14px",
-                                  padding: "0 2px",
-                                  boxSizing: "border-box",
-                                  color: "var(--text)",
-                                  // 允许被挤扁，但留 24px 的底：再窄就只剩一条缝，
-                                  // 看不出那是个下拉框、也点不中
-                                  width: "100%",
-                                  minWidth: 24,
+                                  opacity: 0.85,
+                                  whiteSpace: "nowrap",
                                 }}
                               >
-                                {Object.entries(STATUS_LABELS).map(([key, label]) => (
-                                  <option key={key} value={key}>
-                                    {label}
-                                  </option>
-                                ))}
-                              </select>
-                            </OptimisticEditForm>
-                            <OptimisticEditForm
-                              exitHref={qs({ assign: "" })}
-                              style={{ display: "flex", alignItems: "center", flexShrink: 0 }}
-                            >
-                              <input type="hidden" name="order_id" value={o.id} />
-                              <span
-                                className="assign-money-sign"
-                                style={{ fontSize: 11, opacity: 0.8, flexShrink: 0 }}
-                              >
-                                $
-                              </span>
-                              <input
-                                name="amount"
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                defaultValue={o.amount ?? ""}
-                                data-original={o.amount ?? ""}
-                                style={{
-                                  ...FIELD_SIZING_CONTENT,
-                                  // 字号 / 淡度 / 右对齐跟普通态同一份（MONEY_SLOT）
-                                  ...MONEY_SLOT,
-                                  appearance: "textfield",
-                                  // 不写死宽度：让 field-sizing 跟着金额位数走，
-                                  // 三位数的单子就只占三位数的地方
-                                  // minWidth 别给大：给 26 的话三位数的金额（约 21px）
-                                  // 撑不满，输入框比文字宽，$ 被往左顶开五六像素，
-                                  // 进出编辑钱号就跳。18 够点得中，其余交给 field-sizing
-                                  minWidth: 18,
-                                  maxWidth: 64,
-                                  // 内边距 0：普通态的数字是贴着右边缘的，
-                                  // 留 2px 数字就往左挪 2px
-                                  padding: 0,
-                                  color: "inherit",
-                                  background: "transparent",
-                                  // 输入框默认 line-height:normal，框比一行文字高一截、文字在框里垂直居中，
-                                  // 就比普通态的 <span> 低几像素。行高对齐色块的 1.3。
-                                  // border 得显式写 none——只删掉声明的话，浏览器给 input 的默认
-                                  // 2px inset 边框会冒出来，反而更高、还看得见。原来那 1px 透明边框
-                                  // 占的横向位置，用内边距 +1 补回来。
-                                  border: "none",
-                                  lineHeight: 1.3,
-                                }}
-                              />
-                            </OptimisticEditForm>
-                            </div>
+                                {cards.length > 0
+                                  ? cards.map((s: any, i: number) => (
+                                      <span
+                                        key={s.id}
+                                        className="assign-card"
+                                        data-card="1"
+                                        // relative：撤销那个叉靠它定位。叉是**绝对定位**的，
+                                        // 不占位置 —— 原来它排在文字后面，一进分配模式
+                                        // 后面所有东西就右移 14px，正是「进编辑东西动了」
+                                        style={{ position: "relative", whiteSpace: "pre" }}
+                                      >
+                                        {i > 0 ? " " : ""}
+                                        <span
+                                          // 分配态里同样标红 —— 两个状态得说同一件事
+                                          style={
+                                            clashIndex.get(clashKey(o.id, s.id))
+                                              ? {
+                                                  color: "var(--danger)",
+                                                  fontWeight: 600,
+                                                  textDecoration: "underline wavy var(--danger)",
+                                                  textUnderlineOffset: 2,
+                                                }
+                                              : undefined
+                                          }
+                                        >
+                                          {holderLabels.get(s.holder_name ?? "") ??
+                                            s.holder_name}
+                                        </span>
+                                        <UnassignButton
+                                          orderId={o.id}
+                                          resourceId={s.id}
+                                          className="assign-card-x"
+                                          style={{
+                                            // 贴在这个资源的右上角，盖住后面一点点。
+                                            // 平时透明+不可点，鼠标移到这个资源上才浮出来
+                                            position: "absolute",
+                                            right: -3,
+                                            top: -4,
+                                            width: 14,
+                                            height: 14,
+                                            padding: 0,
+                                            margin: 0,
+                                            boxSizing: "border-box",
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            borderRadius: 7,
+                                            // 底色跟色块一样：盖在字上面也看得清
+                                            background: c.bg,
+                                            border: `1px solid ${c.border}`,
+                                            color: "inherit",
+                                            fontSize: 11,
+                                            lineHeight: 1,
+                                            zIndex: 2,
+                                          }}
+                                        />
+                                      </span>
+                                    ))
+                                  : "未分配"}
+                              </div>
                             </div>
                           </>
                         )}
@@ -1819,6 +1879,7 @@ export default async function OverviewPage({
       {assigningOrder && (
         <AssigningBar
           orderId={(assigningOrder as any).id}
+          note={noteByOrder.get((assigningOrder as any).id) ?? ""}
           candidates={assignableByName}
           label={[
             (assigningOrder as any).customers?.first_name ?? "?",
