@@ -594,6 +594,53 @@ test.describe("日期带和订单色块一样高", () => {
   });
 });
 
+test.describe("资源清单的排序", () => {
+  // 库里那条 .order("date_range_start") 排的是「资源什么时候开始生效」，
+  // 跟挑资源这件事没关系。挑资源时脑子里的顺序要么是年龄、要么是出借频率。
+  // 排法本身由 lib/resourceSort.test.ts 管（12 条），这三条管**接线**：
+  // 默认真的按年龄排、菜单点得动、选中的记在 URL 上刷新还在。
+  const maleNames = (page: import("@playwright/test").Page) =>
+    page.evaluate(() => {
+      // 男资源那一组：第一个 ResourceGroup
+      const cards = Array.from(
+        document.querySelectorAll("#resource-panel [data-resource-id]")
+      ) as HTMLElement[];
+      return cards
+        .map((c) => c.querySelector("a")!.children[0].textContent || "")
+        .map((t) => t.replace(/\d{4}-\d{2}-\d{2}|生日没填/g, "").trim());
+    });
+
+  test("默认按年龄从小到大", async ({ page }) => {
+    await gotoOverview(page);
+    const names = await maleNames(page);
+    // 种子：zolan 1999-04-16（年轻）、jordan doe 1995-10-10、sara lee 1995-09-10
+    expect(names.indexOf("zolan")).toBeLessThan(names.indexOf("jordan doe"));
+  });
+
+  test("菜单里选「年龄 大 → 小」，顺序真的反过来", async ({ page }) => {
+    await gotoOverview(page);
+    await page.locator('button[aria-label="排序方式"]').click();
+    // 当前那档要打勾
+    await expect(
+      page.locator('[role="menuitemradio"][aria-checked="true"]')
+    ).toHaveText(/年龄 小 → 大/);
+
+    await page.getByRole("menuitemradio", { name: /年龄 大 → 小/ }).click();
+    await expect(page).toHaveURL(/ssort=age-desc/);
+
+    const names = await maleNames(page);
+    expect(names.indexOf("jordan doe")).toBeLessThan(names.indexOf("zolan"));
+  });
+
+  test("排序记在 URL 上 —— 刷新还在", async ({ page }) => {
+    await gotoOverview(page, "?ssort=freq-desc");
+    await page.locator('button[aria-label="排序方式"]').click();
+    await expect(
+      page.locator('[role="menuitemradio"][aria-checked="true"]')
+    ).toHaveText(/排得多的在前/);
+  });
+});
+
 test.describe("推荐分配", () => {
   test("只看**这一单之前**那一次去的区域", async ({ page }) => {
     await gotoOverview(page, `?assign=${MAIN}`);

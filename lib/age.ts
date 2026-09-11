@@ -28,3 +28,4 @@ export function formatHolder(
   const parts = [genderLabel, ageLabel].filter(Boolean);
   return parts.length > 0 ? parts.join(" ") : "-";
 }
+

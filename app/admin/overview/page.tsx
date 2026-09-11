@@ -13,12 +13,20 @@ import FilterForm from "@/app/admin/orders/FilterForm";
 import PanelScroller from "./PanelScroller";
 import CollapsibleResourcePanel from "./CollapsibleResourcePanel";
 import CollapsibleFilters from "./CollapsibleFilters";
+import SortMenu from "./SortMenu";
 import BulkSelect from "./BulkSelect";
 import CardsRowScroll from "./CardsRowScroll";
 import { AssignResourceButton, UnassignButton } from "./AssignActions";
 import { cookies } from "next/headers";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
+import {
+  compareResources,
+  parseResourceSort,
+  RESOURCE_SORTS,
+  DEFAULT_RESOURCE_SORT,
+  type ResourceSort,
+} from "@/lib/resourceSort";
 import {
   dateRangeToArray,
   isWeekend,
@@ -310,6 +318,7 @@ export default async function OverviewPage({
     mtn?: string;
     sregion?: string;
     smtn?: string;
+    ssort?: string;
   };
 }) {
   const [
@@ -445,6 +454,7 @@ export default async function OverviewPage({
     sregion: searchParams.sregion ?? "",
     smtn: searchParams.smtn ?? "",
   };
+  const sortBy = parseResourceSort(searchParams.ssort);
   // 色块里那行「已配的资源」显示成什么：默认只写 first name，撞名的才往后补姓氏字母。
   // **用 allResources 而不是筛选后的 resources**：左边面板筛掉几个资源，不该让
   // 日历上某个人的名字突然从「admin1C」变回「admin1」—— 撞名这件事跟筛选无关
@@ -722,6 +732,10 @@ export default async function OverviewPage({
     if (f.q) p.set("q", f.q);
     if (f.sregion) p.set("sregion", f.sregion);
     if (f.smtn) p.set("smtn", f.smtn);
+    // 默认那档不写进 URL，链接短一点；parseResourceSort 拿不到也会退回默认
+    if (searchParams.ssort && searchParams.ssort !== DEFAULT_RESOURCE_SORT) {
+      p.set("ssort", searchParams.ssort);
+    }
     if (searchParams.assign) p.set("assign", searchParams.assign);
     if (searchParams.allcards) p.set("allcards", searchParams.allcards);
     if (searchParams.region) p.set("region", searchParams.region);
@@ -865,6 +879,17 @@ export default async function OverviewPage({
             showAllHref={qs({ allcards: "1" })}
             hideUnusableHref={qs({ allcards: "" })}
             bookingsByResource={bookingsByResource}
+            sortBy={sortBy}
+            // 四条链接在服务端拼好传下去 —— URL 怎么拼（哪些筛选要带过去、
+            // 默认那档不写进去）是 qs 的事，菜单只管点
+            sortHrefs={
+              Object.fromEntries(
+                (Object.keys(RESOURCE_SORTS) as ResourceSort[]).map((k) => [
+                  k,
+                  qs({ ssort: k === DEFAULT_RESOURCE_SORT ? "" : k }),
+                ])
+              ) as Record<ResourceSort, string>
+            }
             // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
             initialCollapsed={cookies().get("resource_panel_collapsed")?.value === "1"}
             // 筛选默认收起：平时都是直接看资源列表，筛选是偶尔为之
@@ -911,6 +936,9 @@ export default async function OverviewPage({
             <input type="hidden" name="sstatus" value={f.sstatus} />
           )}
           {f.q && <input type="hidden" name="q" value={f.q} />}
+          {searchParams.ssort && (
+            <input type="hidden" name="ssort" value={searchParams.ssort} />
+          )}
           {searchParams.assign && (
             <input type="hidden" name="assign" value={searchParams.assign} />
           )}
@@ -1950,6 +1978,8 @@ function ResourcePanel({
   hideUnusableHref,
   resources,
   filters,
+  sortBy,
+  sortHrefs,
   hasFilter,
   total,
   loadError,
@@ -1974,6 +2004,9 @@ function ResourcePanel({
     sregion: string;
     smtn: string;
   };
+  /** 资源清单按什么排 —— 跟筛选条件一样记在 URL 里 */
+  sortBy: ResourceSort;
+  sortHrefs: Record<ResourceSort, string>;
   orderRegion: string;
   orderMtn: string;
   hasFilter: boolean;
@@ -1986,11 +2019,27 @@ function ResourcePanel({
   initialCollapsed: boolean;
   filtersCollapsed: boolean;
 }) {
-  const male = resources.filter((s) => s.holder_gender === "male");
-  const female = resources.filter((s) => s.holder_gender === "female");
-  const other = resources.filter(
-    (s) => s.holder_gender !== "male" && s.holder_gender !== "female"
-  );
+  // 每组按选中的方式重排。库里那条 .order("date_range_start") 排的是
+  // 「资源什么时候开始生效」，跟挑资源这件事没关系 —— 挑资源时脑子里的顺序要么是
+  // 年龄（登记了使用人的资源，年龄要跟客户对得上），要么是出借频率
+  // （谁排得多、谁一直闲着），所以做成可选的。
+  const cmp = compareResources(sortBy);
+  const toSortable = (s: any) => {
+    const runs = bookingsByResource.get(s.id) ?? [];
+    return {
+      dateOfBirth: s.holder_date_of_birth,
+      name: s.holder_name ?? "",
+      timesBooked: runs.length,
+      // 同一单里不连续的日子算一段，但天数要按实际的天算
+      daysBooked: runs.reduce((a: number, r: any) => a + (r.days?.length ?? 0), 0),
+    };
+  };
+  const bySort = (a: any, b: any) => cmp(toSortable(a), toSortable(b));
+  const male = resources.filter((s) => s.holder_gender === "male").sort(bySort);
+  const female = resources.filter((s) => s.holder_gender === "female").sort(bySort);
+  const other = resources
+    .filter((s) => s.holder_gender !== "male" && s.holder_gender !== "female")
+    .sort(bySort);
 
   // 筛选收起时显示的摘要：只列跟默认不一样的那几项，
   // 不然收起来之后根本看不出物品为什么少了一半
@@ -2037,6 +2086,7 @@ function ResourcePanel({
         hasFilter={hasFilter}
         summary={filterSummary}
         clearHref="/admin/overview"
+        sortSlot={<SortMenu current={sortBy} hrefFor={sortHrefs} />}
       >
       <FilterForm
         action="/admin/overview"

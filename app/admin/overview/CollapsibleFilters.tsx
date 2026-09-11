@@ -15,12 +15,15 @@ export default function CollapsibleFilters({
   hasFilter,
   summary,
   clearHref,
+  sortSlot,
   children,
 }: {
   initialCollapsed: boolean;
   hasFilter: boolean;
   summary: string;
   clearHref: string;
+  /** 排序入口，摆在这一行的右端。**收起时也在** —— 换个顺序看不该先展开筛选 */
+  sortSlot?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(initialCollapsed);
@@ -61,6 +64,10 @@ export default function CollapsibleFilters({
         >
           {collapsed ? "▾" : "▴"} 筛选
         </button>
+
+        {/* 紧挨着「筛选」。它俩是一对：一个管「看哪些」、一个管「怎么排」，
+            放一块儿才读得出是同类东西；甩到行尾反而像个孤零零的按钮 */}
+        {sortSlot}
 
         {/* 摘要只在收起时显示，展开的话表单本身就把条件写在脸上了 */}
         {collapsed && hasFilter && (

@@ -90,7 +90,9 @@ export default function DayNote({
           // 也贴着右边，不会在一列中间悬着
           textAlign: "right",
           background: "var(--surface)",
-          color: "var(--text)",
+          // 编辑时也跟着这一列的颜色：打字时看到的就是存下来之后的样子
+          color: "inherit",
+          fontWeight: 600,
           outline: "none",
         }}
       />
@@ -112,8 +114,11 @@ export default function DayNote({
         lineHeight: "15px",
         textAlign: "right",
         cursor: "text",
-        color: failed ? "var(--danger)" : "var(--text)",
-        fontWeight: shown ? 500 : 400,
+        // **颜色跟着这一列走**（inherit）：周末那几列是橙的、peak 是紫的，
+        // 备注写在同一格里，用另一个颜色会像是从别处飘过来的一块。
+        // 写了字就加粗一档 —— 这一格里它是唯一「有人特意写了点什么」的东西
+        color: failed ? "var(--danger)" : "inherit",
+        fontWeight: shown ? 600 : 400,
         // 一列就那么宽，长备注截断，全文在 title 里
         overflow: "hidden",
         textOverflow: "ellipsis",
