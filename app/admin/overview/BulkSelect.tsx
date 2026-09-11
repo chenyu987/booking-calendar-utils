@@ -69,14 +69,41 @@ export default function BulkSelect() {
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
-      const el = (e.target as HTMLElement | null)?.closest?.<HTMLElement>("[data-order-id]");
-      if (!el) return;
+      const t = e.target as HTMLElement | null;
+      const el = t?.closest?.<HTMLElement>("[data-order-id]");
+      if (!el) {
+        // 点在订单以外：也是「重新开始」，把这批选中放掉。
+        // 唯独操作条自己不算 —— 在上面选状态、按「应用」的时候，
+        // 选中要是没了，这条操作条会连同它自己一起消失，点了个寂寞。
+        if (t?.closest?.("[data-bulk-bar]")) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey) return; // ⌘/shift 点空白：什么都不做
+        anchorRef.current = null;
+        setSelected((prev) => (prev.length > 0 ? [] : prev));
+        setMsg(null);
+        return;
+      }
       const id = el.dataset.orderId;
       if (!id) return;
 
       const toggle = e.metaKey || e.ctrlKey;
       const range = e.shiftKey;
-      if (!toggle && !range) return; // 普通点击照旧：进入这一单的编辑态
+      if (!toggle && !range) {
+        // **普通点击 = 重新开始。** 没按 ⌘/shift 就是「我不要之前那批了」——
+        // 点另一单就是单选那一单，点空白就是全都不要。清完照常放行，
+        // 该进编辑态进编辑态、该退出退出，这里一个字都不拦。
+        //
+        // 原来这儿是直接 return（「普通点击跟多选无关」），漏出两个洞：
+        //   1. 选着两单时普通点第三单，选中没清，接着下面那个「把正在配的
+        //      那一单折进选中」的 effect 一看还有选中，把第三单也加了进去 ——
+        //      明明没按 ⌘，却变成了三选
+        //   2. 点空白处没有任何人管（ClickOutsideDeselect 只在分配态里挂着），
+        //      那批蓝框就一直赖着
+        anchorRef.current = id;
+        setMsg(null);
+        // 已经是空的就别 setState，白白多渲染一次
+        setSelected((prev) => (prev.length > 0 ? [] : prev));
+        return;
+      }
 
       // Cmd/Ctrl+点 在 <a> 上会开新标签页，Shift+点 会开新窗口——都得拦掉。
       // 用捕获阶段，赶在 Next 的 Link 处理之前。
@@ -180,6 +207,7 @@ export default function BulkSelect() {
       <style dangerouslySetInnerHTML={{ __html: highlightCss }} />
       {selected.length > 0 && (
         <div
+          data-bulk-bar
           // 外层只管定位。**动画不要挂在这一层**——动画一旦被冻住（比如标签页
           // 在后台，浏览器会把 CSS 动画停在第一帧）或者被打断，这条就会卡在
           // 起始那 12px 的偏移上，位置就错了。定位和动画分开，位置永远是对的。

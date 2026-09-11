@@ -10,6 +10,8 @@ import { test, expect, type Page } from "@playwright/test";
 /** 主角那一单：三行都满（姓名·地点·备注 / 两个资源 / 男女进度·金额） */
 const MAIN = "ord-main";
 const SHORT_NAME = "ord-short";
+/** 第三单：用来验「普通点击 = 重新开始」 */
+const THIRD = "ord-earlier";
 
 const overview = (qs = "") => `/admin/overview${qs}`;
 
@@ -231,6 +233,90 @@ test.describe("多选改状态", () => {
       () => !!(document.activeElement as HTMLElement | null)?.closest?.("[data-order-id]")
     );
     expect(focused, "Esc 之后焦点还留在某个色块上").toBe(false);
+  });
+
+
+  // 普通点击（没按 ⌘/shift）的语义是**重新开始**，不是「跟多选无关」。
+  // 原来写成后者，漏出两个洞，下面两条各钉一个。
+  test("选着两单时普通点第三单：变成单选那一单，不是加进去", async ({ page }) => {
+    await gotoOverview(page);
+    await page
+      .locator(`a[data-order-id="${MAIN}"]`)
+      .first()
+      .click({ modifiers: ["ControlOrMeta"] });
+    await page
+      .locator(`a[data-order-id="${SHORT_NAME}"]`)
+      .first()
+      .click({ modifiers: ["ControlOrMeta"] });
+    await expect(page.getByText(/已选 2 单/)).toBeVisible();
+
+    // 不按任何修饰键点第三单
+    await page.locator(`a[data-order-id="${THIRD}"]`).first().click();
+
+    // 之前这儿会变成「已选 3 单」：普通点击不清选中，接着「把正在配的那一单
+    // 折进选中」的 effect 一看还有选中，把第三单也收了进去
+    await expect(page.getByText(/已选 \d+ 单/)).toHaveCount(0);
+    // 普通点击该做的事照做：进那一单的分配态
+    await expect(page).toHaveURL(new RegExp(`assign=${THIRD}`));
+    const lit = await page.evaluate(
+      () =>
+        new Set(
+          Array.from(document.querySelectorAll("[data-order-id]"))
+            .filter((e) => getComputedStyle(e).outlineStyle !== "none")
+            .map((e) => (e as HTMLElement).dataset.orderId)
+        ).size
+    );
+    expect(lit, "普通点击之后还有别的单子亮着多选的框").toBeLessThanOrEqual(1);
+  });
+
+  test("选着两单时点空白处：多选取消掉", async ({ page }) => {
+    await gotoOverview(page);
+    await page
+      .locator(`a[data-order-id="${MAIN}"]`)
+      .first()
+      .click({ modifiers: ["ControlOrMeta"] });
+    await page
+      .locator(`a[data-order-id="${SHORT_NAME}"]`)
+      .first()
+      .click({ modifiers: ["ControlOrMeta"] });
+    await expect(page.getByText(/已选 2 单/)).toBeVisible();
+
+    // 挑一个真空白的点：标题那一行的最左边。不能直接点标题正中 ——
+    // 多选操作条是 fixed 居中贴顶的，正好压在上面，点下去等于点了操作条
+    const box = (await page.getByRole("heading", { name: "排期总览" }).boundingBox())!;
+    const hit = await page.evaluate(
+      ([x, y]) => document.elementFromPoint(x, y)?.tagName ?? "?",
+      [box.x + 2, box.y + box.height / 2] as [number, number]
+    );
+    expect(hit, "挑的这个点不是空白，被别的东西挡住了").toBe("H1");
+    await page.mouse.click(box.x + 2, box.y + box.height / 2);
+
+    // 原来空白处压根没人管：ClickOutsideDeselect 只在分配态里挂着，
+    // 不在分配态的时候那批蓝框就一直赖着
+    await expect(page.getByText(/已选 \d+ 单/)).toHaveCount(0);
+  });
+
+  test("操作条自己点不掉自己", async ({ page }) => {
+    await gotoOverview(page);
+    await page
+      .locator(`a[data-order-id="${MAIN}"]`)
+      .first()
+      .click({ modifiers: ["ControlOrMeta"] });
+    await page
+      .locator(`a[data-order-id="${SHORT_NAME}"]`)
+      .first()
+      .click({ modifiers: ["ControlOrMeta"] });
+
+    // 在操作条上点一下也是一次「点在订单以外」，要是照样清空，
+    // 这条操作条会连同它自己一起消失，点了个寂寞。
+    // **得是真的 click**：selectOption 走的是 DOM 赋值，压根不发 click 事件，
+    // 那道护栏根本不会被碰到，这条断言就是死的（写的时候就这么错过一次）
+    await page.locator("[data-bulk-bar]").getByText(/已选 2 单/).click();
+    await expect(page.getByText(/已选 2 单/)).toBeVisible();
+
+    // 顺带确认这条上的控件还能用
+    await page.locator("[data-bulk-bar] select").selectOption({ index: 1 });
+    await expect(page.getByText(/已选 2 单/)).toBeVisible();
   });
 });
 
