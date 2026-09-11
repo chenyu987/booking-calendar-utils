@@ -2355,13 +2355,12 @@ function ResourceGroup({
                       {s.holder_date_of_birth ? ` · ${s.holder_date_of_birth}` : ""}
                     </span>
                   </span>
-                  {/* 分配时这个位置让给「配这单」和推荐标记 —— 类型平时才显示。
-                      能配的资源类型一定是对的（第四条校验拦过了），分配那一刻它没信息量 */}
-                  {!hasAction && (
-                    <span style={{ fontSize: 11, color: "var(--text-faint)", flexShrink: 0 }}>
-                      {s.item_type ?? "?"}
-                    </span>
-                  )}
+                  {/* 右上角原来显示类型（"alpha"）。现在**库里所有资源都是 alpha**
+                      —— 每张都写一遍等于没写，纯占地方。分配的时候这个位置本来
+                      就让给「配这单」和推荐标记了，平时那一下更没必要。
+                      做 Beta 的时候要加回来：那时候类型才开始有区分度，
+                      而且 itemFits() 也得从「在册即 Alpha」改回按场地判断
+                      （CLAUDE.md「做 Beta 功能时记得先做这件事」记着这条）。 */}
                 </div>
                 <div
                   style={{
