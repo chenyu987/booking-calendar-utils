@@ -86,6 +86,9 @@ export default function DayNote({
           padding: "0 3px",
           fontSize: 11,
           lineHeight: "15px",
+          // 挪到右下角之后右对齐：文字结束的位置对齐，不写的时候那条虚线
+          // 也贴着右边，不会在一列中间悬着
+          textAlign: "right",
           background: "var(--surface)",
           color: "var(--text)",
           outline: "none",
@@ -107,10 +110,11 @@ export default function DayNote({
         minHeight: 15,
         fontSize: 11,
         lineHeight: "15px",
+        textAlign: "right",
         cursor: "text",
         color: failed ? "var(--danger)" : "var(--text)",
         fontWeight: shown ? 500 : 400,
-        // 一列 150px 宽，长备注截断，全文在 title 里
+        // 一列就那么宽，长备注截断，全文在 title 里
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
