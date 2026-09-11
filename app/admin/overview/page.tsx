@@ -118,7 +118,7 @@ const FIELD_SIZING_CONTENT = { fieldSizing: "content" } as React.CSSProperties;
 // 一样窄（5px 宽点不中），所以反过来让**普通态也占同样的格子**——两个状态一样宽，
 // 进出编辑那行就不动了。两边都用这一份，别各写各的。
 /** 「男…」和「女…」两组之间的间距。两个状态共用，别一边写 gap 一边靠空格 */
-const COUNT_GAP = 3;
+const COUNT_GAP = 2;
 
 // 右下角那个金额。两个状态共用：普通态是文字、分配态是输入框，
 // 但**右边缘、字号、淡度、右对齐**必须一模一样，不然进出编辑钱会挪位置。
@@ -133,8 +133,17 @@ const MONEY_SLOT: React.CSSProperties = {
 const COUNT_BOX: React.CSSProperties = {
   display: "inline-block",
   boxSizing: "content-box",
-  width: 16,
-  padding: "0 2px",
+  // **按一位数给**，不给两位数留位置。原来是 16（够写「12」），可实测最宽的
+  // 数字才 7.3px，两个性别加起来白占了 18px —— 一天的单子内宽只有 136px，
+  // 这 18px 正好是状态下拉框能不能露出来的分水岭。
+  // 人数到 10 的单子实际上不存在（真有也是拆成几单处理），为这种情况常年
+  // 占着位置不划算。真填了两位数，两个状态都是一样地溢出，位置还是对得上的。
+  width: 8,
+  // 左右各 1px，不是 2px。两个格子省下 4px —— 听着像抠，但这 4px 就是余量本身：
+  // 只留 8px 宽的时候整行正好卡死（本地量出来状态框拿到 39px、它要的也正好
+  // 是 39px），CI 的 Linux 字体宽那么零点几，直接就破了（38.56 < 39）。
+  // 零余量的布局等于没修好，只是在这台机器上碰巧成立
+  padding: "0 1px",
   textAlign: "left",
 };
 const PANEL_WIDTH = 260;
@@ -755,11 +764,20 @@ export default async function OverviewPage({
         #assign-active-block .assign-note:focus-within { min-width: 55% !important; }
 
         @container (max-width: 180px) {
-          /* !important 不能省：表单的 display:flex 是内联样式，
-             选择器再具体也压不过它 */
-          #assign-active-block .assign-status,
-          #assign-active-block .assign-delete,
-          /* 连 $ 符号也藏掉：不藏的话金额右边会被切掉 9px，
+          /* 一天的单子（内宽 136px）曾经把状态下拉框整个藏掉 —— 等于一天的单子
+             改不了状态。其实装得下，卡在那只 ▾ 上：带箭头的 select 要 59px 才
+             显示得全「已分配」，去掉箭头只要 39px，而这儿能匀出 42.6px。
+             所以窄色块上只去掉箭头，框还在、照样点得开。
+             （跟地点名那个 <input list> 藏掉 ▾ 是同一个理由：几十像素宽的地方，
+             一个箭头就占掉一半还挡字。） */
+          #assign-active-block .assign-status select {
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            /* 自己的左右内边距也收到 1px：省下的 2px 是**需求侧**的，
+               比在别处硬挤 2px 出来安全 */
+            padding: 0 1px !important;
+          }
+          /* $ 符号还是要藏：不藏的话金额右边会被切掉 9px，
              「$120」看成「$12」比少个符号严重得多。旁边就是「男1/1 女0/1」，
              最右边那个数是钱，不会认错。
              **不限定 #assign-active-block**：普通态也要一起藏，不然窄色块

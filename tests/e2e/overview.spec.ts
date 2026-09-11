@@ -178,6 +178,50 @@ test.describe("点下去要立刻有反应", () => {
   });
 });
 
+test.describe("一天的单子也放得下", () => {
+  // 一天的色块内宽只有 136px。曾经为了腾地方，把状态下拉框在
+  // @container (max-width:180px) 里整个藏掉 —— 等于一天的单子改不了状态。
+  test("状态下拉框在一天的单子上也要在，而且显示得下完整标签", async ({ page }) => {
+    await gotoOverview(page, `?assign=${SHORT_NAME}`);
+    const sel = page.locator("#assign-active-block .assign-status select");
+    await expect(sel).toBeVisible();
+
+    const fit = await page.evaluate(() => {
+      const s = document.querySelector<HTMLSelectElement>(
+        "#assign-active-block .assign-status select"
+      )!;
+      // 这个 select 在 flex 里被挤过，量它本身只知道「挤成了多宽」。
+      // 想知道「不挤时要多宽」得另起一个探针，摆到容器外面 width:auto 量。
+      // **不写死像素**：CI 是 Linux，字体度量跟本地不一样，写死了必然飘
+      const cs = getComputedStyle(s);
+      const probe = s.cloneNode(true) as HTMLSelectElement;
+      probe.style.cssText =
+        `position:absolute;visibility:hidden;width:auto;min-width:0;` +
+        `font-size:${cs.fontSize};padding:${cs.padding};height:${cs.height};` +
+        `box-sizing:border-box;appearance:${cs.appearance};` +
+        `-webkit-appearance:${cs.appearance}`;
+      document.body.appendChild(probe);
+      const need = probe.getBoundingClientRect().width;
+      probe.remove();
+      return {
+        got: s.getBoundingClientRect().width,
+        need,
+        label: s.options[s.selectedIndex]?.text ?? "",
+        blockWidth: document
+          .getElementById("assign-active-block")!
+          .getBoundingClientRect().width,
+      };
+    });
+
+    expect(
+      fit.got,
+      `色块内宽 ${fit.blockWidth}px，状态框只分到 ${fit.got}px，` +
+        `显示「${fit.label}」要 ${fit.need}px` +
+        `（余量 ${(fit.got - fit.need).toFixed(2)}px）`
+    ).toBeGreaterThanOrEqual(fit.need);
+  });
+});
+
 test.describe("多选改状态", () => {
   test("⌘+点两单：出现「已选 N 单」，分配浮动条让位", async ({ page }) => {
     await gotoOverview(page, `?assign=${MAIN}`);
