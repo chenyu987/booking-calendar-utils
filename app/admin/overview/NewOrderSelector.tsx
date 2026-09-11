@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { dateRangeToArray } from "@/lib/dates";
 import { computeTotalFromPerDay } from "@/lib/pricing";
+import { parseCount } from "@/lib/party";
 import LocationInput from "@/components/LocationInput";
 import { normalizeLocation, sameVenue } from "@/lib/locations";
 
@@ -45,8 +46,8 @@ export default function NewOrderSelector({
   const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [name, setName] = useState("");
-  const [male, setMale] = useState(0);
-  const [female, setFemale] = useState(0);
+  const [male, setMale] = useState("");
+  const [female, setFemale] = useState("");
   const [location, setLocation] = useState("");
   const [note, setNote] = useState("");
   const [perDayPrice, setPerDayPrice] = useState("");
@@ -68,8 +69,8 @@ export default function NewOrderSelector({
     setDateEnd("");
     setPopupPos(null);
     setName("");
-    setMale(0);
-    setFemale(0);
+    setMale("");
+    setFemale("");
     setLocation("");
     setNote("");
     setPerDayPrice("");
@@ -224,7 +225,7 @@ export default function NewOrderSelector({
     const rate = Number(perDayPrice);
     if (!Number.isFinite(rate)) return;
     const days = dateEnd >= dateStart ? dateRangeToArray(dateStart, dateEnd).length : 0;
-    const partySize = (male || 0) + (female || 0);
+    const partySize = parseCount(male) + parseCount(female);
     setTotalPrice(String(computeTotalFromPerDay(rate, days, partySize)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateStart, dateEnd]);
@@ -236,7 +237,7 @@ export default function NewOrderSelector({
     if (value.trim() === "" || !Number.isFinite(rate)) return;
     if (!dateStart || !dateEnd || dateEnd < dateStart) return;
     const days = dateRangeToArray(dateStart, dateEnd).length;
-    const partySize = (male || 0) + (female || 0);
+    const partySize = parseCount(male) + parseCount(female);
     setTotalPrice(String(computeTotalFromPerDay(rate, days, partySize)));
   }
 
@@ -250,8 +251,8 @@ export default function NewOrderSelector({
     fd.set("customer_name", name.trim());
     fd.set("location", location.trim());
     fd.set("note", note.trim());
-    fd.set("male_count", String(male || 0));
-    fd.set("female_count", String(female || 0));
+    fd.set("male_count", String(parseCount(male)));
+    fd.set("female_count", String(parseCount(female)));
     fd.set("demand_days", JSON.stringify(days));
     fd.set("amount", totalPrice.trim());
     // 这个名字页面加载时已经查到过 id 的话就直接带上，服务端能少查一次库（省一两秒）
@@ -309,7 +310,17 @@ export default function NewOrderSelector({
 
   if (timeline.length === 0) return null;
 
-  const formInvalid = submitting || !name.trim() || !dateStart || !dateEnd || dateEnd < dateStart;
+  // 「创建」为什么是灰的，得写出来。人数那个框出问题的时候，第一反应是
+  // 「我填了数字还建不了」，其实拦住的多半是没填姓名 —— 一个不说理由的灰按钮，
+  // 会让人把上一个动作当成原因
+  const blockedBy = !dateStart || !dateEnd
+    ? "先在日历上选一段日子"
+    : dateEnd < dateStart
+      ? "结束日期比开始日期早"
+      : !name.trim()
+        ? "填一下客人姓名"
+        : "";
+  const formInvalid = submitting || blockedBy !== "";
 
   const lo = selection ? Math.min(selection.start, selection.end) : 0;
   const hi = selection ? Math.max(selection.start, selection.end) : 0;
@@ -493,19 +504,17 @@ export default function NewOrderSelector({
             onChange={(e) => setName(e.target.value)}
             style={{ fontSize: 13, padding: "6px 8px", color: "var(--text)" }}
           />
-          <style>{`
-            .new-order-qty-input::-webkit-calendar-picker-indicator { display: none; }
-          `}</style>
           <div style={{ display: "flex", gap: 10 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 4, flex: 1 }}>
               男
               <input
                 type="number"
                 min="0"
-                list="new-order-count-options"
-                className="new-order-qty-input"
+                // 空着就是 0，所以不预填一个 "0" —— 预填了的话，光标默认落在末尾，
+                // 打一个 1 就变成「01」，而且那个 01 还擦不掉（见 parseCount 的注释）
+                placeholder="0"
                 value={male}
-                onChange={(e) => setMale(Number(e.target.value))}
+                onChange={(e) => setMale(e.target.value)}
                 style={{ width: "100%", fontSize: 13, padding: "6px 4px", color: "var(--text)" }}
               />
             </label>
@@ -514,18 +523,12 @@ export default function NewOrderSelector({
               <input
                 type="number"
                 min="0"
-                list="new-order-count-options"
-                className="new-order-qty-input"
+                placeholder="0"
                 value={female}
-                onChange={(e) => setFemale(Number(e.target.value))}
+                onChange={(e) => setFemale(e.target.value)}
                 style={{ width: "100%", fontSize: 13, padding: "6px 4px", color: "var(--text)" }}
               />
             </label>
-            <datalist id="new-order-count-options">
-              {Array.from({ length: 7 }, (_, i) => i).map((n) => (
-                <option key={n} value={n} />
-              ))}
-            </datalist>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
                   <LocationInput
@@ -568,7 +571,14 @@ export default function NewOrderSelector({
             </label>
           </div>
           {error && <div style={{ fontSize: 12, color: "var(--danger)" }}>{error}</div>}
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+            {/* marginRight:auto 把提示顶到左边：它出现/消失的时候，右边这两个按钮
+                一动不动。放进 flex 流里靠 gap 撑的话，按钮会横着跳一下 */}
+            {blockedBy && !submitting && (
+              <span style={{ marginRight: "auto", fontSize: 12, opacity: 0.7 }}>
+                {blockedBy}
+              </span>
+            )}
             <button
               type="button"
               onClick={resetAll}

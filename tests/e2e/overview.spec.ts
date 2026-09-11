@@ -364,6 +364,62 @@ test.describe("多选改状态", () => {
   });
 });
 
+test.describe("建单弹窗的人数框", () => {
+  // 这两个框原来是数字 state（value={male} + Number(e.target.value)），
+  // 踩到了 React 对受控 <input type="number"> 的两个特殊处理，见 lib/party.ts 的
+  // parseCount 注释。表现是：清不空、而且「01」擦不掉。
+  async function openPopup(page: import("@playwright/test").Page) {
+    await gotoOverview(page);
+    const grid = page.locator('[title="拖动选日期，双击建新单"]').first();
+    const box = (await grid.boundingBox())!;
+    const vw = page.viewportSize()!.width;
+    // 日历是横着滚的，这一段的 box.x 往往是负的（左边已经滚出去了），
+    // 直接拿 box.x + 一点 会点到屏幕外面。取它和视口的交集
+    const x = (Math.max(box.x, 0) + Math.min(box.x + box.width, vw)) / 2;
+    // 往这一段最下面的空泳道里双击，避开上面那几个订单色块
+    await page.mouse.dblclick(x, box.y + box.height - 20);
+    await page.locator('[data-new-order-popup="true"]').waitFor();
+  }
+
+  test("打的是几就是几：不会变成「01」，也删得空", async ({ page }) => {
+    await openPopup(page);
+    const male = page.locator('[data-new-order-popup="true"] input[type="number"]').first();
+
+    // 默认空着（占位符是 0），所以没有一个现成的 "0" 等着被打在前面
+    await expect(male).toHaveValue("");
+
+    await male.click();
+    await male.type("1");
+    // 原来这里是 "01"：Number("01") 得 1，state 对了，但 React 更新受控 number 框
+    // 用的是宽松比较（"01" != 1 为假），就认为不用改 DOM，01 一直留在框里
+    await expect(male).toHaveValue("1");
+
+    // 删得空。原来清空会被立刻塞回 "0"（value===0 && node.value==='' 那个特例）
+    await male.press("Backspace");
+    await expect(male).toHaveValue("");
+  });
+
+  test("人数框上没有那个 ▾（datalist 的下拉箭头）", async ({ page }) => {
+    await openPopup(page);
+    const lists = await page
+      .locator('[data-new-order-popup="true"] input[type="number"]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute("list")));
+    expect(lists.filter(Boolean), "人数框还挂着 datalist，Chrome 会给它画一个 ▾").toEqual([]);
+  });
+
+  test("「创建」是灰的时候，要说出为什么", async ({ page }) => {
+    await openPopup(page);
+    const create = page.getByRole("button", { name: "创建" });
+    await expect(create).toBeDisabled();
+    // 不说理由的灰按钮，会让人把上一个动作（刚在人数框里打的字）当成原因
+    await expect(page.getByText("填一下客人姓名")).toBeVisible();
+
+    await page.getByPlaceholder("客人姓名").fill("测试客户");
+    await expect(page.getByText("填一下客人姓名")).toHaveCount(0);
+    await expect(create).toBeEnabled();
+  });
+});
+
 test.describe("推荐分配", () => {
   test("只看**这一单之前**那一次去的区域", async ({ page }) => {
     await gotoOverview(page, `?assign=${MAIN}`);
