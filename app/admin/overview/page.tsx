@@ -146,7 +146,12 @@ const COUNT_BOX: React.CSSProperties = {
   padding: "0 1px",
   textAlign: "left",
 };
-const PANEL_WIDTH = 260;
+// 资源面板的宽度。卡片从三行压成两行之后加宽的：名字和「年龄·生日」并到同一行，
+// 最长的那张（Isabelle Cheung 25岁 · 2001-07-08）光这两段就要 211px，
+// 再加右边的类型和内边距约 279 —— 给到 320 是留出余量，别卡着边界算
+// （零余量的布局只是在这台机器上碰巧成立，字体差一点就破）。
+// 多出来的 60px 从日历那边借，不到半个日期列，换的是一屏多看三四个资源。
+const PANEL_WIDTH = 320;
 // 一条时间轴拉到底横着能滑很久，改成每 4 周折一段往下排（跟 Excel 里那张排期表一个思路）。
 // 段的起点对齐到周一，所以每段正好是 4 个完整自然周。
 // 每行几天现在跟着右边那道帘子走（lib/bandWeeks.ts），不再是写死的。
@@ -2314,16 +2319,41 @@ function ResourceGroup({
                     paddingRight: hasAction ? actionSlotWidth : 0,
                   }}
                 >
+                  {/* 名字和「年龄·生日」挤在同一行。原来生日单占一行，一个资源三行高；
+                      资源有一百多张，高度就是能一屏看到几张，所以宁可横着挤也别多一行。
+                      **名字让位、年龄生日不让**：名字长了打点省略，年龄是分配的硬条件
+                      （登记了使用人的资源，核验时要人证相符），看不全等于这个资源没法判断 */}
                   <span
                     style={{
-                      fontWeight: 500,
-                      fontSize: 13,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: 6,
+                      minWidth: 0,
                     }}
                   >
-                    {s.holder_name ?? "（未填物主）"}
+                    <span
+                      style={{
+                        fontWeight: 500,
+                        fontSize: 13,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        minWidth: 0,
+                      }}
+                    >
+                      {s.holder_name ?? "（未填物主）"}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: "var(--text-muted)",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {calcAge(s.holder_date_of_birth) ?? "?"}岁
+                      {s.holder_date_of_birth ? ` · ${s.holder_date_of_birth}` : ""}
+                    </span>
                   </span>
                   {/* 分配时这个位置让给「配这单」和推荐标记 —— 类型平时才显示。
                       能配的资源类型一定是对的（第四条校验拦过了），分配那一刻它没信息量 */}
@@ -2332,10 +2362,6 @@ function ResourceGroup({
                       {s.item_type ?? "?"}
                     </span>
                   )}
-                </div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                  {calcAge(s.holder_date_of_birth) ?? "?"}岁
-                  {s.holder_date_of_birth ? ` · ${s.holder_date_of_birth}` : ""}
                 </div>
                 <div
                   style={{

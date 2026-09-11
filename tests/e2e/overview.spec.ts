@@ -420,6 +420,43 @@ test.describe("建单弹窗的人数框", () => {
   });
 });
 
+test.describe("资源卡片要扁", () => {
+  // 资源有一百多张，卡片高度直接决定一屏能看到几张。原来是三行
+  // （名字+类型 / 年龄·生日 / 已排），把生日那一行并进第一行之后是两行，
+  // 实测 72px → 54px。这条盯的是「别又变回三行」。
+  test("名字和「年龄·生日」在同一行，整个资源只有两行", async ({ page }) => {
+    await gotoOverview(page);
+    const card = page.locator("#resource-panel [data-resource-id]").first();
+    await card.waitFor();
+
+    const shape = await card.evaluate((el) => {
+      const body = el.querySelector("a")!;
+      const rows = Array.from(body.children) as HTMLElement[];
+      // 找到写着「N岁」的那个元素，和名字那个元素
+      const all = Array.from(body.querySelectorAll("span")) as HTMLElement[];
+      const age = all.find((e) => /^\d+岁/.test((e.textContent || "").trim()));
+      const name = all.find(
+        (e) => getComputedStyle(e).textOverflow === "ellipsis" && e.textContent?.trim()
+      );
+      const top = (e?: HTMLElement) => (e ? +e.getBoundingClientRect().top.toFixed(1) : null);
+      return {
+        rowCount: rows.length,
+        ageText: age?.textContent?.trim() ?? null,
+        nameTop: top(name),
+        ageTop: top(age),
+      };
+    });
+
+    expect(shape.ageText, "卡片上找不到年龄").toMatch(/^\d+岁/);
+    expect(shape.rowCount, "卡片又变回三行了，一屏能看到的资源会变少").toBe(2);
+    // 同一行 —— 不比像素高度（字体在别的平台会不一样），比两段文字的上边缘是不是齐的
+    expect(
+      Math.abs((shape.nameTop ?? 0) - (shape.ageTop ?? 999)),
+      `名字和年龄不在同一行（名字 top=${shape.nameTop}、年龄 top=${shape.ageTop}）`
+    ).toBeLessThanOrEqual(3);
+  });
+});
+
 test.describe("推荐分配", () => {
   test("只看**这一单之前**那一次去的区域", async ({ page }) => {
     await gotoOverview(page, `?assign=${MAIN}`);
