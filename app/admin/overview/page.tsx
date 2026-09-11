@@ -2412,8 +2412,17 @@ function ResourceGroup({
                         flexShrink: 0,
                       }}
                     >
-                      {calcAge(s.holder_date_of_birth) ?? "?"}岁
-                      {s.holder_date_of_birth ? ` · ${s.holder_date_of_birth}` : ""}
+                      {/* 只写生日，不写年龄。**两个都写是同一份信息写两遍** ——
+                          看见 1999-04-16 就知道二十几岁，多出来的「27岁 · 」
+                          在一行里只是噪音。（同一条原则：能算出来的别再存一份、
+                          也别再显示一份。）
+                          分配的时候仍然看得到年龄：左边候选列表的提示和色块的
+                          悬停提示里都有，那两处地方够、而且正是要判断年龄的时刻。
+                          生日没填要说出来 —— 年龄是分配的硬条件（登记了使用人的资源，
+                          核验时要人证相符），空着不是「没关系」，是「这个资源判断不了」 */}
+                      {s.holder_date_of_birth || (
+                        <span style={{ color: "var(--text-faint)" }}>生日没填</span>
+                      )}
                     </span>
                   </span>
                   {/* 右上角原来显示类型（"alpha"）。现在**库里所有资源都是 alpha**

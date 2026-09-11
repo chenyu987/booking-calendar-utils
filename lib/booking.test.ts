@@ -10,7 +10,7 @@ describe("toBookingRuns", () => {
       TODAY
     );
     expect(runs).toHaveLength(1);
-    expect(runs[0].label).toBe("9/12~9/13");
+    expect(runs[0].label).toBe("9/12-13");
     expect(runs[0].location).toBe("locbn");
   });
 
@@ -19,7 +19,7 @@ describe("toBookingRuns", () => {
       [{ days: ["2026-09-24", "2026-09-25", "2026-09-27"], location: "locbl" }],
       TODAY
     );
-    expect(runs.map((r) => r.label)).toEqual(["9/24~9/25", "9/27"]);
+    expect(runs.map((r) => r.label)).toEqual(["9/24-25", "9/27"]);
     expect(runs.every((r) => r.location === "locbl")).toBe(true);
   });
 

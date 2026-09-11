@@ -38,13 +38,28 @@ export function contiguousRuns(days: string[]): string[][] {
   return runs;
 }
 
-// 把一堆日期压成「9/10~9/12、9/15」这种紧凑写法
+/**
+ * 把一堆日期压成「9/10-12、9/15」这种紧凑写法。
+ *
+ * **同一个月只写一次月份**：9/9-10，不写 9/9~9/10。这些区间要挤在很窄的地方
+ * （资源清单那行「已排 …」、订单列表），省下的两三个字符换的是多看一段踪迹。
+ * 跨月了才把月份写全（11/30-12/2）—— 那时候月份是真信息，省不得。
+ *
+ * 分隔符用「-」不用「~」：窄处「~」在小字号下跟「-」不好分，而且「-」更短。
+ */
 export function formatDayRanges(days: string[]): string {
   return contiguousRuns(days)
     .map((run) => {
       const first = shortLabel(run[0]).date;
       if (run.length === 1) return first;
-      return `${first}~${shortLabel(run[run.length - 1]).date}`;
+      const last = run[run.length - 1];
+      // 同月：只写后面那个「日」。比月份字符串更可靠的判断是直接比 ISO 的年月，
+      // 免得 9/9 和 9/9（去年的）被当成同一个月
+      const sameMonth = run[0].slice(0, 7) === last.slice(0, 7);
+      const lastLabel = shortLabel(last);
+      return sameMonth
+        ? `${first}-${lastLabel.date.split("/")[1]}`
+        : `${first}-${lastLabel.date}`;
     })
     .join("、");
 }
