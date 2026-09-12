@@ -2547,7 +2547,6 @@ function ResourceGroup({
                       <span style={{ color: "var(--text-faint)" }}>未排期</span>
                     ) : (
                       <>
-                        <span style={{ color: "var(--text-faint)" }}>已排 </span>
                         {runs.map((r, i) => (
                           <span
                             key={`${r.start}-${r.location ?? ""}-${i}`}
