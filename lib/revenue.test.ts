@@ -79,9 +79,13 @@ describe("orderStartDay", () => {
 });
 
 describe("countsTowardRevenue", () => {
-  it("取消和退款不算钱", () => {
+  it("取消和未确认不算钱", () => {
     expect(countsTowardRevenue("cancelled")).toBe(false);
-    expect(countsTowardRevenue("refunded")).toBe(false);
+    expect(countsTowardRevenue("unconfirmed")).toBe(false);
+  });
+
+  it("需退款照常算钱：钱还在我们手上，只是欠着一笔要退", () => {
+    expect(countsTowardRevenue("needRefund")).toBe(true);
   });
 
   it("其它状态都算", () => {
@@ -99,25 +103,42 @@ describe("countInRange / sumInRange", () => {
     { demand_days: ["2026-08-20"], amount: 300, status: "complete" }, // 上个月
     { demand_days: ["2026-09-14"], amount: 999, status: "created" }, // 下周，不算
     { demand_days: ["2026-09-09"], amount: 777, status: "cancelled" }, // 本周但已取消
+    { demand_days: ["2026-09-10"], amount: 888, status: "unconfirmed" }, // 本周但未确认
+    { demand_days: ["2026-09-11"], amount: 60, status: "needRefund" }, // 本周，需退款照样算
   ];
 
   it("本周：只数本周一到周日开始的单子", () => {
-    expect(countInRange(orders, "2026-09-07", "2026-09-13")).toBe(2);
-    expect(sumInRange(orders, "2026-09-07", "2026-09-13")).toBe(150);
+    expect(countInRange(orders, "2026-09-07", "2026-09-13")).toBe(3);
+    expect(sumInRange(orders, "2026-09-07", "2026-09-13")).toBe(210);
+  });
+
+  it("未确认的单：金额和单数一起排除，两个数字口径一致", () => {
+    const withUnconfirmed = [
+      { demand_days: ["2026-09-08"], amount: 100, status: "complete" },
+      { demand_days: ["2026-09-09"], amount: 888, status: "unconfirmed" },
+    ];
+    expect(countInRange(withUnconfirmed, "2026-09-07", "2026-09-13")).toBe(1);
+    expect(sumInRange(withUnconfirmed, "2026-09-07", "2026-09-13")).toBe(100);
   });
 
   it("本月：从 1 号到本周日", () => {
-    expect(sumInRange(orders, "2026-09-01", "2026-09-13")).toBe(350);
+    expect(sumInRange(orders, "2026-09-01", "2026-09-13")).toBe(410);
   });
 
   it("本季：不设起点，到本周日为止全算", () => {
-    expect(sumInRange(orders, null, "2026-09-13")).toBe(650);
+    expect(sumInRange(orders, null, "2026-09-13")).toBe(710);
   });
 
   it("本周日之后的单子一律不算，哪怕是本月的", () => {
-    // 999 那一单在 9/14，三个口径都不该出现
-    expect(sumInRange(orders, null, "2026-09-13")).not.toContain(999);
-    expect(sumInRange(orders, "2026-09-01", "2026-09-13")).toBe(350);
+    // 999 那一单在 9/14。原来这里写的是 `.not.toContain(999)` —— sumInRange
+    // 返回的是个数字不是数组，这条断言永远成立，把 999 算进去它也绿。
+    // 改成「把它挪进本周，总数正好多 999」，这才真的在盯这件事。
+    const moved = orders.map((o) =>
+      o.amount === 999 ? { ...o, demand_days: ["2026-09-12"] } : o
+    );
+    expect(sumInRange(orders, null, "2026-09-13")).toBe(710);
+    expect(sumInRange(moved, null, "2026-09-13")).toBe(710 + 999);
+    expect(sumInRange(orders, "2026-09-01", "2026-09-13")).toBe(410);
   });
 
   it("跨周的单子整单算在开始那一周，不拆", () => {

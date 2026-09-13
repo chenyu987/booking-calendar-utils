@@ -6,17 +6,21 @@
 //
 // 所以批量设置只放开下游那几个「人工流程」状态。要是允许批量设成 itemAssigned，
 // 就会出现：一次把 10 单标成「已分配」，其中几单其实没配齐，过两天有人撤了个资源，
-// 那几单又自己变回「待匹配」——数据看着改了，实际会自己变回去，最难查的那类 bug。
+// 那几单又自己变回「待处理」——数据看着改了，实际会自己变回去，最难查的那类 bug。
 //
 // 这几个状态要单个改，还是走色块里的下拉框（那里是单个单子，看得见分配进度）。
 export const DERIVED_STATUSES = ["created", "itemAssigned"] as const;
 
+// 顺序跟 STATUS_LABELS 保持一致，下拉框里读起来是同一条流程线。
+// unconfirmed 和 needRefund 都是纯人工状态（syncedAssignmentStatus 只碰
+// created/itemAssigned，不会把它们冲掉），所以可以批量设。
 export const BULK_SETTABLE_STATUSES = [
   "pendingPickUp",
   "pendingPayment",
   "complete",
+  "unconfirmed",
   "cancelled",
-  "refunded",
+  "needRefund",
 ] as const;
 
 export function canBulkSet(status: string): boolean {
@@ -27,7 +31,7 @@ export function canBulkSet(status: string): boolean {
 export function bulkSetRejection(status: string): string | null {
   if (canBulkSet(status)) return null;
   if ((DERIVED_STATUSES as readonly string[]).includes(status)) {
-    return "「待匹配」和「已分配」是按分配进度自动算的，不能批量设置——请在单个订单里改";
+    return "「待处理」和「已分配」是按分配进度自动算的，不能批量设置——请在单个订单里改";
   }
   return "未知状态";
 }

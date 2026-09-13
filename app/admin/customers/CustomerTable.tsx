@@ -246,7 +246,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
                       {shown.map((s, i) => (
                         <span
                           key={`${s.start}-${i}`}
-                          title={s.inactive ? "已取消或已退款" : undefined}
+                          title={s.inactive ? "已取消或未确认" : undefined}
                           style={{
                             padding: "1px 6px",
                             borderRadius: 3,

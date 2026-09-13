@@ -46,8 +46,8 @@ describe("orderSegments", () => {
     expect(segs[0].label).toBe("3/5");
   });
 
-  it("取消和退款的单标成 inactive，但不丢掉", () => {
-    for (const status of ["cancelled", "refunded"]) {
+  it("取消和未确认的单标成 inactive，但不丢掉", () => {
+    for (const status of ["cancelled", "unconfirmed"]) {
       const segs = orderSegments({
         customer_id: "r1",
         demand_days: ["2026-01-18"],

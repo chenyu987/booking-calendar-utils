@@ -72,9 +72,11 @@ create table orders (
   party_size int generated always as (male_count + female_count) stored,
   amount numeric(10, 2),
   status text not null default 'created'
+    -- unconfirmed（未确认）/ needRefund（需退款）是人工状态，见 0011。
+    -- created 仍然是唯一的起点，所以默认值不动。
     check (status in (
       'created', 'itemAssigned', 'pendingPickUp', 'pendingPayment',
-      'complete', 'cancelled', 'refunded'
+      'complete', 'unconfirmed', 'cancelled', 'needRefund'
     )),
   created_at timestamptz not null default now()
 );

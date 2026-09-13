@@ -4,9 +4,10 @@
 // 存一份「足迹」到 customers 上，改单的时候必然忘同步（这项目栽过四次的那个坑）。
 import { contiguousRuns, shortLabel } from "./dates";
 
-// 取消/退款的单子照样算进足迹：「这人退过一单」本身是有用信息，
+// 取消/未确认的单子照样算进足迹：「这人黄过一单」本身是有用信息，
 // 只是界面上灰掉，跟正常单区分开。
-const INACTIVE_STATUSES = new Set(["cancelled", "refunded"]);
+// needRefund 不在这里 —— 人是真用了，只是欠一笔退款，属于正常足迹。
+const INACTIVE_STATUSES = new Set(["cancelled", "unconfirmed"]);
 
 export type FootprintOrder = {
   customer_id: string;
@@ -20,7 +21,7 @@ export type FootprintSegment = {
   label: string;
   // 排序用的 ISO 起始日
   start: string;
-  // cancelled / refunded，界面上灰掉
+  // cancelled / unconfirmed，界面上灰掉
   inactive: boolean;
 };
 

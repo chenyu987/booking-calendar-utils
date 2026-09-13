@@ -14,7 +14,12 @@ describe("canBulkSet", () => {
     expect(canBulkSet("pendingPayment")).toBe(true);
     expect(canBulkSet("complete")).toBe(true);
     expect(canBulkSet("cancelled")).toBe(true);
-    expect(canBulkSet("refunded")).toBe(true);
+    expect(canBulkSet("unconfirmed")).toBe(true);
+    expect(canBulkSet("needRefund")).toBe(true);
+  });
+
+  it("删掉的 refunded 不再是合法状态", () => {
+    expect(canBulkSet("refunded")).toBe(false);
   });
 
   it("created / itemAssigned 是分配算出来的，不给批量设", () => {

@@ -53,7 +53,7 @@ import {
   countsTowardRevenue,
   orderStartDay,
 } from "@/lib/revenue";
-import { statusColor, STATUS_LABELS } from "@/lib/orderStatus";
+import { statusColor, statusOptions, STATUS_LABELS } from "@/lib/orderStatus";
 import {
   computeNeed,
   formatNeed,
@@ -304,6 +304,21 @@ async function deleteOrder(formData: FormData) {
   // 白等一个来回。跳转交给客户端，它点完就能立刻退出分配模式。
 }
 
+// 顶上那三个订单筛选（区域 / 地点 / 状态）共用一套尺寸 —— 宽度写死，
+// 不让下拉框跟着最长选项撑开。同一个宽度只许有这一份（CLAUDE.md：
+// 「第二份数字和第二份样式是同一个 bug」）。
+// 110px 是量出来的：最长的那条默认值「RegionE」在 12px 下约 70px，
+// 加箭头和内边距还剩十几 px 余量 —— 留够余量，不是「刚好够」。
+const FILTER_SELECT_WIDTH = 110;
+const filterSelectStyle: React.CSSProperties = {
+  ...selectStyle,
+  fontSize: 12,
+  padding: "2px 4px",
+  width: FILTER_SELECT_WIDTH,
+  // 选项比框长的时候（地点的全称）截断，别把框顶开
+  textOverflow: "ellipsis",
+};
+
 export default async function OverviewPage({
   searchParams,
 }: {
@@ -316,6 +331,7 @@ export default async function OverviewPage({
     allcards?: string;
     region?: string;
     mtn?: string;
+    ostatus?: string;
     sregion?: string;
     smtn?: string;
     ssort?: string;
@@ -491,12 +507,21 @@ export default async function OverviewPage({
   // **只筛日历和统计，不筛资源面板那边的排期历史** —— 一个资源去过哪几个地点是它
   // 自己的事实，不该因为当前在看 RegionB 就少掉几段。bookedDays / assignHistory
   // 都是上面用全部订单算好的，这里不动它们。
+  //
+  // 状态筛选（ostatus）走的是同一条路：**日历和统计一起筛**。顶上那几个数字
+  // 跟着筛选走是有意的 —— 「只看已完成的单」就该看到这批单的钱，
+  // 不然筛完之后数字和下面的色块对不上，更难解释。
+  // 不在白名单里的值一律当没筛（URL 是人能随便改的）。
   const orderFilter = {
     region: (searchParams.region ?? "") as Region | "",
     mtn: searchParams.mtn ?? "",
+    status: STATUS_LABELS[searchParams.ostatus ?? ""] ? searchParams.ostatus! : "",
   };
-  const hasOrderFilter = Boolean(orderFilter.region || orderFilter.mtn);
+  const hasOrderFilter = Boolean(
+    orderFilter.region || orderFilter.mtn || orderFilter.status
+  );
   const matchesOrderFilter = (o: any) => {
+    if (orderFilter.status && o.status !== orderFilter.status) return false;
     if (orderFilter.mtn) return sameVenue(o.location, orderFilter.mtn);
     if (orderFilter.region) {
       return normalizeLocation(o.location)?.region === orderFilter.region;
@@ -740,6 +765,7 @@ export default async function OverviewPage({
     if (searchParams.allcards) p.set("allcards", searchParams.allcards);
     if (searchParams.region) p.set("region", searchParams.region);
     if (searchParams.mtn) p.set("mtn", searchParams.mtn);
+    if (searchParams.ostatus) p.set("ostatus", searchParams.ostatus);
     for (const [k, v] of Object.entries(extra)) {
       if (v) p.set(k, v);
       else p.delete(k);
@@ -950,7 +976,7 @@ export default async function OverviewPage({
             key={`region-${orderFilter.region}`}
             name="region"
             defaultValue={orderFilter.region}
-            style={{ ...selectStyle, fontSize: 12, padding: "2px 4px" }}
+            style={filterSelectStyle}
           >
             <option value="">全部区域</option>
             {(Object.keys(REGION_LABELS) as Region[]).map((r) => (
@@ -959,23 +985,47 @@ export default async function OverviewPage({
               </option>
             ))}
           </select>
+          {/* 地点这个下拉原来是**跟着最长的那条选项撑开**的（"全部地点" 才 4 个字，
+              框却有 200 多 px），一个人看过去还以为是搜索框。三个筛选共用
+              filterSelectStyle 的固定宽度，一条线上对齐。
+              选项文字也从 `canonical · label` 收成只留 label —— 两者九成情况下
+              就是同一个词（locbl · Locbl），显示两遍纯粹是把框撑长。 */}
           <select
             key={`mtn-${orderFilter.mtn}`}
             name="mtn"
             defaultValue={orderFilter.mtn}
-            style={{ ...selectStyle, fontSize: 12, padding: "2px 4px" }}
+            style={filterSelectStyle}
           >
             <option value="">全部地点</option>
             {LOCATION_OPTIONS.filter(
               (m) => !orderFilter.region || m.region === orderFilter.region
             ).map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.value} · {m.label}
+              <option key={m.value} value={m.value} title={m.hint}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          {/* 按订单状态筛。下面那排色块只是图例（看颜色对应哪个状态），
+              真要「只看待付款的单」得有个地方选 —— 就是这里。
+              选项顺序直接吃 STATUS_LABELS，跟图例、跟色块里的下拉框同一个源。 */}
+          <select
+            key={`ostatus-${orderFilter.status}`}
+            name="ostatus"
+            defaultValue={orderFilter.status}
+            style={filterSelectStyle}
+          >
+            <option value="">全部状态</option>
+            {Object.entries(STATUS_LABELS).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
               </option>
             ))}
           </select>
           {hasOrderFilter && (
-            <Link href={qs({ region: "", mtn: "" })} style={{ fontSize: 12, color: "var(--text-faint)" }}>
+            <Link
+              href={qs({ region: "", mtn: "", ostatus: "" })}
+              style={{ fontSize: 12, color: "var(--text-faint)" }}
+            >
               清除
             </Link>
           )}
@@ -1600,9 +1650,11 @@ export default async function OverviewPage({
                                     minWidth: 24,
                                   }}
                                 >
-                                  {Object.entries(STATUS_LABELS).map(([key, label]) => (
-                                    <option key={key} value={key}>
-                                      {label}
+                                  {/* 认不出来的状态要补一条 option，不然点一下别处
+                                      就会被悄悄改写 —— 原因写在 statusOptions 里 */}
+                                  {statusOptions(o.status).map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                      {opt.label}
                                     </option>
                                   ))}
                                 </select>

@@ -45,15 +45,8 @@ const filterInputStyle = {
   fontSize: 12,
 };
 
-const ORDER_STATUSES = [
-  "created",
-  "itemAssigned",
-  "pendingPickUp",
-  "pendingPayment",
-  "complete",
-  "cancelled",
-  "refunded",
-];
+// 跟 STATUS_LABELS 同源同序，别在这儿再维护第二份状态清单
+const ORDER_STATUSES = Object.keys(STATUS_LABELS);
 
 async function createOrder(formData: FormData) {
   "use server";

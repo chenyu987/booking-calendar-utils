@@ -9,7 +9,7 @@
 // 2. **截止到本周日**：本周/本月/本季三个数字的结束点都是本周的周日，
 //    不是"今天"。这样月和季的数字里天然包含完整的本周，跟上面那个本周数字对得上。
 //
-// 取消和退款的单子一律不算钱（跟页面上原来那个"流水（不含取消/退款）"一致）。
+// 3. **哪些单子不算钱**：见下面的 NOT_REVENUE。
 
 export type RevenueOrder = {
   demand_days?: string[] | null;
@@ -17,7 +17,17 @@ export type RevenueOrder = {
   status?: string | null;
 };
 
-const NOT_REVENUE = new Set(["cancelled", "refunded"]);
+// 不算钱的状态。注意这个开关同时管**金额和单数** —— countInRange 和 sumInRange
+// 走的是同一个 pick()，所以「本周订单数」和三个流水金额口径永远一致，
+// 不会出现「显示 8 单，但钱只有 6 单的」。
+//
+// - cancelled：单子黄了，没有这笔钱。
+// - unconfirmed：手动打的模糊态（人还没说准做不做）。钱八字没一撇，
+//   算进流水会把还没谈成的钱当成已经到手的。
+//
+// needRefund（需退款）**照常算钱**：钱还在我们手上，只是欠着一笔要退。
+// 真退完了改成 cancelled，那时才从流水里掉出去。
+const NOT_REVENUE = new Set(["cancelled", "unconfirmed"]);
 
 export function countsTowardRevenue(status: string | null | undefined): boolean {
   return !NOT_REVENUE.has(status ?? "");
