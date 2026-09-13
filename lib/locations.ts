@@ -45,8 +45,8 @@ const VENUES: Venue[] = [
   { canonical: "locap", region: "regionD", label: "地点 16" },
   { canonical: "locaq", region: "regionD", label: "地点 17" },
   { canonical: "locar", region: "regionD", label: "地点 18" },
-  { canonical: "hunter", region: "regionD", label: "地点 19" },
 
+  { canonical: "hunter", region: "regionE", label: "地点 19" },
   { canonical: "liberty", region: "regionE", label: "地点 20" },
   { canonical: "locau", region: "regionE", label: "地点 21" },
   { canonical: "locav", region: "regionE", label: "地点 22" },
