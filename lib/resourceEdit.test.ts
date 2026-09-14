@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateResourceEdit, type ResourceEditInput } from "./resourceEdit";
+import { validateResourceEdit, deleteBlockReason, type ResourceEditInput } from "./resourceEdit";
 
 const base: ResourceEditInput = {
   itemType: "alpha",
@@ -114,5 +114,22 @@ describe("validateResourceEdit", () => {
 
   it("塞一个不存在的状态过来", () => {
     expect(validateResourceEdit({ ...base, status: "deleted" }, current, [])).toBe("status");
+  });
+});
+
+describe("deleteBlockReason", () => {
+  it("还没排出去的可以删 —— 删除是给「挂错了」用的", () => {
+    expect(deleteBlockReason([])).toBe(null);
+  });
+
+  it("已经排出去的删不了", () => {
+    // 不是怕丢数据（软删除没这个问题），是那几天客户拿的就是这个资源
+    expect(deleteBlockReason(["2026-09-10"])).toContain("删不了");
+  });
+
+  it("拦住的时候要告诉人该用哪条路", () => {
+    const r = deleteBlockReason(["2026-09-10"]) ?? "";
+    expect(r).toContain("暂停");
+    expect(r).toContain("已下架");
   });
 });

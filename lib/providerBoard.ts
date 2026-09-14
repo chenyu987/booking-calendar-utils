@@ -18,6 +18,32 @@ export const PROVIDER_COL_WIDTH = 56;
 export const PROVIDER_COL_GAP = 2;
 /** 窗口最多铺这么多天 —— 再长横着滚不完，也没人排那么远 */
 export const PROVIDER_MAX_DAYS = 120;
+
+/**
+ * 每行排几天。排不下的日子**换到下一行**，不是横着滚出去 —— 跟 admin 排期总览
+ * 一个道理（见 lib/bandDays.ts 开头那段）。
+ *
+ * 默认两周：56px 一列，14 天约 810px，笔记本一屏放得下。手机上调到 7，
+ * 桌面宽屏可以拉到 42。**这个数是「这台机器上我习惯怎么看」，所以存 cookie
+ * 不存库** —— 跟缩放、面板宽度同一类，换台机器重新调一次就是了。
+ */
+export const PROVIDER_BAND_DAYS_DEFAULT = 14;
+export const PROVIDER_BAND_DAYS_MIN = 7;
+export const PROVIDER_BAND_DAYS_MAX = 42;
+
+export function clampProviderBandDays(days: unknown): number {
+  // **类型先挡**：Number("") 和 Number(null) 都是 0，能过 isFinite，
+  // 然后被夹成最窄的 7 天悄悄存进去 —— 「没设过」会看着像「设成了最窄」。
+  // admin 那条设置路上栽过同一个坑，注释还在 app/admin/settings/route.ts 里。
+  const n =
+    typeof days === "number"
+      ? days
+      : typeof days === "string" && days.trim() !== ""
+        ? Number(days)
+        : NaN;
+  if (!Number.isFinite(n)) return PROVIDER_BAND_DAYS_DEFAULT;
+  return Math.min(PROVIDER_BAND_DAYS_MAX, Math.max(PROVIDER_BAND_DAYS_MIN, Math.floor(n)));
+}
 /** 今天往前留几天：最近排出去的活儿还看得见，有个上下文 */
 const LOOKBACK_DAYS = 3;
 
@@ -76,12 +102,21 @@ function shiftDay(iso: string, delta: number): string {
  *
  * 起点是「今天往前 3 天」和「最早要显示的那天」里靠后的那个 —— 往前留一点上下文，
  * 但不会因为库里有一张去年的排期就把日历拉出去半年。终点跟着最晚那天走，封顶 120 天。
+ *
+ * @param explicitStart 界面上指定了起始日就**原样用**，不再往前留那 3 天 ——
+ *   说从这天开始就从这天开始，不然「我明明填了 12/1 怎么显示 11/28」很莫名。
+ *   （跟 admin 的 resolveTimelineStart 同一条规矩。）
  */
-export function buildDayWindow(today: string, marks: string[]): string[] {
+export function buildDayWindow(
+  today: string,
+  marks: string[],
+  explicitStart?: string
+): string[] {
   const sorted = [...new Set(marks)].sort();
   if (sorted.length === 0) return [];
   const lookback = shiftDay(today, -LOOKBACK_DAYS);
-  const start = sorted[0] > lookback ? sorted[0] : lookback;
+  const auto = sorted[0] > lookback ? sorted[0] : lookback;
+  const start = explicitStart || auto;
   const last = sorted[sorted.length - 1];
   const days: string[] = [];
   for (let d = start; d <= last && days.length < PROVIDER_MAX_DAYS; d = shiftDay(d, 1)) {
@@ -115,6 +150,52 @@ export function packLanes<T extends { startIndex: number; length: number }>(
     laneEnd[i] = b.startIndex + b.length;
   }
   return lanes;
+}
+
+export type ProviderBand = {
+  days: string[];
+  rows: ProviderRow[];
+};
+
+/**
+ * 把整条时间轴切成每行 n 天。跨着接缝的块在上下两行各画一截 ——
+ * 渲染那边本来就是按段切的，这里只是再切一刀。
+ *
+ * **空掉的 lane 压掉，相对顺序不动。** 一开始想的是「lane 编号跨行保持不变」，
+ * 免得同一单在行与行之间上下跳；实际画出来才发现这条更糟 —— 某一行前面几条
+ * lane 全空的时候，块会悬在行底、上面空一大截，看着像渲染错了。
+ * 压掉之后块贴着行顶排，相对顺序还在（本来就在同一条 lane 上的仍然在同一条），
+ * 跨行的单最多往上挪一格，而上下两行本来就隔着老远，那点位移看不出来。
+ */
+export function splitBoardIntoBands(board: ProviderBoard, bandDays: number): ProviderBand[] {
+  const n = clampProviderBandDays(bandDays);
+  const bands: ProviderBand[] = [];
+
+  for (let from = 0; from < board.days.length; from += n) {
+    const to = Math.min(from + n, board.days.length);
+    const clip = (b: ProviderBlock): ProviderBlock | null => {
+      const start = Math.max(b.startIndex, from);
+      const end = Math.min(b.startIndex + b.length, to);
+      if (end <= start) return null;
+      return { ...b, startIndex: start - from, length: end - start };
+    };
+
+    bands.push({
+      days: board.days.slice(from, to),
+      rows: board.rows.map((row) => {
+        const lanes = row.lanes
+          .map((lane) => lane.map(clip).filter((b): b is ProviderBlock => b !== null))
+          .filter((lane) => lane.length > 0);
+        return {
+          resourceId: row.resourceId,
+          booked: row.booked.map(clip).filter((b): b is ProviderBlock => b !== null),
+          lanes,
+        };
+      }),
+    });
+  }
+
+  return bands;
 }
 
 type Resource = {
@@ -159,6 +240,23 @@ function runsToBlocks(
   return blocks;
 }
 
+/**
+ * 物主这边还看得见的需求：整单都在今天之前的扔掉 —— 他再也接不了了，
+ * 列出来只会占地方。（管理员那边照样看得见，补录历史单是他的活儿。）
+ *
+ * 日历和「还没挂资源时的那条预告」共用这一条，不然两处会给出不一样的单数，
+ * 挂完资源发现「刚才说有 12 单，怎么现在数不对」。
+ */
+export function actionableOrders<T extends { demand_days?: string[] | null }>(
+  orders: T[],
+  today: string
+): T[] {
+  return orders.filter((o) => {
+    const days = o.demand_days ?? [];
+    return days.length > 0 && days.some((d) => d >= today);
+  });
+}
+
 export function buildProviderBoard(input: {
   today: string;
   resources: Resource[];
@@ -169,19 +267,15 @@ export function buildProviderBoard(input: {
   bookedByResource: Map<string, string[]>;
   /** 已经提过意向的 `${orderId}:${resourceId}` */
   proposed: Set<string>;
+  /** 界面上指定的起始日，没指定就按默认算 */
+  start?: string;
 }): ProviderBoard {
   const { today, resources, orders, assignedByOrder, bookedByResource, proposed } = input;
 
   // 先算出每个资源能接哪些单 —— 用的是分配那一份校验（lib/assignable.ts），
   // 界面上列出来的和管理员真去配的时候放行的，必须是同一套判断，
   // 否则物主提了一堆管理员根本配不上的意向
-  //
-  // 整单都在今天之前的先扔掉：物主再也接不了了，列出来只会占地方。
-  // （管理员那边照样看得见 —— 补录历史单是他的活儿，不是物主的。）
-  const actionable = orders.filter((o) => {
-    const days = o.demand_days ?? [];
-    return days.length > 0 && days.some((d) => d >= today);
-  });
+  const actionable = actionableOrders(orders, today);
 
   const fits = new Map<string, Order[]>();
   for (const s of resources) {
@@ -205,7 +299,7 @@ export function buildProviderBoard(input: {
     ...resources.flatMap((s) => bookedByResource.get(s.id) ?? []),
     ...resources.flatMap((s) => (fits.get(s.id) ?? []).flatMap((o) => o.demand_days ?? [])),
   ];
-  const days = buildDayWindow(today, marks);
+  const days = buildDayWindow(today, marks, input.start);
   const indexOf = new Map(days.map((d, i) => [d, i]));
 
   const rows: ProviderRow[] = resources.map((s) => {

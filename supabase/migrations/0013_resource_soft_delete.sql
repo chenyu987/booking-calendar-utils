@@ -1,0 +1,12 @@
+-- 资源改成软删除：物主点「删除」只是打个时间戳，行还在库里。
+--
+-- 为什么不真删：`order_assignments.resource_id` 和 `matches.resource_id` 的外键都是
+-- `on delete cascade`，真删会把分配记录一起悄悄带走，而订单还挂着 `itemAssigned`
+-- （那个状态是配齐时推进的，没人会回来把它退回去）—— 就成了「这单显示配好了资源，
+-- 但卡不存在」。软删除之后这条路根本不存在，而且删错了还能捞回来。
+--
+-- 谁看得见：**物主那边当它不存在**（/provider 的查询都带 `is deleted_at null`）；
+-- admin 那边 `/admin/resources` 照常列出来并标「已删除」，排期总览和匹配台的
+-- 选资源器把它排除掉（那两处是干活的地方，删掉的资源只会碍事）。
+-- 分配校验（lib/assignable.ts）也拦着：物主都说删了，不该再配出去。
+alter table resources add column deleted_at timestamptz;

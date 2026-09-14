@@ -236,3 +236,22 @@ export const LOCATION_OPTIONS: {
   region: r.region,
   hint: `${r.label} · ${REGION_LABELS[r.region]}`,
 })).sort((a, b) => a.value.localeCompare(b.value));
+
+/**
+ * 按地点 / 区域筛一条订单。**唯一出处** —— 排期总览和物主那边用的是同一套判断。
+ *
+ * 两个都给的时候以**具体地点**为准：选了 locaa 又选了 regionB，他要的显然是 locaa。
+ * 两个都没给就全放过。
+ *
+ * 地点名认不出来的（库里没有、写错了）在选了筛选时会被筛掉 —— 这跟
+ * `itemConflictReason` 那条「判断不了就不拦」不冲突：那条管的是**拦不拦人干活**，
+ * 这条只是「你要看哪些」，看不到还能把筛选清掉。
+ */
+export function matchesLocationFilter(
+  location: string | null | undefined,
+  filter: { region?: string | null; mtn?: string | null }
+): boolean {
+  if (filter.mtn) return sameVenue(location, filter.mtn);
+  if (filter.region) return normalizeLocation(location)?.region === filter.region;
+  return true;
+}

@@ -57,7 +57,9 @@ async function addAssignment(orderId: string, resourceId: string) {
         .single(),
       supabase
         .from("resources")
-        .select("id, date_range_start, date_range_end, status, holder_name, holder_gender, item_type")
+        .select(
+          "id, date_range_start, date_range_end, status, deleted_at, holder_name, holder_gender, item_type"
+        )
         .eq("id", resourceId)
         .single(),
       supabase

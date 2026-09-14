@@ -57,6 +57,9 @@ create table resources (
   -- 过期与否拿 date_range_end 跟今天比，都不存字段，避免跟实际排期不同步。
   status text not null default 'active'
     check (status in ('active', 'paused', 'archived')),
+  -- 软删除：物主点「删除」只打时间戳，行留着。真删会顺着 cascade 把分配记录
+  -- 一起带走，而订单还挂着 itemAssigned。物主那边看不见，admin 那边照常列出来
+  deleted_at timestamptz,
   created_at timestamptz not null default now()
 );
 create index on resources (provider_id);

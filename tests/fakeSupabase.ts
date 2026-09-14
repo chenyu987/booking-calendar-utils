@@ -6,7 +6,7 @@
 // 配重了、日期盖不住、类型不对——这些全在服务端代码里，跟 Postgres 怎么存无关。
 //
 // 支持的链子就是 handler 里实际用到的那些，用到新的再往这儿加：
-//   from(t).select(cols).eq().neq().in() → 数组
+//   from(t).select(cols).eq().neq().in().is() → 数组
 //   ….single() / .maybeSingle()     → 单行
 //   from(t).insert(row)
 //   from(t).update(patch).eq()
@@ -27,7 +27,7 @@ const FK_COLUMN: Record<string, string> = {
   providers: "provider_id",
 };
 
-/** 一条筛选：eq / neq / in。存成谓词，加新的比较方式不用改调用处 */
+/** 一条筛选：eq / neq / in / is。存成谓词，加新的比较方式不用改调用处 */
 type Filter = (row: any) => boolean;
 
 function matches(row: any, filters: Filter[]) {
@@ -92,6 +92,12 @@ export function createFakeSupabase(seed: Tables = {}) {
         filters.push((row) => set.has(row[col]));
         return api;
       },
+      // PostgREST 的 .is(col, null) 是 IS NULL。假库里「这个字段没有」和「是 null」
+      // 是一回事（种子数据不会把每个可空列都写出来），所以用 == 不用 ===
+      is(col: string, val: any) {
+        filters.push((row) => (val === null ? row[col] == null : row[col] === val));
+        return api;
+      },
       order() {
         return api;
       },
@@ -133,6 +139,10 @@ export function createFakeSupabase(seed: Tables = {}) {
         const chain: any = {
           eq(col: string, val: any) {
             filters.push((row) => row[col] === val);
+            return chain;
+          },
+          is(col: string, val: any) {
+            filters.push((row) => (val === null ? row[col] == null : row[col] === val));
             return chain;
           },
           then: (res: any, rej: any) => Promise.resolve(run()).then(res, rej),

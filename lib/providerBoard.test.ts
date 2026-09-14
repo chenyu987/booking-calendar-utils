@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { buildDayWindow, packLanes, buildProviderBoard } from "./providerBoard";
+import {
+  buildDayWindow,
+  packLanes,
+  buildProviderBoard,
+  splitBoardIntoBands,
+  clampProviderBandDays,
+  PROVIDER_BAND_DAYS_DEFAULT,
+} from "./providerBoard";
 
 describe("packLanes", () => {
   it("不重叠的挤在同一条", () => {
@@ -283,5 +290,99 @@ describe("buildProviderBoard", () => {
     const text = `${block.label} ${block.title}`;
     expect(text).not.toContain("小王");
     expect(text).not.toContain("960");
+  });
+});
+
+describe("buildDayWindow 指定起始日", () => {
+  it("指定了就原样用，不再往前留那三天", () => {
+    const days = buildDayWindow("2026-09-14", ["2026-09-11", "2026-09-20"], "2026-09-16");
+    expect(days[0]).toBe("2026-09-16");
+    expect(days[days.length - 1]).toBe("2026-09-20");
+  });
+
+  it("指定的起点晚过所有日子 —— 一天都不铺，不是报错", () => {
+    expect(buildDayWindow("2026-09-14", ["2026-09-16"], "2026-10-01")).toEqual([]);
+  });
+});
+
+describe("clampProviderBandDays", () => {
+  it("超出上下限就夹住", () => {
+    expect(clampProviderBandDays(1)).toBe(7);
+    expect(clampProviderBandDays(999)).toBe(42);
+  });
+
+  it("不是数字就回默认 —— 别算出「一行 0 天」把渲染卡死", () => {
+    expect(clampProviderBandDays("")).toBe(PROVIDER_BAND_DAYS_DEFAULT);
+    expect(clampProviderBandDays(undefined)).toBe(PROVIDER_BAND_DAYS_DEFAULT);
+    expect(clampProviderBandDays(NaN)).toBe(PROVIDER_BAND_DAYS_DEFAULT);
+  });
+});
+
+describe("splitBoardIntoBands", () => {
+  const board = {
+    days: Array.from({ length: 20 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`),
+    candidates: [],
+    candidateOrderCount: 0,
+    rows: [
+      {
+        resourceId: "s1",
+        booked: [
+          { orderId: "", startIndex: 0, length: 2, label: "已排", title: "", proposed: false },
+        ],
+        lanes: [
+          // 跨接缝的一段：第 6 天起 5 天，7 天一行的话会被切成 1 天 + 4 天
+          [{ orderId: "o1", startIndex: 5, length: 5, label: "a", title: "", proposed: false }],
+          [{ orderId: "o2", startIndex: 15, length: 2, label: "b", title: "", proposed: false }],
+        ],
+      },
+    ],
+  };
+
+  it("按每行天数切段", () => {
+    const bands = splitBoardIntoBands(board as any, 7);
+    expect(bands).toHaveLength(3); // 7 + 7 + 6
+    expect(bands[0].days).toHaveLength(7);
+    expect(bands[2].days).toHaveLength(6);
+  });
+
+  it("跨接缝的块在上下两行各画一截，下标重新按本行算", () => {
+    const bands = splitBoardIntoBands(board as any, 7);
+    const first = bands[0].rows[0].lanes[0][0];
+    const second = bands[1].rows[0].lanes[0][0];
+    expect(first).toMatchObject({ startIndex: 5, length: 2 }); // 第 6、7 天
+    expect(second).toMatchObject({ startIndex: 0, length: 3 }); // 第 8、9、10 天
+  });
+
+  it("空掉的 lane 压掉 —— 块贴着行顶排，不悬在行底", () => {
+    const bands = splitBoardIntoBands(board as any, 7);
+    // o2 全局在第 2 条 lane 上，但第三行里第 1 条是空的，压掉之后它上到第 1 条
+    expect(bands[2].rows[0].lanes).toHaveLength(1);
+    expect(bands[2].rows[0].lanes[0][0].orderId).toBe("o2");
+    // 第一行只有 o1，也是一条
+    expect(bands[0].rows[0].lanes).toHaveLength(1);
+  });
+
+  it("压掉空 lane 不打乱相对顺序", () => {
+    const twoLanes = {
+      ...board,
+      rows: [
+        {
+          resourceId: "s1",
+          booked: [],
+          lanes: [
+            [{ orderId: "a", startIndex: 0, length: 3, label: "", title: "", proposed: false }],
+            [{ orderId: "b", startIndex: 1, length: 3, label: "", title: "", proposed: false }],
+          ],
+        },
+      ],
+    };
+    const bands = splitBoardIntoBands(twoLanes as any, 7);
+    expect(bands[0].rows[0].lanes.map((l) => l[0].orderId)).toEqual(["a", "b"]);
+  });
+
+  it("已排的段也跟着切", () => {
+    const bands = splitBoardIntoBands(board as any, 7);
+    expect(bands[0].rows[0].booked).toHaveLength(1);
+    expect(bands[1].rows[0].booked).toHaveLength(0);
   });
 });

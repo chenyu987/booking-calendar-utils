@@ -79,6 +79,17 @@ function seed(overrides: Tables = {}) {
         date_range_end: null,
       },
       {
+        id: "s-deleted",
+        holder_name: "物主删掉的",
+        holder_gender: "male",
+        item_type: "alpha",
+        status: "active",
+        date_range_start: "2026-06-01",
+        date_range_end: "2027-05-01",
+        // 软删除：行还在库里，但不该再配出去（迁移 0013）
+        deleted_at: "2026-09-14T00:00:00Z",
+      },
+      {
         id: "s-paused",
         holder_name: "下架资源",
         holder_gender: "male",
@@ -136,6 +147,13 @@ describe("分配：三条校验（服务端拦，不是界面拦）", () => {
     const r = await post({ order_id: "o1", resource_id: "s-paused" });
     expect(r.status).toBe(400);
     expect(r.json.error).toContain("不在出租中");
+    expect(assignments()).toHaveLength(0);
+  });
+
+  it("物主删掉的资源配不上 —— 挂牌状态还是 active 也不行", async () => {
+    const r = await post({ order_id: "o1", resource_id: "s-deleted" });
+    expect(r.status).toBe(400);
+    expect(r.json.error).toContain("删掉了");
     expect(assignments()).toHaveLength(0);
   });
 

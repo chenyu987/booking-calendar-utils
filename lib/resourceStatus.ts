@@ -24,6 +24,16 @@ export const RESOURCE_STATUS_LABELS: Record<string, string> = {
  */
 export const VALIDITY_OPEN_LABEL = "不限";
 
+/**
+ * 物主把这个资源「删了」。**软删除** —— 行还在库里（迁移 `0013`）。
+ *
+ * 谁看得见：物主那边当它不存在；admin 的 `/admin/resources` 照常列出来并标「已删除」，
+ * 排期总览和匹配台的选资源器排除掉（那两处是干活的地方）。分配校验也拦着。
+ */
+export function isDeleted(resource: any): boolean {
+  return Boolean(resource?.deleted_at);
+}
+
 // 过期与否拿有效期跟今天比，不存字段。结束日留空的资源永远不算过期 —— 没有上限。
 export function isExpired(resource: any): boolean {
   return Boolean(resource.date_range_end) && resource.date_range_end < todayIso();
@@ -55,6 +65,8 @@ export function coversOrder(resource: any, demandDays: string[]): boolean {
 
 // 卡片上那个小标签：优先显示挂牌状态，其次显示是不是过期了
 export function statusBadge(resource: any): { text: string; color: string } {
+  // 删掉的排最前面：它压过其它一切状态
+  if (isDeleted(resource)) return { text: "已删除", color: "var(--danger)" };
   if (resource.status === "archived") return { text: "已下架", color: "var(--text-faint)" };
   if (resource.status === "paused") return { text: "暂停", color: "var(--warn)" };
   if (isExpired(resource)) return { text: "已过期", color: "var(--text-faint)" };

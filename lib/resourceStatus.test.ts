@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   coversOrder,
   formatValidity,
+  isDeleted,
   isExpired,
   statusBadge,
   abnormalBadge,
@@ -87,7 +88,25 @@ describe("isExpired", () => {
   });
 });
 
+describe("isDeleted", () => {
+  it("打了时间戳就是删了", () => {
+    expect(isDeleted({ deleted_at: "2026-09-14T00:00:00Z" })).toBe(true);
+  });
+
+  it("没打就没删", () => {
+    expect(isDeleted({ deleted_at: null })).toBe(false);
+    expect(isDeleted({})).toBe(false);
+  });
+});
+
 describe("statusBadge / abnormalBadge", () => {
+  it("删掉的压过一切状态 —— 一张暂停的、过期的资源被删了，先说它删了", () => {
+    expect(
+      statusBadge({ status: "paused", date_range_end: "2000-01-01", deleted_at: "2026-09-14T00:00:00Z" })
+        .text
+    ).toBe("已删除");
+  });
+
   it("挂牌已下架时显示已下架", () => {
     expect(statusBadge({ status: "archived" }).text).toBe("已下架");
   });

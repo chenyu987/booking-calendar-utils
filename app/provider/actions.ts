@@ -6,8 +6,12 @@ import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
 import { claimProvider } from "@/lib/accountClaim";
 import { assignBlockReason } from "@/lib/assignable";
-import { validateResourceEdit } from "@/lib/resourceEdit";
-import { bookedDaysFor } from "./data";
+import { validateResourceEdit, deleteBlockReason } from "@/lib/resourceEdit";
+import { cookies } from "next/headers";
+
+import { bookedDaysFor, VIEW_COOKIES } from "./data";
+import { clampProviderBandDays } from "@/lib/providerBoard";
+import { isIsoDate } from "@/lib/timelineStart";
 
 // 物主主页上的三个写入口。放一块儿是因为它们共用同一套身份校验：
 // **认 provider_id，不是只认 id** —— 只按 id 更新的话，换个 id 就能改别人的东西。
@@ -32,6 +36,8 @@ export async function saveResource(formData: FormData) {
     .select("id, holder_gender")
     .eq("id", id)
     .eq("provider_id", providerId)
+    // 删掉的资源物主那边就当它不存在，别让它还能被改
+    .is("deleted_at", null)
     .maybeSingle();
   if (!current) redirect("/provider");
 
@@ -69,6 +75,42 @@ export async function saveResource(formData: FormData) {
   redirect("/provider?saved=1");
 }
 
+// 删掉一个资源。**软删除** —— 只打一个 deleted_at 时间戳，行留在库里（迁移 0013）。
+// 物主那边从此看不见它，admin 那边照常列得出来，删错了能捞回来。
+//
+// 界面上先走一步确认（?delete=1）：对物主来说这就是「删掉了」，不该手滑就没。
+//
+// 服务端这道拦截不能省：界面上已经排出去的资源根本不给显示删除入口，但那挡不住 curl。
+export async function deleteResource(formData: FormData) {
+  const providerId = await requireProvider();
+  const id = formData.get("id") as string;
+
+  // 认 provider_id，不是只认 id —— 否则换个 id 就能删别人的资源
+  const { data: mine } = await supabase
+    .from("resources")
+    .select("id")
+    .eq("id", id)
+    .eq("provider_id", providerId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!mine) redirect("/provider?error=notmine");
+
+  const booked = (await bookedDaysFor([id])).get(id) ?? [];
+  if (deleteBlockReason(booked)) redirect(`/provider?edit=${id}&error=hasBookings`);
+
+  const { error } = await supabase
+    .from("resources")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("provider_id", providerId);
+  if (error) redirect(`/provider?edit=${id}&error=save`);
+
+  revalidatePath("/provider");
+  revalidatePath("/admin/overview");
+  revalidatePath("/admin/resources");
+  redirect("/provider?deleted=1");
+}
+
 // 联系方式。**聊天必填** —— 配到客户之后全靠聊天找人，没有聊天这个资源就等于挂不出去。
 export async function saveContact(formData: FormData) {
   const providerId = await requireProvider();
@@ -102,15 +144,19 @@ export async function proposeMatch(formData: FormData) {
 
   const orderId = (formData.get("order_id") as string) ?? "";
   const resourceId = (formData.get("resource_id") as string) ?? "";
-  // 提完回到原来看的那个资源上，别把人的筛选踢掉
+  // 提完回到原来看的那个资源、原来那个视图上，别把人的筛选和视图踢掉
   const card = text(formData, "card");
-  const back = card ? `&card=${card}` : "";
+  const view = text(formData, "view");
+  const back = `${card ? `&card=${card}` : ""}${view === "list" ? "&view=list" : ""}`;
 
   const { data: sup } = await supabase
     .from("resources")
-    .select("id, status, holder_name, holder_gender, item_type, date_range_start, date_range_end")
+    .select(
+      "id, status, deleted_at, holder_name, holder_gender, item_type, date_range_start, date_range_end"
+    )
     .eq("id", resourceId)
     .eq("provider_id", providerId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (!sup) redirect(`/provider?error=notmine${back}`);
 
@@ -154,4 +200,27 @@ export async function proposeMatch(formData: FormData) {
   revalidatePath("/admin/matches");
   revalidatePath("/provider");
   redirect(`/provider?proposed=1${back}`);
+}
+
+// 日历怎么看：每行几天、从哪天开始。存 cookie（见 data.ts 里那段为什么不存库）。
+//
+// 一年的有效期：这是个偏好不是会话状态，下次进来还该是他调好的样子。
+export async function saveViewSettings(formData: FormData) {
+  const jar = cookies();
+  const opts = { path: "/", maxAge: 31536000 } as const;
+
+  jar.set(VIEW_COOKIES.bandDays, String(clampProviderBandDays(text(formData, "band_days"))), opts);
+
+  // 留空 = 回到默认起点。填了但不是真实存在的日子，也当没填 ——
+  // 与其让日历从一个说不清的地方开始，不如回默认
+  const start = text(formData, "start");
+  if (isIsoDate(start)) jar.set(VIEW_COOKIES.start, start, opts);
+  else jar.set(VIEW_COOKIES.start, "", { path: "/", maxAge: 0 });
+
+  const card = text(formData, "card");
+  const view = text(formData, "view");
+  const q = new URLSearchParams();
+  if (card) q.set("card", card);
+  if (view === "list") q.set("view", view);
+  redirect(q.toString() ? `/provider?${q}` : "/provider");
 }

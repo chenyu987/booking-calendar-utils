@@ -64,8 +64,8 @@ import {
   REGION_LABELS,
   isUnknownLocation,
   locationHintFor,
+  matchesLocationFilter,
   normalizeLocation,
-  sameVenue,
   type Region,
 } from "@/lib/locations";
 import LocationInput from "@/components/LocationInput";
@@ -360,6 +360,9 @@ export default async function OverviewPage({
         // provider_id 是推荐要用的：同一单的两个资源如果同一个物主，取还跑一趟就够
         "id, provider_id, holder_name, holder_gender, holder_date_of_birth, item_type, date_range_start, date_range_end, status"
       )
+      // 物主删掉的资源不在这儿列 —— 这一页是干活的地方，配也配不上（lib/assignable.ts
+      // 拦着）。库里还在，要看去 /admin/resources（迁移 0013）
+      .is("deleted_at", null)
       .order("date_range_start", { ascending: true }),
     supabase.from("order_assignments").select("order_id, resource_id"),
     // 建新单时用来在客户端直接把姓名换成 customer_id，省掉建单时的那次查询
@@ -523,11 +526,8 @@ export default async function OverviewPage({
   );
   const matchesOrderFilter = (o: any) => {
     if (orderFilter.status && o.status !== orderFilter.status) return false;
-    if (orderFilter.mtn) return sameVenue(o.location, orderFilter.mtn);
-    if (orderFilter.region) {
-      return normalizeLocation(o.location)?.region === orderFilter.region;
-    }
-    return true;
+    // 地点 / 区域那两条走 lib/locations.ts 那一份 —— 物主那边用的是同一个
+    return matchesLocationFilter(o.location, orderFilter);
   };
 
   const withDays = (orders ?? []).filter(

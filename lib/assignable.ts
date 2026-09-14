@@ -2,7 +2,7 @@ import {
   extraAssignmentReason,
   findConflictingDays,
 } from "./assignment";
-import { coversOrder, formatValidity, itemConflictReason } from "./resourceStatus";
+import { coversOrder, formatValidity, isDeleted, itemConflictReason } from "./resourceStatus";
 
 /**
  * 「这个资源能不能配进这一单」—— 分配的全部校验，**唯一出处**。
@@ -29,6 +29,7 @@ export function assignBlockReason(input: {
   resource: {
     id?: string;
     status?: string | null;
+    deleted_at?: string | null;
     holder_name?: string | null;
     holder_gender?: string | null;
     item_type?: string | null;
@@ -41,6 +42,8 @@ export function assignBlockReason(input: {
   const { order, resource, alreadyAssigned, resourceBookedDays } = input;
   const name = resource.holder_name ?? "这个资源";
 
+  // 物主都说删了，不该再配出去。排在状态前面：它压过一切
+  if (isDeleted(resource)) return `${name} 已经被物主删掉了`;
   if (resource.status !== "active") return "这个资源不在出租中";
 
   // 配多了 / 配重了。以前只靠界面藏按钮，拖拽分配一上来就把这个洞暴露了

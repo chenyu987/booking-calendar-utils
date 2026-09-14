@@ -7,7 +7,7 @@ import {
   formatValidity,
   isExpired,
 } from "@/lib/resourceStatus";
-import { saveResource } from "./actions";
+import { saveResource, deleteResource } from "./actions";
 
 // 「我的」里的资源那一段：每个资源一张小卡片，点编辑就地改。
 // 编辑态用 URL 参数切换，不用 useState —— 跟 admin 那几个列表页一个路子。
@@ -15,11 +15,17 @@ export default function ResourceList({
   resources,
   bookedDays,
   editing,
+  deleting,
+  openMatchCount,
   errorText,
 }: {
   resources: any[];
   bookedDays: Map<string, string[]>;
   editing?: string;
+  /** 正在确认删除 —— 走 ?edit=<id>&delete=1，跟编辑态一样是 URL 参数 */
+  deleting?: boolean;
+  /** 这个资源上还挂着几条没结的意向，删了会一起没 */
+  openMatchCount?: number;
   errorText: string | null;
 }) {
   if (resources.length === 0) {
@@ -35,7 +41,16 @@ export default function ResourceList({
       {resources.map((s: any) => {
         const booked = [...new Set(bookedDays.get(s.id) ?? [])].sort();
         if (editing === s.id) {
-          return <ResourceEditForm key={s.id} resource={s} booked={booked} errorText={errorText} />;
+          return (
+            <ResourceEditForm
+              key={s.id}
+              resource={s}
+              booked={booked}
+              deleting={Boolean(deleting)}
+              openMatchCount={openMatchCount ?? 0}
+              errorText={errorText}
+            />
+          );
         }
         return (
           <div key={s.id} style={cardStyle}>
@@ -82,10 +97,14 @@ export default function ResourceList({
 function ResourceEditForm({
   resource: s,
   booked,
+  deleting,
+  openMatchCount,
   errorText,
 }: {
   resource: any;
   booked: string[];
+  deleting: boolean;
+  openMatchCount: number;
   errorText: string | null;
 }) {
   const hasBooked = booked.length > 0;
@@ -205,10 +224,80 @@ function ResourceEditForm({
           </Link>
         </div>
       </form>
+
+      {/* 删除入口放在最下面、字很小 —— 它跟「保存」不是一个量级的动作。
+          **已经排出去的资源根本不给入口**，而且服务端也拦着（deleteBlockReason）。 */}
+      <div style={deleteAreaStyle}>
+        {hasBooked ? (
+          <p style={hintStyle}>
+            这个资源已经排出去了，删不了 —— 删掉会把分配记录一起带走，订单那边还显示
+            配好了资源。不想再出租的话，把上面的状态改成「暂停」或「已下架」就行，
+            已经排出去的那几天照常生效。
+          </p>
+        ) : deleting ? (
+          <div style={dangerBoxStyle}>
+            <p style={{ fontSize: 13, margin: 0, lineHeight: 1.7 }}>
+              删掉 <b>{s.holder_name || "这个资源"}</b>？删了你这边就看不到它了，
+              你自己没法再恢复 —— 挂错了要改回来得找我们。
+              {openMatchCount > 0 && (
+                <>
+                  {" "}
+                  你在这个资源上提过的 <b>{openMatchCount}</b> 条意向也会一起没。
+                </>
+              )}
+            </p>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
+              <form action={deleteResource}>
+                <input type="hidden" name="id" value={s.id} />
+                <button type="submit" style={dangerButtonStyle}>
+                  确认删除
+                </button>
+              </form>
+              <Link href={`/provider?edit=${s.id}`} style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                取消
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <>
+            <Link href={`/provider?edit=${s.id}&delete=1`} style={deleteLinkStyle}>
+              删除这个资源
+            </Link>
+            <p style={{ ...hintStyle, marginTop: 4 }}>
+              挂错了才用它。只是暂时不租的话，把上面的状态改成「暂停」。
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
+const deleteAreaStyle: React.CSSProperties = {
+  marginTop: 14,
+  paddingTop: 10,
+  borderTop: "1px solid var(--border)",
+};
+const deleteLinkStyle: React.CSSProperties = {
+  fontSize: 13,
+  color: "var(--danger)",
+  textDecoration: "none",
+};
+const dangerBoxStyle: React.CSSProperties = {
+  border: "1px solid var(--danger-soft-border)",
+  background: "var(--danger-soft-bg)",
+  borderRadius: 6,
+  padding: "10px 12px",
+};
+const dangerButtonStyle: React.CSSProperties = {
+  padding: "7px 14px",
+  border: "none",
+  background: "var(--danger)",
+  color: "var(--on-solid)",
+  borderRadius: 4,
+  cursor: "pointer",
+  fontSize: 13,
+};
 const cardStyle: React.CSSProperties = {
   border: "1px solid var(--border)",
   borderRadius: 6,

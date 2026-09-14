@@ -7,11 +7,16 @@ import { formatDayRanges, todayIso } from "@/lib/dates";
 import { formatParty } from "@/lib/party";
 import { RESOURCE_EDIT_ERRORS } from "@/lib/resourceEdit";
 import { matchDisplay, isOpenMatch } from "@/lib/matchStatus";
-import { buildProviderBoard } from "@/lib/providerBoard";
-import { bookedDaysFor } from "./data";
-import { saveContact } from "./actions";
-import DemandCalendar, { ProposeConfirm } from "./DemandCalendar";
+import { actionableOrders, buildProviderBoard } from "@/lib/providerBoard";
+import { matchesLocationFilter } from "@/lib/locations";
+import { parseTheme, THEME_COOKIE } from "@/lib/theme";
+import { cookies } from "next/headers";
+
+import { bookedDaysFor, readViewSettings } from "./data";
+import DemandBoard, { ProposeConfirm, parseView } from "./DemandBoard";
 import ResourceList from "./ResourceList";
+import AccountMenu from "./AccountMenu";
+import Disclosure, { summaryCss } from "./Disclosure";
 
 export const dynamic = "force-dynamic";
 
@@ -19,14 +24,21 @@ const ERROR_TEXT: Record<string, string> = {
   ...RESOURCE_EDIT_ERRORS,
   save: "没存上，再试一次。",
   chat: "账号得填 —— 我们是通过聊天联系你的。",
+  hasBookings:
+    "这个资源已经排出去了，删不了 —— 删掉会把分配记录一起带走，订单那边还显示配好了资源。不想再出租的话改成「暂停」或「已下架」。",
   notmine: "那个资源不是你的。",
   dup: "这一单你已经提过意向了，等管理员确认就行。",
   blocked: "这一单现在接不了了 —— 可能刚被别人接走，或者日期改了。刷新看看。",
 };
 
 // 物主的**唯一落脚点**。原来是两页（这一页管资源，/provider/matches 管看需求），
-// 来回跳。现在合成一页：上面是日历（主要动作：找活儿、提意向），下面是「我的」
-// （提过的意向、我的资源、联系方式）。/provider/matches 重定向到这儿。
+// 来回跳。现在合成一页。
+//
+// **一页不等于什么都摊开。** 合完之后五个区块同等重量地摞着，主要动作（找活儿、
+// 提意向）被淹在里面。所以：日历是唯一铺开的东西，账号收进右上角的菜单，
+// 意向和资源收成折叠块 —— 但**每个折叠块的标题上都带着能回答问题的数字**
+// （「2 条在等」「1 张」）。收起来的前提是收起来之后照样看得见状态，
+// 否则折叠只是把东西藏起来逼人一个个点开，比摊着还烦。
 //
 // **刻意不显示客户是谁。** 物主看得到「9/10~9/12 已排」，但看不到姓名和联系方式 ——
 // 那是客户的隐私，也是平台作为中间人的价值。跟客户那边看不到持有人是谁对称。
@@ -37,8 +49,13 @@ export default async function ProviderHomePage({
     listed?: string;
     edit?: string;
     saved?: string;
+    deleted?: string;
+    delete?: string;
     error?: string;
     card?: string;
+    view?: string;
+    region?: string;
+    mtn?: string;
     propose?: string;
     proposed?: string;
   };
@@ -61,6 +78,8 @@ export default async function ProviderHomePage({
         "id, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, status"
       )
       .eq("provider_id", providerId)
+      // 物主把它删了就当它不存在。库里还在，admin 那边照常看得见（迁移 0013）
+      .is("deleted_at", null)
       .order("date_range_start", { ascending: true }),
   ]);
 
@@ -109,10 +128,22 @@ export default async function ProviderHomePage({
     : "";
   const boardResources = card ? activeResources.filter((s: any) => s.id === card) : activeResources;
 
+  const viewSettings = readViewSettings();
+  const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
+  const region = searchParams.region ?? "";
+  const mtn = searchParams.mtn ?? "";
+
+  // 地点 / 区域筛选只作用在**需求**上，不碰「已排」—— 那是这个资源自己的占用情况，
+  // 按地点筛掉的话，日历上会凭空空出几天，看着像资源空着其实是被占着的
+  const visibleOrders = (orders ?? []).filter((o: any) =>
+    matchesLocationFilter(o.location, { region, mtn })
+  );
+
   const board = buildProviderBoard({
     today: todayIso(),
     resources: boardResources,
-    orders: orders ?? [],
+    orders: visibleOrders,
+    start: viewSettings.start,
     assignedByOrder,
     bookedByResource,
     // 已经提过的用**全部**意向算，不跟着筛选走：换个资源看的时候不该又变回「可提」
@@ -123,6 +154,7 @@ export default async function ProviderHomePage({
     ),
   });
 
+  const view = parseView(searchParams.view);
   const editing = searchParams.edit;
   const errorText = searchParams.error ? ERROR_TEXT[searchParams.error] ?? "出了点问题，再试一次。" : null;
 
@@ -132,34 +164,107 @@ export default async function ProviderHomePage({
     ?.lanes.flat()
     .find((b) => b.orderId === pendingOrder);
 
+  const openMatches = (myMatches ?? []).filter((m: any) => isOpenMatch(m.status));
+  // 还没挂资源时预告用：还在找资源的单，按最早那天排。跟日历共用同一条「还接得了」的口径
+  const waiting = actionableOrders(orders ?? [], todayIso()).sort((a: any, b: any) => {
+    const x = (a.demand_days ?? []).slice().sort()[0] ?? "";
+    const y = (b.demand_days ?? []).slice().sort()[0] ?? "";
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
+  const editingResource = editing && editing !== "contact" ? editing : undefined;
+
   return (
     <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+      {/* **必须走 dangerouslySetInnerHTML**：<style> 的文本子节点会被 React 转义，
+          `>` 变 &gt;、`"` 变 &quot;，而 <style> 是 raw text 元素、浏览器不还原，
+          选择器就整个废了，还会带出 hydration 不匹配。CLAUDE.md 记着这条，
+          OptimisticAssign / BulkSelect 里也是这么写的 —— 我又踩了一遍 */}
+      <style dangerouslySetInnerHTML={{ __html: summaryCss }} />
+
       <div style={headRowStyle}>
         <h1 style={{ fontSize: 20, margin: 0 }}>我的资源</h1>
-        <form action="/auth/signout" method="post">
-          <button type="submit" style={signOutStyle}>
-            退出
-          </button>
-        </form>
+        <AccountMenu
+          email={user.email ?? ""}
+          me={me}
+          theme={theme}
+          editing={editing === "contact"}
+          errorText={editing === "contact" ? errorText : null}
+        />
       </div>
-      <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: 4 }}>{user.email}</p>
 
-      {searchParams.listed && (
-        <p style={okStyle}>资源挂上了，有人要租我们会联系你。</p>
-      )}
+      {searchParams.listed && <p style={okStyle}>资源挂上了，有人要租我们会联系你。</p>}
       {searchParams.proposed && <p style={okStyle}>已提交意向，等管理员确认。</p>}
       {searchParams.saved && !editing && <p style={okStyle}>已保存</p>}
+      {searchParams.deleted && <p style={okStyle}>资源已删除。</p>}
       {errorText && !editing && (
         <p style={{ color: "var(--danger)", fontSize: 13, margin: "8px 0 0" }}>{errorText}</p>
       )}
 
-      <section style={{ marginTop: 18 }}>
-        <h2 style={sectionTitleStyle}>看看有哪些需求</h2>
-        <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.7 }}>
-          每一行是你的一个资源。蓝色是已经排出去的，虚线框是你这个资源接得了的需求 ——
-          有效期盖得住、那几天没占着、缺的正好是你这个资源的性别。
-          点一下提个意向，管理员确认之后才算数。
-        </p>
+      {/* 一个资源都还没挂过 —— 这时候「有哪些需求」是个空壳，他什么也做不了。
+          所以整块换成一个醒目的入口：**先挂资源**是这个页面此刻唯一有意义的动作。
+          （有资源但都不在出租中是另一回事，下面单独说。） */}
+      {myResources.length === 0 ? (
+        <>
+          <div style={emptyHeroStyle}>
+            <p style={{ fontSize: 17, fontWeight: 500, margin: 0 }}>
+              {waiting.length > 0 ? (
+                <>
+                  现在有 <span style={{ color: "var(--warn)" }}>{waiting.length}</span> 单在找资源
+                </>
+              ) : (
+                "先挂一张资源"
+              )}
+            </p>
+            <p style={heroSubStyle}>
+              {waiting.length > 0
+                ? "挂一个资源就能接。挂上之后这儿只会列出你这个资源接得了的那些 —— 有效期盖得住、那几天没占着、缺的正好是持有人的性别。"
+                : "挂上之后，这儿会列出你这个资源接得了的需求。看中哪单点一下，管理员确认了就算数。"}
+            </p>
+            <Link href="/provider/listing" style={heroButtonStyle}>
+              挂一个资源
+            </Link>
+          </div>
+
+          {/* 还没挂资源的时候也让他看见有多少活儿 —— 空页面劝不动人，一屏需求才劝得动。
+              **但不能让他以为这些他都能接**：现在没有资源，性别 / 有效期 / 类型一条都
+              筛不了，所以这是全部在找资源的单，上面那句话把口径说清楚了。
+              一样不带客户姓名和金额，跟挂了资源之后的规矩一致。 */}
+          {waiting.length > 0 && (
+            <ul style={listStyle}>
+              {waiting.slice(0, TEASER_LIMIT).map((o: any) => (
+                <li key={o.id} style={listItemStyle}>
+                  <span style={{ fontSize: 13 }}>
+                    {formatDayRanges(o.demand_days ?? [])}
+                    <span style={{ color: "var(--text-muted)" }}>
+                      {` · ${(o.demand_days ?? []).length}天`}
+                      {o.location ? ` · ${o.location}` : ""}
+                      {` · ${formatParty(o.male_count, o.female_count)}`}
+                    </span>
+                  </span>
+                </li>
+              ))}
+              {waiting.length > TEASER_LIMIT && (
+                <li style={{ ...listItemStyle, color: "var(--text-faint)", fontSize: 12 }}>
+                  …还有 {waiting.length - TEASER_LIMIT} 单
+                </li>
+              )}
+            </ul>
+          )}
+        </>
+      ) : (
+      <section style={{ marginTop: 16 }}>
+        <h2 style={{ fontSize: 16, margin: "0 0 4px" }}>看看有哪些需求</h2>
+        {/* 三行说明只有第一次有用，之后每次进来都占一屏。收起来，要看再点 */}
+        <details>
+          <summary style={{ fontSize: 12, color: "var(--text-faint)", cursor: "pointer" }}>
+            怎么算「接得了」？
+          </summary>
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "6px 0 0", lineHeight: 1.7 }}>
+            每一行是你的一个资源。蓝色是已经排出去的，虚线框是你这个资源接得了的需求 ——
+            有效期盖得住、那几天没占着、缺的正好是你这个资源的性别。
+            点一下提个意向，管理员确认之后才算数。
+          </p>
+        </details>
 
         {pendingBlock && (
           <ProposeConfirm
@@ -170,167 +275,145 @@ export default async function ProviderHomePage({
             orderId={pendingOrder}
             resourceId={pendingResource}
             card={card}
+            view={view}
           />
         )}
 
         {activeResources.length === 0 ? (
-          <p style={{ color: "var(--text-muted)", fontSize: 14, marginTop: 14 }}>
-            你名下没有在出租的资源，先挂一个才能接需求。
+          // 挂过资源，但一张都不在出租中（暂停 / 已下架）。跟「一张都没挂」不是一回事，
+          // 该说的也不一样 —— 他要做的是把状态改回来，不是再挂一张
+          <p style={{ color: "var(--warn)", fontSize: 13, marginTop: 14, lineHeight: 1.8 }}>
+            你的资源现在一张都不在出租中，所以接不了需求。到下面「我的资源」里把状态改成
+            「出租中」就行。
           </p>
         ) : (
-          <DemandCalendar
+          <DemandBoard
             board={board}
             // **传全部在出租的资源，不是筛过的那张** —— 芯片行要靠它才画得出来。
             // 传筛过的话，一收窄到某个资源，选择器自己就没了，回不到「全部资源」。
             resources={activeResources}
             card={card}
+            view={view}
             propose={searchParams.propose ?? ""}
+            bandDays={viewSettings.bandDays}
+            start={viewSettings.start}
+            region={region}
+            mtn={mtn}
           />
         )}
       </section>
+      )}
 
-      <hr style={dividerStyle} />
-
-      <section>
-        <h2 style={sectionTitleStyle}>我提过的意向</h2>
-        {(myMatches ?? []).length === 0 ? (
-          <p style={{ color: "var(--text-faint)", fontSize: 13, margin: 0 }}>
-            还没提过。上面看到能接的点一下就行。
-          </p>
-        ) : (
-          <ul style={listStyle}>
-            {(myMatches ?? []).map((m: any) => {
-              const d = matchDisplay(m.status);
-              const o = m.orders;
-              return (
-                <li key={m.id} style={listItemStyle}>
-                  <span style={{ fontSize: 13 }}>
-                    {o ? formatDayRanges(o.demand_days ?? []) : "—"}
-                    <span style={{ color: "var(--text-muted)" }}>
-                      {o?.location ? ` · ${o.location}` : ""}
-                      {o ? ` · ${formatParty(o.male_count, o.female_count)}` : ""}
-                      {" · 用 "}
-                      {m.resources?.holder_name ?? "?"}
-                    </span>
-                  </span>
-                  <span style={{ fontSize: 12, color: d.color, flexShrink: 0 }} title={d.hint}>
-                    {d.label}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-
-      <section style={{ marginTop: 22 }}>
-        <div style={headRowStyle}>
-          <h2 style={sectionTitleStyle}>我的资源</h2>
-          <Link href="/provider/listing" style={{ fontSize: 13, color: "var(--link)" }}>
-            + 挂一个新资源
-          </Link>
-        </div>
-        <ResourceList
-          resources={myResources}
-          bookedDays={bookedByResource}
-          editing={editing}
-          errorText={editing && editing !== "contact" ? errorText : null}
-        />
-        <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 10, lineHeight: 1.7 }}>
-          改完马上生效。要整张删掉，或者要把有效期改到盖不住已排的日子，先联系我们。
-        </p>
-      </section>
-
-      <section style={{ marginTop: 22 }}>
-        <div style={headRowStyle}>
-          <h2 style={sectionTitleStyle}>联系方式</h2>
-          {editing !== "contact" && (
-            <Link href="/provider?edit=contact" style={{ fontSize: 13, color: "var(--link)" }}>
-              编辑
-            </Link>
-          )}
-        </div>
-
-        {editing === "contact" && errorText && (
-          <p style={{ fontSize: 13, color: "var(--danger)", margin: "0 0 8px" }}>{errorText}</p>
-        )}
-
-        {editing === "contact" ? (
-          <form action={saveContact} style={formStyle}>
-            <label style={labelStyle}>
-              称呼
-              <input name="first_name" defaultValue={me?.first_name ?? ""} style={inputStyle} />
-            </label>
-            <label style={labelStyle}>
-              账号 *
-              <input name="chat" required defaultValue={me?.chat ?? ""} style={inputStyle} />
-            </label>
-            <p style={{ fontSize: 12, color: "var(--warn)", margin: 0 }}>
-              重要：有人要租你的资源，我们是通过聊天联系你的 —— 没有聊天就通知不到你。
+      <div style={{ marginTop: 20 }}>
+        <Disclosure
+          title="我提过的意向"
+          badge={
+            openMatches.length > 0
+              ? `${openMatches.length} 条在等`
+              : (myMatches ?? []).length > 0
+                ? `${(myMatches ?? []).length} 条`
+                : "还没提过"
+          }
+          badgeColor={openMatches.length > 0 ? "var(--st-pickup-text)" : undefined}
+          // 刚提完就展开，让人看见它确实落进去了
+          open={Boolean(searchParams.proposed)}
+        >
+          {(myMatches ?? []).length === 0 ? (
+            <p style={{ color: "var(--text-faint)", fontSize: 13, margin: 0 }}>
+              上面看到能接的点一下就行。
             </p>
-            <label style={labelStyle}>
-              手机号
-              <input
-                name="phone_number"
-                type="tel"
-                defaultValue={me?.phone_number ?? ""}
-                style={inputStyle}
-              />
-            </label>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button type="submit" style={buttonStyle}>
-                保存
-              </button>
-              <Link href="/provider" style={cancelStyle}>
-                取消
-              </Link>
-            </div>
-          </form>
-        ) : (
-          <dl style={{ margin: 0, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.9 }}>
-            <Row label="称呼" value={me?.first_name} />
-            <Row label="账号" value={me?.chat} />
-            <Row label="手机号" value={me?.phone_number} />
-            {!me?.chat && (
-              <p style={{ fontSize: 12, color: "var(--warn)", margin: "6px 0 0" }}>
-                账号还没填 —— 有人要租你的资源我们是通过聊天找你的，
-                <Link href="/provider?edit=contact" style={{ color: "var(--warn)" }}>
-                  现在补一下 →
-                </Link>
-              </p>
-            )}
-          </dl>
-        )}
-      </section>
+          ) : (
+            <ul style={listStyle}>
+              {(myMatches ?? []).map((m: any) => {
+                const d = matchDisplay(m.status);
+                const o = m.orders;
+                return (
+                  <li key={m.id} style={listItemStyle}>
+                    <span style={{ fontSize: 13 }}>
+                      {o ? formatDayRanges(o.demand_days ?? []) : "—"}
+                      <span style={{ color: "var(--text-muted)" }}>
+                        {o?.location ? ` · ${o.location}` : ""}
+                        {o ? ` · ${formatParty(o.male_count, o.female_count)}` : ""}
+                        {" · 用 "}
+                        {m.resources?.holder_name ?? "?"}
+                      </span>
+                    </span>
+                    <span style={{ fontSize: 12, color: d.color, flexShrink: 0 }} title={d.hint}>
+                      {d.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Disclosure>
+
+        <Disclosure
+          title="我的资源"
+          badge={myResources.length > 0 ? `${myResources.length} 张` : "一张都还没挂"}
+          badgeColor={myResources.length === 0 ? "var(--warn)" : undefined}
+          // 正在改某一张、或者一张都没有（那是要办的事），就别让人先点一下
+          open={Boolean(editingResource) || myResources.length === 0}
+        >
+          <ResourceList
+            resources={myResources}
+            bookedDays={bookedByResource}
+            editing={editingResource}
+            deleting={searchParams.delete === "1"}
+            openMatchCount={
+              openMatches.filter((m: any) => m.resource_id === editingResource).length
+            }
+            errorText={editingResource ? errorText : null}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 10 }}>
+            <p style={{ fontSize: 12, color: "var(--text-faint)", margin: 0, lineHeight: 1.7 }}>
+              改完马上生效。要整张删掉，或者要把有效期改到盖不住已排的日子，先联系我们。
+            </p>
+            <Link href="/provider/listing" style={{ fontSize: 13, color: "var(--link)", flexShrink: 0 }}>
+              + 挂一个新资源
+            </Link>
+          </div>
+        </Disclosure>
+      </div>
     </main>
   );
 }
 
-function Row({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <div style={{ display: "flex", gap: 8 }}>
-      <dt style={{ color: "var(--text-faint)", width: 56, flexShrink: 0 }}>{label}</dt>
-      <dd style={{ margin: 0 }}>
-        {value || <span style={{ color: "var(--text-faint)" }}>未填</span>}
-      </dd>
-    </div>
-  );
-}
+/** 预告最多列几条 —— 再多就成了「所有单子列表」，而他现在一单也接不了 */
+const TEASER_LIMIT = 6;
 
+const heroSubStyle: React.CSSProperties = {
+  fontSize: 13,
+  color: "var(--text-muted)",
+  margin: "8px 0 0",
+  lineHeight: 1.8,
+  maxWidth: 440,
+};
+const emptyHeroStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  textAlign: "center",
+  marginTop: 18,
+  padding: "34px 24px",
+  border: "1px dashed var(--border-strong)",
+  borderRadius: 10,
+  background: "var(--surface-2)",
+};
+const heroButtonStyle: React.CSSProperties = {
+  marginTop: 18,
+  padding: "11px 26px",
+  background: "var(--solid-bg)",
+  color: "var(--on-solid)",
+  borderRadius: 6,
+  fontSize: 14,
+  textDecoration: "none",
+};
 const headRowStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",
   justifyContent: "space-between",
   gap: 8,
-};
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 16,
-  margin: "0 0 6px",
-};
-const dividerStyle: React.CSSProperties = {
-  border: "none",
-  borderTop: "1px solid var(--border)",
-  margin: "24px 0 18px",
 };
 const okStyle: React.CSSProperties = {
   color: "var(--ok)",
@@ -351,48 +434,4 @@ const listItemStyle: React.CSSProperties = {
   gap: 10,
   padding: "9px 12px",
   borderBottom: "1px solid var(--border)",
-};
-const formStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 10,
-};
-const inputStyle: React.CSSProperties = {
-  padding: 8,
-  border: "1px solid var(--border-strong)",
-  borderRadius: 4,
-  fontSize: 14,
-};
-const labelStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 4,
-  fontSize: 13,
-  color: "var(--text-muted)",
-};
-const buttonStyle: React.CSSProperties = {
-  padding: "8px 14px",
-  border: "none",
-  background: "var(--solid-bg)",
-  color: "var(--on-solid)",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 14,
-};
-const cancelStyle: React.CSSProperties = {
-  padding: "8px 14px",
-  border: "1px solid var(--border-strong)",
-  borderRadius: 4,
-  fontSize: 14,
-  color: "var(--text-muted)",
-  textDecoration: "none",
-};
-const signOutStyle: React.CSSProperties = {
-  background: "none",
-  border: "1px solid var(--border-strong)",
-  borderRadius: 4,
-  padding: "3px 10px",
-  fontSize: 12,
-  color: "var(--text-muted)",
-  cursor: "pointer",
 };

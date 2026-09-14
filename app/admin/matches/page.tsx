@@ -62,7 +62,9 @@ async function updateMatchStatus(formData: FormData) {
         .single(),
       supabase
         .from("resources")
-        .select("id, date_range_start, date_range_end, status, holder_name, holder_gender, item_type")
+        .select(
+          "id, date_range_start, date_range_end, status, deleted_at, holder_name, holder_gender, item_type"
+        )
         .eq("id", match.resource_id)
         .single(),
       supabase
@@ -142,7 +144,8 @@ export default async function MatchesAdminPage() {
         .select(
           "id, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(first_name, last_name)"
         )
-        .eq("status", "active"),
+        .eq("status", "active")
+        .is("deleted_at", null),
     ]);
 
   return (

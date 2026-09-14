@@ -27,6 +27,14 @@ describe("assignBlockReason", () => {
     expect(assignBlockReason(ok)).toBe(null);
   });
 
+  it("物主删掉的资源排在最前面 —— 它压过一切", () => {
+    const r = assignBlockReason({
+      ...ok,
+      resource: { ...resource, deleted_at: "2026-09-14T00:00:00Z", status: "paused" },
+    });
+    expect(r).toContain("删掉了");
+  });
+
   it("挂牌状态排在最前 —— 哪怕别的也不成立，先说这条", () => {
     const r = assignBlockReason({
       ...ok,
