@@ -94,6 +94,33 @@ async function deleteResource(formData: FormData) {
 // 筛选行的控件比新增表单里的紧凑：11 列挤在一行。
 // boxSizing 不能少——inputStyle 带内边距和边框，默认 content-box 的话 width:100%
 // 会比同格的 <select>（浏览器默认 border-box）宽出十几像素，右边对不齐。
+// 排期那一列：一行横着滚。nowrap 不能少 —— 少了它 flex 容器照样会把
+// 内容折行，横滚就成了摆设
+const bookingStripStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  whiteSpace: "nowrap",
+  overflowX: "auto",
+  gap: 0,
+  // Firefox。Chrome 那边靠下面注入的 ::-webkit-scrollbar 规则
+  scrollbarWidth: "none",
+};
+
+/**
+ * 把这一列的滚动条藏掉。
+ *
+ * **不是为了好看，是为了行高。** macOS 的滚动条是浮在内容上的不占地方，
+ * Linux 和 Windows 的占 15px —— 塞进一个 32px 高的行里，文字就被挤掉半截。
+ * 开发机上看不出来，CI 和别人的机器上才炸，正是 CLAUDE.md 那条
+ * 「在这台机器上碰巧成立」说的情况。
+ *
+ * 藏了之后照样能滚（触控板横划、Shift+滚轮），代价是少了「这儿还有」的暗示 ——
+ * 边上那个被切掉半截的字本身就是暗示。
+ *
+ * 必须走 dangerouslySetInnerHTML：`<style>` 的文本子节点会被 React 转义，
+ * `::-webkit-scrollbar` 里没有 `>` 和 `"` 所以这次侥幸能跑，但别赌下一次。
+ */
+const bookingStripCss = `.booking-strip::-webkit-scrollbar { display: none }`;
 const filterInputStyle = {
   ...inputStyle,
   width: "100%",
@@ -171,6 +198,7 @@ export default async function ResourcesAdminPage({
 
   return (
     <main>
+      <style dangerouslySetInnerHTML={{ __html: bookingStripCss }} />
       <h1 style={pageTitleStyle}>Resource 管理</h1>
       <p style={helpTextStyle}>
         一个 Provider 可以挂多个人的资源，一个资源挂一行。
@@ -469,19 +497,27 @@ export default async function ResourcesAdminPage({
                     {bookings.length === 0 ? (
                       <span style={{ color: "var(--text-faint)", fontSize: 12 }}>还没排过</span>
                     ) : (
-                      bookings.map((o: any) => (
-                        <div key={o.id} style={{ fontSize: 12, lineHeight: 1.5 }}>
-                          <span style={{ color: "var(--link)" }}>
-                            {formatDayRanges(o.demand_days ?? [])}
-                          </span>{" "}
-                          {o.location ?? "?"}
-                          <span style={{ color: "var(--text-faint)" }}>
-                            {" "}
-                            · {o.customers?.first_name ?? "?"} ·{" "}
-                            {ORDER_STATUS_LABELS[o.status] ?? o.status}
+                      // 排期**挤在一行里横着滚**，不再一单一行往下摞。
+                      // 一个资源排过七八单的时候，往下摞会把这一行撑到七八行高，
+                      // 整张表被少数几张"劳模资源"拉得东一块西一块，扫都没法扫。
+                      // 横滚的代价是看不全，但这一列本来就是"瞄一眼这个资源去过哪儿"，
+                      // 要细看有 /admin/overview。
+                      <div className="booking-strip" style={bookingStripStyle}>
+                        {bookings.map((o: any, i: number) => (
+                          <span key={o.id} style={{ fontSize: 12 }}>
+                            {i > 0 && <span style={{ color: "var(--border-strong)" }}> ｜ </span>}
+                            <span style={{ color: "var(--link)" }}>
+                              {formatDayRanges(o.demand_days ?? [])}
+                            </span>{" "}
+                            {o.location ?? "?"}
+                            <span style={{ color: "var(--text-faint)" }}>
+                              {" "}
+                              · {o.customers?.first_name ?? "?"} ·{" "}
+                              {ORDER_STATUS_LABELS[o.status] ?? o.status}
+                            </span>
                           </span>
-                        </div>
-                      ))
+                        ))}
+                      </div>
                     )}
                   </>
                 );
