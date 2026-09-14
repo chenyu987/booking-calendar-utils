@@ -1,133 +1,47 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
 import { claimProvider } from "@/lib/accountClaim";
-import { formatDayRanges } from "@/lib/dates";
-import { formatHolder } from "@/lib/age";
-import {
-  RESOURCE_STATUS_LABELS,
-  RESOURCE_STATUSES,
-  formatValidity,
-  isExpired,
-} from "@/lib/resourceStatus";
-import { validateResourceEdit, RESOURCE_EDIT_ERRORS } from "@/lib/resourceEdit";
+import { formatDayRanges, todayIso } from "@/lib/dates";
+import { formatParty } from "@/lib/party";
+import { RESOURCE_EDIT_ERRORS } from "@/lib/resourceEdit";
+import { matchDisplay, isOpenMatch } from "@/lib/matchStatus";
+import { buildProviderBoard } from "@/lib/providerBoard";
+import { bookedDaysFor } from "./data";
+import { saveContact } from "./actions";
+import DemandCalendar, { ProposeConfirm } from "./DemandCalendar";
+import ResourceList from "./ResourceList";
 
 export const dynamic = "force-dynamic";
-
-// 每个资源被排了哪几天 = 配到这个资源的所有订单的 demand_days 并集。
-// 不存字段，实时算 —— 跟排期总览一个算法。
-// 只查 demand_days，**不查 customer**：物主不该看到客户是谁。
-async function bookedDaysFor(resourceIds: string[]): Promise<Map<string, string[]>> {
-  const map = new Map<string, string[]>();
-  if (resourceIds.length === 0) return map;
-  const { data } = await supabase
-    .from("order_assignments")
-    .select("resource_id, orders(demand_days)")
-    .in("resource_id", resourceIds);
-  for (const a of data ?? []) {
-    const days = (a as any).orders?.demand_days ?? [];
-    if (days.length === 0) continue;
-    map.set(a.resource_id, [...(map.get(a.resource_id) ?? []), ...days]);
-  }
-  return map;
-}
-
-const text = (formData: FormData, k: string) =>
-  ((formData.get(k) as string) ?? "").trim();
-
-// 物主自助改资源信息。校验在 lib/resourceEdit.ts，**服务端拦**——
-// 界面上性别禁掉了、日期给了 min/max，但那些 curl 一下全绕得过去。
-async function saveResource(formData: FormData) {
-  "use server";
-  const user = await getSessionUser();
-  if (!user) redirect("/login?as=provider");
-  const providerId = await claimProvider(user.id, user.email ?? null);
-  const id = formData.get("id") as string;
-
-  // **认 provider_id，不是只认 id**：只按 id 更新的话，换个 id 就能改别人的资源。
-  const { data: current } = await supabase
-    .from("resources")
-    .select("id, holder_gender")
-    .eq("id", id)
-    .eq("provider_id", providerId)
-    .maybeSingle();
-  if (!current) redirect("/provider");
-
-  const next = {
-    itemType: text(formData, "item_type"),
-    holderName: text(formData, "holder_name"),
-    holderGender: text(formData, "holder_gender"),
-    dateRangeStart: text(formData, "date_range_start"),
-    dateRangeEnd: text(formData, "date_range_end"),
-    status: text(formData, "status"),
-  };
-  const booked = (await bookedDaysFor([id])).get(id) ?? [];
-  const bad = validateResourceEdit(next, current, booked);
-  if (bad) redirect(`/provider?edit=${id}&error=${bad}`);
-
-  const { error } = await supabase
-    .from("resources")
-    .update({
-      item_type: next.itemType,
-      holder_name: next.holderName,
-      holder_gender: next.holderGender,
-      holder_date_of_birth: text(formData, "holder_date_of_birth") || null,
-      // 留空 = 这一头不设限，别写成空字符串
-      date_range_start: next.dateRangeStart || null,
-      date_range_end: next.dateRangeEnd || null,
-      status: next.status,
-    })
-    .eq("id", id)
-    .eq("provider_id", providerId);
-  if (error) redirect(`/provider?edit=${id}&error=save`);
-
-  revalidatePath("/provider");
-  revalidatePath("/admin/overview");
-  revalidatePath("/admin/resources");
-  redirect("/provider?saved=1");
-}
-
-// 联系方式。**聊天必填** —— 配到客户之后全靠聊天找人，没有聊天这个资源就等于挂不出去。
-async function saveContact(formData: FormData) {
-  "use server";
-  const user = await getSessionUser();
-  if (!user) redirect("/login?as=provider");
-  const providerId = await claimProvider(user.id, user.email ?? null);
-
-  const chat = text(formData, "chat");
-  if (!chat) redirect("/provider?edit=contact&error=chat");
-
-  const { error } = await supabase
-    .from("providers")
-    .update({
-      first_name: text(formData, "first_name") || null,
-      chat,
-      phone_number: text(formData, "phone_number") || null,
-    })
-    .eq("id", providerId);
-  if (error) redirect("/provider?edit=contact&error=save");
-
-  revalidatePath("/provider");
-  revalidatePath("/admin/providers");
-  redirect("/provider?saved=1");
-}
 
 const ERROR_TEXT: Record<string, string> = {
   ...RESOURCE_EDIT_ERRORS,
   save: "没存上，再试一次。",
   chat: "账号得填 —— 我们是通过聊天联系你的。",
+  notmine: "那个资源不是你的。",
+  dup: "这一单你已经提过意向了，等管理员确认就行。",
+  blocked: "这一单现在接不了了 —— 可能刚被别人接走，或者日期改了。刷新看看。",
 };
 
-// 物主登录后的首页：我挂出去的资源，每张显示被排了哪几天，点「编辑」就地改。
+// 物主的**唯一落脚点**。原来是两页（这一页管资源，/provider/matches 管看需求），
+// 来回跳。现在合成一页：上面是日历（主要动作：找活儿、提意向），下面是「我的」
+// （提过的意向、我的资源、联系方式）。/provider/matches 重定向到这儿。
 //
 // **刻意不显示客户是谁。** 物主看得到「9/10~9/12 已排」，但看不到姓名和联系方式 ——
 // 那是客户的隐私，也是平台作为中间人的价值。跟客户那边看不到持有人是谁对称。
 export default async function ProviderHomePage({
   searchParams,
 }: {
-  searchParams: { listed?: string; edit?: string; saved?: string; error?: string };
+  searchParams: {
+    listed?: string;
+    edit?: string;
+    saved?: string;
+    error?: string;
+    card?: string;
+    propose?: string;
+    proposed?: string;
+  };
 }) {
   const user = await getSessionUser();
   if (!user) redirect("/login?as=provider");
@@ -150,22 +64,77 @@ export default async function ProviderHomePage({
       .order("date_range_start", { ascending: true }),
   ]);
 
-  const bookedDays = await bookedDaysFor((resources ?? []).map((s: any) => s.id));
+  const myResources = resources ?? [];
+  const resourceIds = myResources.map((s: any) => s.id);
 
-  // 编辑态用 URL 参数切换，不用 useState —— 跟 admin 那几个列表页一个路子
+  // 只查还在找资源的单子。**不查 customers，也不查 amount** —— 不是查出来再藏，是根本不查。
+  // 金额是客户付给平台的总价，不是物主拿的钱，给他看只会当成收入预期。
+  const [{ data: orders }, bookedByResource, { data: myMatches }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("id, location, demand_days, male_count, female_count")
+      .eq("status", "created"),
+    bookedDaysFor(resourceIds),
+    resourceIds.length > 0
+      ? supabase
+          .from("matches")
+          .select(
+            "id, status, created_at, order_id, resource_id, orders(location, demand_days, male_count, female_count), resources(holder_name)"
+          )
+          .in("resource_id", resourceIds)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
+
+  // 这些单已经配上了哪些资源 —— 只用来算「还差男资源还是女资源」，持有人是谁不显示
+  const orderIds = (orders ?? []).map((o: any) => o.id);
+  const assignedByOrder = new Map<string, { id?: string; holder_gender?: string | null }[]>();
+  if (orderIds.length > 0) {
+    const { data } = await supabase
+      .from("order_assignments")
+      .select("order_id, resources(id, holder_gender)")
+      .in("order_id", orderIds);
+    for (const a of data ?? []) {
+      const s = (a as any).resources;
+      if (!s) continue;
+      assignedByOrder.set(a.order_id, [...(assignedByOrder.get(a.order_id) ?? []), s]);
+    }
+  }
+
+  // 日历只看在出租的资源。**资源选择器是个筛选，不是必选其一** —— 默认「全部资源」，
+  // 因为一单常常好几个资源都能接，排开才看得出「这单我哪几张都行」。
+  const activeResources = myResources.filter((s: any) => s.status === "active");
+  const card = activeResources.some((s: any) => s.id === searchParams.card)
+    ? (searchParams.card as string)
+    : "";
+  const boardResources = card ? activeResources.filter((s: any) => s.id === card) : activeResources;
+
+  const board = buildProviderBoard({
+    today: todayIso(),
+    resources: boardResources,
+    orders: orders ?? [],
+    assignedByOrder,
+    bookedByResource,
+    // 已经提过的用**全部**意向算，不跟着筛选走：换个资源看的时候不该又变回「可提」
+    proposed: new Set(
+      (myMatches ?? [])
+        .filter((m: any) => isOpenMatch(m.status) || m.status === "chosen")
+        .map((m: any) => `${m.order_id}:${m.resource_id}`)
+    ),
+  });
+
   const editing = searchParams.edit;
-  const errorText = searchParams.error ? ERROR_TEXT[searchParams.error] : null;
+  const errorText = searchParams.error ? ERROR_TEXT[searchParams.error] ?? "出了点问题，再试一次。" : null;
+
+  const [pendingOrder, pendingResource] = (searchParams.propose ?? "").split(":");
+  const pendingBlock = board.rows
+    .find((r) => r.resourceId === pendingResource)
+    ?.lanes.flat()
+    .find((b) => b.orderId === pendingOrder);
 
   return (
-    <main style={{ padding: 24, maxWidth: 560, margin: "0 auto" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          gap: 8,
-        }}
-      >
+    <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+      <div style={headRowStyle}>
         <h1 style={{ fontSize: 20, margin: 0 }}>我的资源</h1>
         <form action="/auth/signout" method="post">
           <button type="submit" style={signOutStyle}>
@@ -176,25 +145,115 @@ export default async function ProviderHomePage({
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: 4 }}>{user.email}</p>
 
       {searchParams.listed && (
-        <p style={{ color: "var(--ok)", fontSize: 13, margin: "8px 0 0" }}>
-          资源挂上了，有人要租我们会联系你。
-        </p>
+        <p style={okStyle}>资源挂上了，有人要租我们会联系你。</p>
       )}
-      {searchParams.saved && !editing && (
-        <p style={{ color: "var(--ok)", fontSize: 13, margin: "8px 0 0" }}>已保存</p>
+      {searchParams.proposed && <p style={okStyle}>已提交意向，等管理员确认。</p>}
+      {searchParams.saved && !editing && <p style={okStyle}>已保存</p>}
+      {errorText && !editing && (
+        <p style={{ color: "var(--danger)", fontSize: 13, margin: "8px 0 0" }}>{errorText}</p>
       )}
 
-      <section style={cardStyle}>
-        <div style={sectionHeadStyle}>
-          <h2 style={{ fontSize: 14, margin: 0, color: "var(--text-muted)" }}>联系方式</h2>
+      <section style={{ marginTop: 18 }}>
+        <h2 style={sectionTitleStyle}>看看有哪些需求</h2>
+        <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.7 }}>
+          每一行是你的一个资源。蓝色是已经排出去的，虚线框是你这个资源接得了的需求 ——
+          有效期盖得住、那几天没占着、缺的正好是你这个资源的性别。
+          点一下提个意向，管理员确认之后才算数。
+        </p>
+
+        {pendingBlock && (
+          <ProposeConfirm
+            block={pendingBlock}
+            resourceName={
+              (myResources.find((s: any) => s.id === pendingResource) as any)?.holder_name ?? "这个资源"
+            }
+            orderId={pendingOrder}
+            resourceId={pendingResource}
+            card={card}
+          />
+        )}
+
+        {activeResources.length === 0 ? (
+          <p style={{ color: "var(--text-muted)", fontSize: 14, marginTop: 14 }}>
+            你名下没有在出租的资源，先挂一个才能接需求。
+          </p>
+        ) : (
+          <DemandCalendar
+            board={board}
+            // **传全部在出租的资源，不是筛过的那张** —— 芯片行要靠它才画得出来。
+            // 传筛过的话，一收窄到某个资源，选择器自己就没了，回不到「全部资源」。
+            resources={activeResources}
+            card={card}
+            propose={searchParams.propose ?? ""}
+          />
+        )}
+      </section>
+
+      <hr style={dividerStyle} />
+
+      <section>
+        <h2 style={sectionTitleStyle}>我提过的意向</h2>
+        {(myMatches ?? []).length === 0 ? (
+          <p style={{ color: "var(--text-faint)", fontSize: 13, margin: 0 }}>
+            还没提过。上面看到能接的点一下就行。
+          </p>
+        ) : (
+          <ul style={listStyle}>
+            {(myMatches ?? []).map((m: any) => {
+              const d = matchDisplay(m.status);
+              const o = m.orders;
+              return (
+                <li key={m.id} style={listItemStyle}>
+                  <span style={{ fontSize: 13 }}>
+                    {o ? formatDayRanges(o.demand_days ?? []) : "—"}
+                    <span style={{ color: "var(--text-muted)" }}>
+                      {o?.location ? ` · ${o.location}` : ""}
+                      {o ? ` · ${formatParty(o.male_count, o.female_count)}` : ""}
+                      {" · 用 "}
+                      {m.resources?.holder_name ?? "?"}
+                    </span>
+                  </span>
+                  <span style={{ fontSize: 12, color: d.color, flexShrink: 0 }} title={d.hint}>
+                    {d.label}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <section style={{ marginTop: 22 }}>
+        <div style={headRowStyle}>
+          <h2 style={sectionTitleStyle}>我的资源</h2>
+          <Link href="/provider/listing" style={{ fontSize: 13, color: "var(--link)" }}>
+            + 挂一个新资源
+          </Link>
+        </div>
+        <ResourceList
+          resources={myResources}
+          bookedDays={bookedByResource}
+          editing={editing}
+          errorText={editing && editing !== "contact" ? errorText : null}
+        />
+        <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 10, lineHeight: 1.7 }}>
+          改完马上生效。要整张删掉，或者要把有效期改到盖不住已排的日子，先联系我们。
+        </p>
+      </section>
+
+      <section style={{ marginTop: 22 }}>
+        <div style={headRowStyle}>
+          <h2 style={sectionTitleStyle}>联系方式</h2>
           {editing !== "contact" && (
-            <Link href="/provider?edit=contact" style={editLinkStyle}>
+            <Link href="/provider?edit=contact" style={{ fontSize: 13, color: "var(--link)" }}>
               编辑
             </Link>
           )}
         </div>
 
-        {editing === "contact" && errorText && <p style={errorStyle}>{errorText}</p>}
+        {editing === "contact" && errorText && (
+          <p style={{ fontSize: 13, color: "var(--danger)", margin: "0 0 8px" }}>{errorText}</p>
+        )}
 
         {editing === "contact" ? (
           <form action={saveContact} style={formStyle}>
@@ -204,12 +263,7 @@ export default async function ProviderHomePage({
             </label>
             <label style={labelStyle}>
               账号 *
-              <input
-                name="chat"
-                required
-                defaultValue={me?.chat ?? ""}
-                style={inputStyle}
-              />
+              <input name="chat" required defaultValue={me?.chat ?? ""} style={inputStyle} />
             </label>
             <p style={{ fontSize: 12, color: "var(--warn)", margin: 0 }}>
               重要：有人要租你的资源，我们是通过聊天联系你的 —— 没有聊天就通知不到你。
@@ -248,238 +302,7 @@ export default async function ProviderHomePage({
           </dl>
         )}
       </section>
-
-      <Link href="/provider/listing" style={primaryLinkStyle}>
-        + 挂一个新资源
-      </Link>
-
-      {!resources || resources.length === 0 ? (
-        <p style={{ marginTop: 20, color: "var(--text-muted)", fontSize: 14 }}>
-          你还没挂过资源，点上面那个按钮挂一个。
-        </p>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
-          {resources.map((s: any) => {
-            const booked = [...new Set(bookedDays.get(s.id) ?? [])].sort();
-            const expired = isExpired(s);
-            if (editing === s.id) {
-              return (
-                <ResourceEditForm
-                  key={s.id}
-                  resource={s}
-                  booked={booked}
-                  errorText={errorText}
-                />
-              );
-            }
-            return (
-              <div key={s.id} style={cardStyle}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "baseline",
-                    gap: 8,
-                  }}
-                >
-                  <span style={{ fontWeight: 500 }}>
-                    {s.holder_name || "（没填持有人）"}
-                    <span style={{ fontWeight: 400, color: "var(--text-muted)", fontSize: 13 }}>
-                      {" "}
-                      {formatHolder(s.holder_gender, s.holder_date_of_birth)}
-                    </span>
-                  </span>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    {s.item_type ?? "-"}
-                  </span>
-                </div>
-                <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>
-                  有效期 {formatValidity(s)}
-                </div>
-                <div style={{ fontSize: 13, marginTop: 4 }}>
-                  {booked.length > 0 ? (
-                    <span style={{ color: "var(--ok)" }}>
-                      已排 {formatDayRanges(booked)}（共 {booked.length} 天）
-                    </span>
-                  ) : (
-                    <span style={{ color: "var(--text-faint)" }}>还没排出去</span>
-                  )}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "baseline",
-                    gap: 8,
-                    fontSize: 12,
-                    color: "var(--text-faint)",
-                    marginTop: 4,
-                  }}
-                >
-                  <span>
-                    {RESOURCE_STATUS_LABELS[s.status] ?? s.status}
-                    {expired && <span style={{ color: "var(--warn)" }}> · 已过有效期</span>}
-                  </span>
-                  <Link href={`/provider?edit=${s.id}`} style={editLinkStyle}>
-                    编辑
-                  </Link>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 20, lineHeight: 1.7 }}>
-        改完马上生效。要整张删掉，或者要把有效期改到盖不住已排的日子，先联系我们。
-      </p>
     </main>
-  );
-}
-
-// 编辑态。已经排出去的资源有两处受限：性别不给改、有效期不能缩到盖不住已排的日子。
-// 界面上禁掉/给 min-max 只是省得白填一遍，真正拦住的是 saveResource 里那道校验。
-function ResourceEditForm({
-  resource: s,
-  booked,
-  errorText,
-}: {
-  resource: any;
-  booked: string[];
-  errorText: string | null;
-}) {
-  const hasBooked = booked.length > 0;
-  const firstBooked = booked[0];
-  const lastBooked = booked[booked.length - 1];
-
-  return (
-    <div style={cardStyle}>
-      <div style={sectionHeadStyle}>
-        <h2 style={{ fontSize: 14, margin: 0, color: "var(--text-muted)" }}>改资源信息</h2>
-      </div>
-      {errorText && <p style={errorStyle}>{errorText}</p>}
-
-      <form action={saveResource} style={formStyle}>
-        <input type="hidden" name="id" value={s.id} />
-
-        <label style={labelStyle}>
-          类型
-          <select name="item_type" defaultValue={s.item_type ?? "beta"} style={inputStyle}>
-            <option value="beta">Beta</option>
-            <option value="alpha">Alpha</option>
-          </select>
-        </label>
-
-        <label style={labelStyle}>
-          资源上的名字
-          <input
-            name="holder_name"
-            required
-            defaultValue={s.holder_name ?? ""}
-            style={inputStyle}
-          />
-        </label>
-
-        <label style={labelStyle}>
-          持有人性别
-          {hasBooked ? (
-            <>
-              {/* 禁掉的控件不会提交，所以值另走一个 hidden —— 不然一保存性别就空了 */}
-              <input type="hidden" name="holder_gender" value={s.holder_gender ?? ""} />
-              <select
-                disabled
-                defaultValue={s.holder_gender ?? ""}
-                style={{ ...inputStyle, color: "var(--text-faint)" }}
-              >
-                <option value="male">男</option>
-                <option value="female">女</option>
-              </select>
-            </>
-          ) : (
-            <select
-              name="holder_gender"
-              required
-              defaultValue={s.holder_gender ?? ""}
-              style={inputStyle}
-            >
-              <option value="" disabled>
-                选一个
-              </option>
-              <option value="male">男</option>
-              <option value="female">女</option>
-            </select>
-          )}
-        </label>
-        {hasBooked && (
-          <p style={hintStyle}>
-            这个资源已经排出去了，性别不能改 —— 客户是按性别配的，物品登记了使用人，
-            核验时得对得上人。要改先联系我们。
-          </p>
-        )}
-
-        <label style={labelStyle}>
-          持有人生日
-          <input
-            name="holder_date_of_birth"
-            type="date"
-            defaultValue={s.holder_date_of_birth ?? ""}
-            style={inputStyle}
-          />
-        </label>
-
-        <label style={labelStyle}>
-          有效期开始
-          <input
-            name="date_range_start"
-            type="date"
-            max={hasBooked ? firstBooked : undefined}
-            defaultValue={s.date_range_start ?? ""}
-            style={inputStyle}
-          />
-        </label>
-        <label style={labelStyle}>
-          有效期结束
-          <input
-            name="date_range_end"
-            type="date"
-            min={hasBooked ? lastBooked : undefined}
-            defaultValue={s.date_range_end ?? ""}
-            style={inputStyle}
-          />
-        </label>
-        <p style={hintStyle}>
-          两头都选填，留空就是这一头不设限 —— 整季通用的资源两个都空着。
-        </p>
-        {hasBooked && (
-          <p style={hintStyle}>
-            已经排出去 {formatDayRanges(booked)}，填了的那一头得把这几天盖住。
-          </p>
-        )}
-
-        <label style={labelStyle}>
-          状态
-          <select name="status" defaultValue={s.status} style={inputStyle}>
-            {RESOURCE_STATUSES.map((v) => (
-              <option key={v} value={v}>
-                {RESOURCE_STATUS_LABELS[v]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p style={hintStyle}>
-          暂停和下架只管「接不接新单」，已经排出去的那几天照常生效。
-        </p>
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <button type="submit" style={buttonStyle}>
-            保存
-          </button>
-          <Link href="/provider" style={cancelStyle}>
-            取消
-          </Link>
-        </div>
-      </form>
-    </div>
   );
 }
 
@@ -494,18 +317,40 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-const cardStyle: React.CSSProperties = {
-  border: "1px solid var(--border)",
-  borderRadius: 6,
-  padding: "10px 12px",
-  marginTop: 14,
-};
-const sectionHeadStyle: React.CSSProperties = {
+const headRowStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",
   justifyContent: "space-between",
   gap: 8,
-  marginBottom: 8,
+};
+const sectionTitleStyle: React.CSSProperties = {
+  fontSize: 16,
+  margin: "0 0 6px",
+};
+const dividerStyle: React.CSSProperties = {
+  border: "none",
+  borderTop: "1px solid var(--border)",
+  margin: "24px 0 18px",
+};
+const okStyle: React.CSSProperties = {
+  color: "var(--ok)",
+  fontSize: 13,
+  margin: "8px 0 0",
+};
+const listStyle: React.CSSProperties = {
+  listStyle: "none",
+  padding: 0,
+  margin: 0,
+  border: "1px solid var(--border)",
+  borderRadius: 6,
+};
+const listItemStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 10,
+  padding: "9px 12px",
+  borderBottom: "1px solid var(--border)",
 };
 const formStyle: React.CSSProperties = {
   display: "flex",
@@ -525,23 +370,6 @@ const labelStyle: React.CSSProperties = {
   fontSize: 13,
   color: "var(--text-muted)",
 };
-const hintStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "var(--text-faint)",
-  margin: 0,
-  lineHeight: 1.6,
-};
-const errorStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: "var(--danger)",
-  margin: "0 0 8px",
-  lineHeight: 1.6,
-};
-const editLinkStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: "var(--link)",
-  textDecoration: "none",
-};
 const buttonStyle: React.CSSProperties = {
   padding: "8px 14px",
   border: "none",
@@ -557,17 +385,6 @@ const cancelStyle: React.CSSProperties = {
   borderRadius: 4,
   fontSize: 14,
   color: "var(--text-muted)",
-  textDecoration: "none",
-};
-const primaryLinkStyle: React.CSSProperties = {
-  display: "block",
-  marginTop: 12,
-  padding: "10px 12px",
-  background: "var(--solid-bg)",
-  color: "var(--on-solid)",
-  borderRadius: 4,
-  fontSize: 14,
-  textAlign: "center",
   textDecoration: "none",
 };
 const signOutStyle: React.CSSProperties = {

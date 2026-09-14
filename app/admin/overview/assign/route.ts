@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
-import { coversOrder, formatValidity, itemConflictReason } from "@/lib/resourceStatus";
-import {
-  computeNeed,
-  extraAssignmentReason,
-  findConflictingDays,
-  syncedAssignmentStatus,
-} from "@/lib/assignment";
+import { assignBlockReason } from "@/lib/assignable";
+import { computeNeed, syncedAssignmentStatus } from "@/lib/assignment";
 
 // 配一个资源 / 撤一个资源。
 //
@@ -78,27 +73,17 @@ async function addAssignment(orderId: string, resourceId: string) {
 
   if (!ord || !sup) throw new Error("订单或资源不存在");
 
-  // 校验，跟匹配台那条路径必须一致
-  if (sup.status !== "active") throw new Error("这个资源不在出租中");
-  // 配多了 / 配重了。以前只靠界面藏按钮，拖拽分配把这个洞暴露了
+  // 校验走 lib/assignable.ts 那一份 —— 匹配台的 chosen 和物主提意向用的是同一个
   const already = (existingRows ?? []).map((r: any) => r.resources).filter(Boolean);
-  const extra = extraAssignmentReason(ord, already, sup);
-  if (extra) throw new Error(extra);
-  // 类型要能进这个地点。地点名认不出来就不拦 —— 判断不了不等于不合法
-  const itemConflict = itemConflictReason(sup, ord.location);
-  if (itemConflict) throw new Error(itemConflict);
-  if (!coversOrder(sup, ord.demand_days)) {
-    throw new Error(
-      `${sup.holder_name ?? "这个资源"} 的有效期是 ${formatValidity(sup)}，覆盖不了这一单的日期`
-    );
-  }
-  const bookedDays = (otherAssignments ?? []).flatMap((r: any) => r.orders?.demand_days ?? []);
-  const conflictDays = findConflictingDays(ord.demand_days ?? [], bookedDays);
-  if (conflictDays.length > 0) {
-    throw new Error(
-      `${sup.holder_name ?? "这个资源"} 在 ${conflictDays.join("、")} 已经配给别的订单了`
-    );
-  }
+  const blocked = assignBlockReason({
+    order: ord,
+    resource: sup,
+    alreadyAssigned: already,
+    resourceBookedDays: (otherAssignments ?? []).flatMap(
+      (r: any) => r.orders?.demand_days ?? []
+    ),
+  });
+  if (blocked) throw new Error(blocked);
 
   const { error } = await supabase
     .from("order_assignments")

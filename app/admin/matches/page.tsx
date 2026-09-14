@@ -2,12 +2,9 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { formatParty } from "@/lib/party";
 import { formatHolder } from "@/lib/age";
-import {
-  computeNeed,
-  extraAssignmentReason,
-  findConflictingDays,
-} from "@/lib/assignment";
-import { coversOrder, formatValidity, itemConflictReason } from "@/lib/resourceStatus";
+import { assignBlockReason } from "@/lib/assignable";
+import { computeNeed } from "@/lib/assignment";
+import { coversOrder, formatValidity } from "@/lib/resourceStatus";
 import {
   formStyle,
   selectStyle,
@@ -80,27 +77,16 @@ async function updateMatchStatus(formData: FormData) {
         .eq("order_id", match.order_id),
     ]);
     if (!ord || !sup) throw new Error("订单或资源不存在");
-    if (sup.status !== "active") throw new Error("这个资源不在出租中");
-    // 配多了 / 配重了，跟排期总览那条路径同一个判断
-    const already = (alreadyRows ?? []).map((r: any) => r.resources).filter(Boolean);
-    const extra = extraAssignmentReason(ord, already, sup);
-    if (extra) throw new Error(extra);
-    // 类型要能进这个地点，跟排期总览那条路径同一个判断
-    const itemConflict = itemConflictReason(sup, ord.location);
-    if (itemConflict) throw new Error(itemConflict);
-    if (!coversOrder(sup, ord.demand_days)) {
-      throw new Error(
-        `${sup.holder_name ?? "这个资源"} 的有效期是 ${formatValidity(sup)}，覆盖不了这一单的日期`
-      );
-    }
-    // 同一个资源同一天不能配给两个订单
-    const bookedDays = (otherAssignments ?? []).flatMap((r: any) => r.orders?.demand_days ?? []);
-    const conflictDays = findConflictingDays(ord.demand_days ?? [], bookedDays);
-    if (conflictDays.length > 0) {
-      throw new Error(
-        `${sup.holder_name ?? "这个资源"} 在 ${conflictDays.join("、")} 已经配给别的订单了`
-      );
-    }
+    // 校验走 lib/assignable.ts 那一份 —— 排期总览的 assign 和物主提意向用的是同一个
+    const blocked = assignBlockReason({
+      order: ord,
+      resource: sup,
+      alreadyAssigned: (alreadyRows ?? []).map((r: any) => r.resources).filter(Boolean),
+      resourceBookedDays: (otherAssignments ?? []).flatMap(
+        (r: any) => r.orders?.demand_days ?? []
+      ),
+    });
+    if (blocked) throw new Error(blocked);
 
     await supabase
       .from("order_assignments")
