@@ -7,7 +7,7 @@ import {
   extraAssignmentReason,
   findConflictingDays,
 } from "@/lib/assignment";
-import { coversOrder, itemConflictReason } from "@/lib/resourceStatus";
+import { coversOrder, formatValidity, itemConflictReason } from "@/lib/resourceStatus";
 import {
   formStyle,
   selectStyle,
@@ -90,7 +90,7 @@ async function updateMatchStatus(formData: FormData) {
     if (itemConflict) throw new Error(itemConflict);
     if (!coversOrder(sup, ord.demand_days)) {
       throw new Error(
-        `${sup.holder_name ?? "这个资源"} 的有效期是 ${sup.date_range_start}~${sup.date_range_end}，覆盖不了这一单的日期`
+        `${sup.holder_name ?? "这个资源"} 的有效期是 ${formatValidity(sup)}，覆盖不了这一单的日期`
       );
     }
     // 同一个资源同一天不能配给两个订单
@@ -188,7 +188,7 @@ export default async function MatchesAdminPage() {
             <option key={s.id} value={s.id}>
               {s.holder_name ?? "?"}（
               {formatHolder(s.holder_gender, s.holder_date_of_birth)}）·{" "}
-              {s.item_type} {s.date_range_start}~{s.date_range_end} ·{" "}
+              {s.item_type} {formatValidity(s)} ·{" "}
               {s.providers?.first_name ?? ""}
             </option>
           ))}
@@ -231,8 +231,7 @@ export default async function MatchesAdminPage() {
                 </span>
                 <br />
                 <span style={{ color: "var(--text-faint)", fontSize: 12 }}>
-                  {m.resources?.item_type} {m.resources?.date_range_start}~
-                  {m.resources?.date_range_end}
+                  {m.resources?.item_type} {formatValidity(m.resources)}
                 </span>
               </td>
               <td style={tdStyle}>{m.status}</td>

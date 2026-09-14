@@ -9,6 +9,7 @@ import { formatHolder } from "@/lib/age";
 import {
   RESOURCE_STATUS_LABELS,
   RESOURCE_STATUSES,
+  formatValidity,
   isExpired,
 } from "@/lib/resourceStatus";
 import { validateResourceEdit, RESOURCE_EDIT_ERRORS } from "@/lib/resourceEdit";
@@ -73,8 +74,9 @@ async function saveResource(formData: FormData) {
       holder_name: next.holderName,
       holder_gender: next.holderGender,
       holder_date_of_birth: text(formData, "holder_date_of_birth") || null,
-      date_range_start: next.dateRangeStart,
-      date_range_end: next.dateRangeEnd,
+      // 留空 = 这一头不设限，别写成空字符串
+      date_range_start: next.dateRangeStart || null,
+      date_range_end: next.dateRangeEnd || null,
       status: next.status,
     })
     .eq("id", id)
@@ -292,7 +294,7 @@ export default async function ProviderHomePage({
                   </span>
                 </div>
                 <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>
-                  有效期 {s.date_range_start} ~ {s.date_range_end}
+                  有效期 {formatValidity(s)}
                 </div>
                 <div style={{ fontSize: 13, marginTop: 4 }}>
                   {booked.length > 0 ? (
@@ -430,7 +432,6 @@ function ResourceEditForm({
           <input
             name="date_range_start"
             type="date"
-            required
             max={hasBooked ? firstBooked : undefined}
             defaultValue={s.date_range_start ?? ""}
             style={inputStyle}
@@ -441,15 +442,17 @@ function ResourceEditForm({
           <input
             name="date_range_end"
             type="date"
-            required
             min={hasBooked ? lastBooked : undefined}
             defaultValue={s.date_range_end ?? ""}
             style={inputStyle}
           />
         </label>
+        <p style={hintStyle}>
+          两头都选填，留空就是这一头不设限 —— 整季通用的资源两个都空着。
+        </p>
         {hasBooked && (
           <p style={hintStyle}>
-            已经排出去 {formatDayRanges(booked)}，有效期得把这几天盖住。
+            已经排出去 {formatDayRanges(booked)}，填了的那一头得把这几天盖住。
           </p>
         )}
 

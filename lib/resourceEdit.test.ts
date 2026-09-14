@@ -59,6 +59,46 @@ describe("validateResourceEdit", () => {
     ).toBe(null);
   });
 
+  // 有效期两头各自选填，留空 = 这一头不设限
+  it("有效期两头都留空能存下去", () => {
+    expect(
+      validateResourceEdit({ ...base, dateRangeStart: "", dateRangeEnd: "" }, current, [])
+    ).toBe(null);
+  });
+
+  it("已经排出去的资源，把有效期清空也行 —— 不设限什么都盖得住", () => {
+    expect(
+      validateResourceEdit({ ...base, dateRangeStart: "", dateRangeEnd: "" }, current, [
+        "2026-09-10",
+        "2026-09-12",
+      ])
+    ).toBe(null);
+  });
+
+  it("只留空一头：填了的那一头照样要盖住已排的日子", () => {
+    // 开始日挪到 9/11，已排的 9/10 就露在外面了 —— 结束日空着也拦
+    expect(
+      validateResourceEdit(
+        { ...base, dateRangeStart: "2026-09-11", dateRangeEnd: "" },
+        current,
+        ["2026-09-10"]
+      )
+    ).toBe("range");
+    expect(
+      validateResourceEdit(
+        { ...base, dateRangeStart: "2026-09-01", dateRangeEnd: "" },
+        current,
+        ["2026-09-10"]
+      )
+    ).toBe(null);
+  });
+
+  it("只填一头的时候不比先后", () => {
+    expect(
+      validateResourceEdit({ ...base, dateRangeStart: "", dateRangeEnd: "2026-01-01" }, current, [])
+    ).toBe(null);
+  });
+
   it("结束日期早于开始日期", () => {
     expect(
       validateResourceEdit({ ...base, dateRangeEnd: "2026-09-01" }, current, [])
@@ -69,7 +109,7 @@ describe("validateResourceEdit", () => {
     expect(validateResourceEdit({ ...base, holderName: "  " }, current, [])).toBe("required");
     expect(validateResourceEdit({ ...base, holderGender: "" }, current, [])).toBe("required");
     expect(validateResourceEdit({ ...base, itemType: "" }, current, [])).toBe("required");
-    expect(validateResourceEdit({ ...base, dateRangeStart: "" }, current, [])).toBe("required");
+    // 有效期不在必填之列了，见上面那几条
   });
 
   it("塞一个不存在的状态过来", () => {

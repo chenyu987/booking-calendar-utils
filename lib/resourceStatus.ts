@@ -11,19 +11,46 @@ export const RESOURCE_STATUS_LABELS: Record<string, string> = {
   archived: "已下架",
 };
 
-// 过期与否拿有效期跟今天比，不存字段
+/**
+ * 有效期是**两头各自选填**的，留空 = 这一头不设限。
+ *
+ * 为什么允许留空：整季通用的资源本来就没有起止，物主说不出准确日期。逼他填一个
+ * 就只有两种结果 —— 要么瞎填一个，那是**假数据**，会在分配那一刻把一张合法的资源
+ * 拦掉；要么他干脆不挂了。留空至少是诚实的：界面上显示「不限」，管理员一眼看到
+ * 这一头没人核实过，自己拿主意。
+ *
+ * 跟 itemConflictReason 里那句「判断不了就不拦」是同一条：**宁可漏拦也不能错拦**。
+ * 错拦把一张好资源按死，而管理员没有绕过去的办法。
+ */
+export const VALIDITY_OPEN_LABEL = "不限";
+
+// 过期与否拿有效期跟今天比，不存字段。结束日留空的资源永远不算过期 —— 没有上限。
 export function isExpired(resource: any): boolean {
   return Boolean(resource.date_range_end) && resource.date_range_end < todayIso();
+}
+
+// 有效期显示成一句话，**唯一出处** —— 物主页、Resource 管理、匹配台、排期总览的
+// 浮层都用它。散着写的话，加了「不限」这一档就得记得改五个地方。
+export function formatValidity(resource: any): string {
+  const start = resource?.date_range_start;
+  const end = resource?.date_range_end;
+  if (start && end) return `${start} ~ ${end}`;
+  if (start) return `${start} 起`;
+  if (end) return `截至 ${end}`;
+  return VALIDITY_OPEN_LABEL;
 }
 
 // 这个资源的有效期能不能覆盖这一单的全部日期。
 // 注意：判断依据是「订单那几天资源还有效」，不是「今天资源有没有过期」——
 // 一张 9 月过期的资源，配 8 月的单子是合法的。
+//
+// 留空的那一头不参与判断（见上面 VALIDITY_OPEN_LABEL 的说明）：两头都空的资源
+// 任何日期都覆盖得了，只填了开始日的资源管住「不能配更早的」。
 export function coversOrder(resource: any, demandDays: string[]): boolean {
   if (!demandDays?.length) return false;
-  return demandDays.every(
-    (d) => d >= resource.date_range_start && d <= resource.date_range_end
-  );
+  const start = resource?.date_range_start;
+  const end = resource?.date_range_end;
+  return demandDays.every((d) => (!start || d >= start) && (!end || d <= end));
 }
 
 // 卡片上那个小标签：优先显示挂牌状态，其次显示是不是过期了

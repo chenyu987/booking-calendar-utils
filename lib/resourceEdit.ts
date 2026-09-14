@@ -1,4 +1,4 @@
-import { RESOURCE_STATUSES } from "./resourceStatus";
+import { RESOURCE_STATUSES, coversOrder } from "./resourceStatus";
 
 // 物主自助改资源信息的校验。
 //
@@ -13,6 +13,7 @@ export type ResourceEditInput = {
   itemType: string;
   holderName: string;
   holderGender: string;
+  // 有效期两头各自选填，留空 = 这一头不设限（见 lib/resourceStatus.ts）
   dateRangeStart: string;
   dateRangeEnd: string;
   status: string;
@@ -26,9 +27,10 @@ export type ResourceEditError =
   | "status"; // 状态不是三个合法值之一
 
 export const RESOURCE_EDIT_ERRORS: Record<ResourceEditError, string> = {
-  required: "类型、持有人姓名性别、有效期都得填。",
+  required: "类型和持有人的姓名、性别都得填。",
   dates: "结束日期不能早于开始日期。",
   range: "有效期得盖住已经排出去的那几天 —— 要改成盖不住的，先联系我们。",
+  // 「不限」这一档不会触发 range：两头都留空的资源什么日子都盖得住
   gender: "这个资源已经排出去了，持有人性别不能改 —— 客户是按性别配的。要改先联系我们。",
   status: "资源状态不对。",
 };
@@ -47,17 +49,25 @@ export function validateResourceEdit(
   if (next.itemType !== "beta" && next.itemType !== "alpha") return "required";
   if (!next.holderName.trim()) return "required";
   if (next.holderGender !== "male" && next.holderGender !== "female") return "required";
-  if (!next.dateRangeStart || !next.dateRangeEnd) return "required";
-  if (next.dateRangeEnd < next.dateRangeStart) return "dates";
+  // 有效期两头都可以空着。两头都填了才有「先后」可言
+  if (
+    next.dateRangeStart &&
+    next.dateRangeEnd &&
+    next.dateRangeEnd < next.dateRangeStart
+  ) {
+    return "dates";
+  }
   if (!(RESOURCE_STATUSES as readonly string[]).includes(next.status)) return "status";
 
   // 没排出去的资源随便改 —— 下面两条都只在「已经有订单靠着它」的时候才成立
   if (bookedDays.length === 0) return null;
 
   // 判断依据是「已排的那几天在不在新有效期里」，不是「今天过没过期」——
-  // 跟 coversOrder 同一个道理，补录的历史单也得算数
-  const covers = bookedDays.every(
-    (d) => d >= next.dateRangeStart && d <= next.dateRangeEnd
+  // 补录的历史单也得算数。直接借 coversOrder：分配那一刻用的就是它，
+  // 这里再写一遍同样的比较，哪天「留空 = 不设限」的规则改了就会漏掉一边
+  const covers = coversOrder(
+    { date_range_start: next.dateRangeStart || null, date_range_end: next.dateRangeEnd || null },
+    bookedDays
   );
   if (!covers) return "range";
 

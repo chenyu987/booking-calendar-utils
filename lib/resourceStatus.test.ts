@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   coversOrder,
+  formatValidity,
   isExpired,
   statusBadge,
   abnormalBadge,
@@ -26,6 +27,49 @@ describe("coversOrder", () => {
 
   it("没有需求日期不算覆盖", () => {
     expect(coversOrder(resource, [])).toBe(false);
+  });
+
+  // 有效期两头各自选填，留空 = 这一头不设限
+  it("两头都留空的资源，什么日子都盖得住", () => {
+    const open = { date_range_start: null, date_range_end: null };
+    expect(coversOrder(open, ["2020-01-01", "2099-12-31"])).toBe(true);
+  });
+
+  it("只填了开始日：更早的日子拦住，之后的都行", () => {
+    const noEnd = { date_range_start: "2026-09-01", date_range_end: null };
+    expect(coversOrder(noEnd, ["2026-08-31"])).toBe(false);
+    expect(coversOrder(noEnd, ["2026-09-01", "2030-01-01"])).toBe(true);
+  });
+
+  it("只填了结束日：之后的日子拦住，之前的都行", () => {
+    const noStart = { date_range_start: null, date_range_end: "2026-09-30" };
+    expect(coversOrder(noStart, ["2026-10-01"])).toBe(false);
+    expect(coversOrder(noStart, ["2020-01-01", "2026-09-30"])).toBe(true);
+  });
+
+  it("留空的资源还是要有需求日期才算覆盖", () => {
+    expect(coversOrder({ date_range_start: null, date_range_end: null }, [])).toBe(false);
+  });
+});
+
+describe("formatValidity", () => {
+  it("两头都填了", () => {
+    expect(
+      formatValidity({ date_range_start: "2026-09-07", date_range_end: "2026-11-26" })
+    ).toBe("2026-09-07 ~ 2026-11-26");
+  });
+
+  it("只填了一头", () => {
+    expect(formatValidity({ date_range_start: "2026-09-07", date_range_end: null })).toBe(
+      "2026-09-07 起"
+    );
+    expect(formatValidity({ date_range_start: null, date_range_end: "2026-11-26" })).toBe(
+      "截至 2026-11-26"
+    );
+  });
+
+  it("两头都空 —— 整季通用的资源", () => {
+    expect(formatValidity({ date_range_start: null, date_range_end: null })).toBe("不限");
   });
 });
 

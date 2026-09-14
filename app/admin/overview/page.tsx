@@ -86,6 +86,7 @@ import {
   RESOURCE_STATUS_LABELS,
   abnormalBadge,
   coversOrder,
+  formatValidity,
   itemConflictReason,
 } from "@/lib/resourceStatus";
 import {
@@ -2502,7 +2503,7 @@ function ResourceGroup({
                 // 有效期不占一行了 —— 它只在「配不了」的时候才有用，
                 // 而那种时候按钮位置本来就会写明「订单日期超出有效期（…）」。
                 // 平时想查就悬停看这里。
-                title={`有效期 ${s.date_range_start} ~ ${s.date_range_end}　（双击打开这个资源）`}
+                title={`有效期 ${formatValidity(s)}　（双击打开这个资源）`}
                 style={{
                   textDecoration: "none",
                   color: "inherit",
@@ -2687,7 +2688,7 @@ function ResourceGroup({
                       : itemConflict
                         ? `类型不对：${s.item_type} 进不了这个地点`
                         : !covers
-                          ? `订单日期超出有效期（${s.date_range_start}~${s.date_range_end}）`
+                          ? `订单日期超出有效期（${formatValidity(s)}）`
                           : `${formatDayRanges(conflictDays)} 已被占用`}
                 </div>
               )}

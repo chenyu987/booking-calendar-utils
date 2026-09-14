@@ -60,6 +60,25 @@ function seed(overrides: Tables = {}) {
         date_range_end: "2026-07-01",
       },
       {
+        id: "s-open",
+        holder_name: "不限期资源",
+        holder_gender: "male",
+        item_type: "alpha",
+        status: "active",
+        // 有效期两头都留空 = 不设限（整季通用的资源）
+        date_range_start: null,
+        date_range_end: null,
+      },
+      {
+        id: "s-from-only",
+        holder_name: "只填了开始日",
+        holder_gender: "male",
+        item_type: "alpha",
+        status: "active",
+        date_range_start: "2026-09-11",
+        date_range_end: null,
+      },
+      {
         id: "s-paused",
         holder_name: "下架资源",
         holder_gender: "male",
@@ -122,6 +141,20 @@ describe("分配：三条校验（服务端拦，不是界面拦）", () => {
 
   it("有效期盖不住订单那几天的配不上", async () => {
     const r = await post({ order_id: "o1", resource_id: "s-expired" });
+    expect(r.status).toBe(400);
+    expect(r.json.error).toContain("覆盖不了");
+    expect(assignments()).toHaveLength(0);
+  });
+
+  it("有效期两头都留空的资源，什么日子都配得上", async () => {
+    const r = await post({ order_id: "o1", resource_id: "s-open" });
+    expect(r.status).toBe(200);
+    expect(assignments()).toHaveLength(1);
+  });
+
+  it("只填了开始日的资源，订单有一天在它之前照样拦住", async () => {
+    // 这一单是 9/10~9/11，资源从 9/11 才生效 —— 结束日空着不代表整段都行
+    const r = await post({ order_id: "o1", resource_id: "s-from-only" });
     expect(r.status).toBe(400);
     expect(r.json.error).toContain("覆盖不了");
     expect(assignments()).toHaveLength(0);

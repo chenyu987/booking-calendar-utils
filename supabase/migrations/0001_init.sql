@@ -49,8 +49,10 @@ create table resources (
   holder_name text,
   holder_gender text check (holder_gender in ('male', 'female')),
   holder_date_of_birth date,
-  date_range_start date not null,
-  date_range_end date not null,
+  -- 有效期两头各自选填，空 = 这一头不设限（整季通用的资源两头都空）。
+  -- 逼着填只会填进假日期，反倒在分配那一刻把合法的资源拦掉。见 lib/resourceStatus.ts
+  date_range_start date,
+  date_range_end date,
   -- 只表达「这个挂牌还在不在出租」。哪几天被占了由 order_assignments 算出来，
   -- 过期与否拿 date_range_end 跟今天比，都不存字段，避免跟实际排期不同步。
   status text not null default 'active'

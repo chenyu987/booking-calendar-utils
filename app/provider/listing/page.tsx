@@ -36,8 +36,9 @@ async function submitListing(formData: FormData) {
     holder_name: formData.get("holder_name") as string,
     holder_gender: formData.get("holder_gender") as string,
     holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
-    date_range_start: formData.get("start_date") as string,
-    date_range_end: formData.get("end_date") as string,
+    // 有效期两头各自选填，留空 = 这一头不设限（见 lib/resourceStatus.ts）
+    date_range_start: (formData.get("start_date") as string) || null,
+    date_range_end: (formData.get("end_date") as string) || null,
     status: "active",
   });
   if (resourceError) throw new Error(resourceError.message);
@@ -136,12 +137,16 @@ export default async function ProviderListingPage({
 
         <label style={labelStyle}>
           可用开始日期
-          <input name="start_date" type="date" required style={inputStyle} />
+          <input name="start_date" type="date" style={inputStyle} />
         </label>
         <label style={labelStyle}>
           可用结束日期
-          <input name="end_date" type="date" required style={inputStyle} />
+          <input name="end_date" type="date" style={inputStyle} />
         </label>
+        <p style={{ fontSize: 12, color: "var(--text-faint)", margin: 0, lineHeight: 1.6 }}>
+          有效期选填，不填就是这一头不设限 —— 整季通用的资源两个都空着就行。
+          拿不准别瞎填：填错了会让本来配得上的单子被拦掉。
+        </p>
         <fieldset style={fieldsetStyle}>
           <legend style={{ fontSize: 12, color: "var(--text-muted)", padding: "0 4px" }}>
             怎么联系你（有人要租的时候用）

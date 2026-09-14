@@ -14,6 +14,7 @@ import {
 import {
   RESOURCE_STATUSES,
   RESOURCE_STATUS_LABELS,
+  VALIDITY_OPEN_LABEL,
   statusBadge,
 } from "@/lib/resourceStatus";
 import {
@@ -47,8 +48,9 @@ async function createResource(formData: FormData) {
     holder_name: (formData.get("holder_name") as string)?.trim() || null,
     holder_gender: (formData.get("holder_gender") as string) || null,
     holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
-    date_range_start: formData.get("date_range_start") as string,
-    date_range_end: formData.get("date_range_end") as string,
+    // 有效期两头各自选填，留空 = 这一头不设限（见 lib/resourceStatus.ts）
+    date_range_start: (formData.get("date_range_start") as string) || null,
+    date_range_end: (formData.get("date_range_end") as string) || null,
     status: "active",
   });
   if (error) throw new Error(error.message);
@@ -66,8 +68,8 @@ async function updateResource(formData: FormData) {
       holder_name: (formData.get("holder_name") as string)?.trim() || null,
       holder_gender: (formData.get("holder_gender") as string) || null,
       holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
-      date_range_start: formData.get("date_range_start") as string,
-      date_range_end: formData.get("date_range_end") as string,
+      date_range_start: (formData.get("date_range_start") as string) || null,
+      date_range_end: (formData.get("date_range_end") as string) || null,
       status: formData.get("status") as string,
     })
     .eq("id", formData.get("id") as string);
@@ -201,8 +203,18 @@ export default async function ResourcesAdminPage({
           title="物主生日"
           style={inputStyle}
         />
-        <input name="date_range_start" type="date" required style={inputStyle} />
-        <input name="date_range_end" type="date" required style={inputStyle} />
+        <input
+          name="date_range_start"
+          type="date"
+          title="有效期开始（选填，空 = 不设下限）"
+          style={inputStyle}
+        />
+        <input
+          name="date_range_end"
+          type="date"
+          title="有效期结束（选填，空 = 不设上限）"
+          style={inputStyle}
+        />
         <button type="submit" style={buttonStyle}>
           新增 Resource
         </button>
@@ -383,7 +395,7 @@ export default async function ResourcesAdminPage({
               <input
                 name="date_range_start"
                 type="date"
-                required
+                title="空 = 不设下限"
                 defaultValue={s.date_range_start ?? ""}
                 style={{ ...inputStyle, width: "100%" }}
               />
@@ -392,7 +404,7 @@ export default async function ResourcesAdminPage({
               <input
                 name="date_range_end"
                 type="date"
-                required
+                title="空 = 不设上限"
                 defaultValue={s.date_range_end ?? ""}
                 style={{ ...inputStyle, width: "100%" }}
               />
@@ -436,8 +448,16 @@ export default async function ResourcesAdminPage({
             <div style={{ ...cellStyle, width: 70 }}>
               {calcAge(s.holder_date_of_birth) ?? "-"}
             </div>
-            <div style={{ ...cellStyle, width: 130 }}>{s.date_range_start}</div>
-            <div style={{ ...cellStyle, width: 130 }}>{s.date_range_end}</div>
+            <div style={{ ...cellStyle, width: 130 }}>
+              {s.date_range_start ?? (
+                <span style={{ color: "var(--text-faint)" }}>{VALIDITY_OPEN_LABEL}</span>
+              )}
+            </div>
+            <div style={{ ...cellStyle, width: 130 }}>
+              {s.date_range_end ?? (
+                <span style={{ color: "var(--text-faint)" }}>{VALIDITY_OPEN_LABEL}</span>
+              )}
+            </div>
             <div style={{ ...cellStyle, flex: 1.8 }}>
               {(() => {
                 const bookings = (bookingsByResource.get(s.id) ?? []).sort(

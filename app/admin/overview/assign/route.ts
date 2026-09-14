@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
-import { coversOrder, itemConflictReason } from "@/lib/resourceStatus";
+import { coversOrder, formatValidity, itemConflictReason } from "@/lib/resourceStatus";
 import {
   computeNeed,
   extraAssignmentReason,
@@ -89,7 +89,7 @@ async function addAssignment(orderId: string, resourceId: string) {
   if (itemConflict) throw new Error(itemConflict);
   if (!coversOrder(sup, ord.demand_days)) {
     throw new Error(
-      `${sup.holder_name ?? "这个资源"} 的有效期是 ${sup.date_range_start}~${sup.date_range_end}，覆盖不了这一单的日期`
+      `${sup.holder_name ?? "这个资源"} 的有效期是 ${formatValidity(sup)}，覆盖不了这一单的日期`
     );
   }
   const bookedDays = (otherAssignments ?? []).flatMap((r: any) => r.orders?.demand_days ?? []);
