@@ -16,17 +16,19 @@ async function submitListing(formData: FormData) {
   const providerId = await claimProvider(user.id, user.email ?? null);
 
   // 称呼和联系方式顺手存回 providers：认领出来的那行只有邮箱，
-  // 有人要租的时候得能联系到物主
-  const profile: Record<string, string> = {};
+  // 有人要租的时候得能联系到物主。
+  //
+  // **聊天是必填的** —— 通知物主全走聊天，没有聊天这个资源等于挂了也联系不上。
+  // 输入框上有 required，这里再拦一道：那个只挡浏览器。
   const firstName = ((formData.get("first_name") as string) ?? "").trim();
   const phone = ((formData.get("phone_number") as string) ?? "").trim();
   const chat = ((formData.get("chat") as string) ?? "").trim();
+  if (!chat) redirect("/provider/listing?error=chat");
+
+  const profile: Record<string, string> = { chat };
   if (firstName) profile.first_name = firstName;
   if (phone) profile.phone_number = phone;
-  if (chat) profile.chat = chat;
-  if (Object.keys(profile).length > 0) {
-    await supabase.from("providers").update(profile).eq("id", providerId);
-  }
+  await supabase.from("providers").update(profile).eq("id", providerId);
 
   const { error: resourceError } = await supabase.from("resources").insert({
     provider_id: providerId,
@@ -47,8 +49,10 @@ async function submitListing(formData: FormData) {
   redirect("/provider?listed=1");
 }
 
-export default async function ProviderListingPage({}: {
-  searchParams: Record<string, never>;
+export default async function ProviderListingPage({
+  searchParams,
+}: {
+  searchParams: { error?: string };
 }) {
   const user = await getSessionUser();
   if (!user) redirect("/login?as=provider");
@@ -69,6 +73,11 @@ export default async function ProviderListingPage({}: {
       <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
         填一下你手上的额度信息，有人要租的话管理员会联系你。
       </p>
+      {searchParams.error === "chat" && (
+        <p style={{ color: "var(--danger)", fontSize: 13 }}>
+          账号得填 —— 我们是通过聊天联系你的。
+        </p>
+      )}
 
       <form
         action={submitListing}
@@ -146,10 +155,14 @@ export default async function ProviderListingPage({}: {
             />
             <input
               name="chat"
-              placeholder="账号"
+              placeholder="账号 *"
+              required
               defaultValue={me?.chat ?? ""}
               style={inputStyle}
             />
+            <p style={{ fontSize: 12, color: "var(--warn)", margin: 0, lineHeight: 1.6 }}>
+              重要：账号必填 —— 有人要租你的资源，我们是通过聊天联系你的。
+            </p>
             <input
               name="phone_number"
               placeholder="手机号"
