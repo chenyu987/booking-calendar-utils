@@ -8,13 +8,13 @@ import { formatParty } from "@/lib/party";
 import { RESOURCE_EDIT_ERRORS } from "@/lib/resourceEdit";
 import { matchDisplay, isOpenMatch, isStaleMatch } from "@/lib/matchStatus";
 import { firstDay } from "@/lib/matchSort";
-import { actionableOrders, buildProviderBoard } from "@/lib/providerBoard";
+import { actionableOrders, buildProviderBoard, buildPreviewBoard } from "@/lib/providerBoard";
 import { matchesLocationFilter } from "@/lib/locations";
 import { parseTheme, THEME_COOKIE } from "@/lib/theme";
 import { cookies } from "next/headers";
 
 import { bookedDaysFor, readViewSettings } from "./data";
-import DemandBoard, { ProposeConfirm, parseView } from "./DemandBoard";
+import DemandBoard, { BoardCalendar, parseView } from "./DemandBoard";
 import ResourceList from "./ResourceList";
 import AccountMenu from "./AccountMenu";
 import Disclosure, { summaryCss } from "./Disclosure";
@@ -57,12 +57,21 @@ export default async function ProviderHomePage({
     view?: string;
     region?: string;
     mtn?: string;
-    propose?: string;
+    /** 刚提完意向：把「我提过的意向」那块展开，让人看见它确实落进去了 */
     proposed?: string;
   };
 }) {
   const user = await getSessionUser();
   if (!user) redirect("/login?as=provider");
+
+  // 还在找资源的单子跟「我是谁」无关，**不用等认领那一趟**。这一页每个来回都是
+  // 几百毫秒（托管的 Supabase），能并起来的就别串着 ——
+  // 只查还在找资源的单子。**不查 customers，也不查 amount** —— 不是查出来再藏，是根本不查。
+  // 金额是客户付给平台的总价，不是物主拿的钱，给他看只会当成收入预期。
+  const ordersPromise = supabase
+    .from("orders")
+    .select("id, location, demand_days, male_count, female_count")
+    .eq("status", "created");
 
   // 兜底：/auth/callback 里认领失败过的话，这里再补一次
   const providerId = await claimProvider(user.id, user.email ?? null);
@@ -87,13 +96,8 @@ export default async function ProviderHomePage({
   const myResources = resources ?? [];
   const resourceIds = myResources.map((s: any) => s.id);
 
-  // 只查还在找资源的单子。**不查 customers，也不查 amount** —— 不是查出来再藏，是根本不查。
-  // 金额是客户付给平台的总价，不是物主拿的钱，给他看只会当成收入预期。
   const [{ data: orders }, bookedByResource, { data: myMatches }] = await Promise.all([
-    supabase
-      .from("orders")
-      .select("id, location, demand_days, male_count, female_count")
-      .eq("status", "created"),
+    ordersPromise,
     bookedDaysFor(resourceIds),
     resourceIds.length > 0
       ? supabase
@@ -159,11 +163,6 @@ export default async function ProviderHomePage({
   const editing = searchParams.edit;
   const errorText = searchParams.error ? ERROR_TEXT[searchParams.error] ?? "出了点问题，再试一次。" : null;
 
-  const [pendingOrder, pendingResource] = (searchParams.propose ?? "").split(":");
-  const pendingBlock = board.rows
-    .find((r) => r.resourceId === pendingResource)
-    ?.lanes.flat()
-    .find((b) => b.orderId === pendingOrder);
 
   // 「在等」不算已经落空的：那一单都开始了，跟他说「等确认」就是在骗他 ——
   // 他再等也等不到了。落空与否现算不存，见 lib/matchStatus.ts
@@ -199,7 +198,6 @@ export default async function ProviderHomePage({
       </div>
 
       {searchParams.listed && <p style={okStyle}>资源挂上了，有人要租我们会联系你。</p>}
-      {searchParams.proposed && <p style={okStyle}>已提交意向，等管理员确认。</p>}
       {searchParams.saved && !editing && <p style={okStyle}>已保存</p>}
       {searchParams.deleted && <p style={okStyle}>资源已删除。</p>}
       {errorText && !editing && (
@@ -232,29 +230,22 @@ export default async function ProviderHomePage({
           </div>
 
           {/* 还没挂资源的时候也让他看见有多少活儿 —— 空页面劝不动人，一屏需求才劝得动。
+              **画成日历，跟挂了资源之后看到的是同一张**：摊在时间轴上才看得出「这几周
+              有多少活儿、都堆在哪几个周末」，六行字看不出来；而且他挂完资源回到这一页，
+              还是这张日历，只是块变成能点的了。
               **但不能让他以为这些他都能接**：现在没有资源，性别 / 有效期 / 类型一条都
-              筛不了，所以这是全部在找资源的单，上面那句话把口径说清楚了。
+              筛不了，所以这是全部在找资源的单（块上一个能接的资源都没有，点不动），
+              上面那句话把口径说清楚了。
               一样不带客户姓名和金额，跟挂了资源之后的规矩一致。 */}
           {waiting.length > 0 && (
-            <ul style={listStyle}>
-              {waiting.slice(0, TEASER_LIMIT).map((o: any) => (
-                <li key={o.id} style={listItemStyle}>
-                  <span style={{ fontSize: 13 }}>
-                    {formatDayRanges(o.demand_days ?? [])}
-                    <span style={{ color: "var(--text-muted)" }}>
-                      {` · ${(o.demand_days ?? []).length}天`}
-                      {o.location ? ` · ${o.location}` : ""}
-                      {` · ${formatParty(o.male_count, o.female_count)}`}
-                    </span>
-                  </span>
-                </li>
-              ))}
-              {waiting.length > TEASER_LIMIT && (
-                <li style={{ ...listItemStyle, color: "var(--text-faint)", fontSize: 12 }}>
-                  …还有 {waiting.length - TEASER_LIMIT} 单
-                </li>
-              )}
-            </ul>
+            <BoardCalendar
+              board={buildPreviewBoard({
+                today: todayIso(),
+                orders: orders ?? [],
+                assignedByOrder,
+              })}
+              bandDays={viewSettings.bandDays}
+            />
           )}
         </>
       ) : (
@@ -266,24 +257,11 @@ export default async function ProviderHomePage({
             怎么算「接得了」？
           </summary>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "6px 0 0", lineHeight: 1.7 }}>
-            每一行是你的一个资源。蓝色是已经排出去的，虚线框是你这个资源接得了的需求 ——
-            有效期盖得住、那几天没占着、缺的正好是你这个资源的性别。
-            点一下提个意向，管理员确认之后才算数。
+            一个块是一单。虚线框是你的资源接得了的需求 —— 有效期盖得住、那几天没占着、
+            缺的正好是你手上这个资源的性别；蓝色是你已经排出去的日子。
+            点一个单子，再挑用哪个资源接，管理员确认之后才算数。
           </p>
         </details>
-
-        {pendingBlock && (
-          <ProposeConfirm
-            block={pendingBlock}
-            resourceName={
-              (myResources.find((s: any) => s.id === pendingResource) as any)?.holder_name ?? "这个资源"
-            }
-            orderId={pendingOrder}
-            resourceId={pendingResource}
-            card={card}
-            view={view}
-          />
-        )}
 
         {activeResources.length === 0 ? (
           // 挂过资源，但一张都不在出租中（暂停 / 已下架）。跟「一张都没挂」不是一回事，
@@ -300,7 +278,6 @@ export default async function ProviderHomePage({
             resources={activeResources}
             card={card}
             view={view}
-            propose={searchParams.propose ?? ""}
             bandDays={viewSettings.bandDays}
             start={viewSettings.start}
             region={region}
@@ -385,8 +362,6 @@ export default async function ProviderHomePage({
   );
 }
 
-/** 预告最多列几条 —— 再多就成了「所有单子列表」，而他现在一单也接不了 */
-const TEASER_LIMIT = 6;
 
 const heroSubStyle: React.CSSProperties = {
   fontSize: 13,

@@ -5,7 +5,6 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
 import { claimProvider } from "@/lib/accountClaim";
-import { assignBlockReason } from "@/lib/assignable";
 import { validateResourceEdit, deleteBlockReason } from "@/lib/resourceEdit";
 import { cookies } from "next/headers";
 
@@ -133,74 +132,9 @@ export async function saveContact(formData: FormData) {
   redirect("/provider?saved=1");
 }
 
-// 提一个意向。**意向不是事实** —— 写进 matches，管理员确认之后才变成 order_assignments。
-//
-// 这里跑的是跟分配一模一样的那套校验（lib/assignable.ts）。原来这条路只校验了
-// 「这个资源是不是你的」，界面上过滤了但服务端没有 —— curl 一下能给任何单提任何意向。
-// 坏意向变不成坏分配（真闸门在管理员把 match 改成 chosen 那一步），但入口从列表
-// 变成日历之后点起来容易多了，垃圾意向会淹掉匹配台。
-export async function proposeMatch(formData: FormData) {
-  const providerId = await requireProvider();
-
-  const orderId = (formData.get("order_id") as string) ?? "";
-  const resourceId = (formData.get("resource_id") as string) ?? "";
-  // 提完回到原来看的那个资源、原来那个视图上，别把人的筛选和视图踢掉
-  const card = text(formData, "card");
-  const view = text(formData, "view");
-  const back = `${card ? `&card=${card}` : ""}${view === "list" ? "&view=list" : ""}`;
-
-  const { data: sup } = await supabase
-    .from("resources")
-    .select(
-      "id, status, deleted_at, holder_name, holder_gender, item_type, date_range_start, date_range_end"
-    )
-    .eq("id", resourceId)
-    .eq("provider_id", providerId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (!sup) redirect(`/provider?error=notmine${back}`);
-
-  const [{ data: ord }, { data: assignedRows }, { data: dup }] = await Promise.all([
-    supabase
-      .from("orders")
-      .select("id, status, location, demand_days, male_count, female_count")
-      .eq("id", orderId)
-      .maybeSingle(),
-    supabase
-      .from("order_assignments")
-      .select("resources(id, holder_gender)")
-      .eq("order_id", orderId),
-    supabase
-      .from("matches")
-      .select("id")
-      .eq("order_id", orderId)
-      .eq("resource_id", resourceId)
-      .in("status", ["proposed", "allowed", "chosen"])
-      .maybeSingle(),
-  ]);
-  if (!ord || ord.status !== "created") redirect(`/provider?error=blocked${back}`);
-  // 同一个资源对同一单提两次没有意义，只会把匹配台刷满
-  if (dup) redirect(`/provider?error=dup${back}`);
-
-  const booked = (await bookedDaysFor([resourceId], orderId)).get(resourceId) ?? [];
-  const blocked = assignBlockReason({
-    order: ord,
-    resource: sup,
-    alreadyAssigned: (assignedRows ?? []).map((r: any) => r.resources).filter(Boolean),
-    resourceBookedDays: booked,
-  });
-  if (blocked) redirect(`/provider?error=blocked${back}`);
-
-  // Provider 从 resource 推得出来，不重复存
-  const { error } = await supabase
-    .from("matches")
-    .insert({ order_id: orderId, resource_id: resourceId, status: "proposed" });
-  if (error) redirect(`/provider?error=save${back}`);
-
-  revalidatePath("/admin/matches");
-  revalidatePath("/provider");
-  redirect(`/provider?proposed=1${back}`);
-}
+// 提意向那条路**不在这儿** —— 它是个 Route Handler（app/provider/propose/route.ts），
+// 校验和写库在 app/provider/proposeIntent.ts。Server Action 末尾的 redirect 会把整个
+// /provider 先渲染完才回响应（实测 2 秒多），挂在「点一下资源名」的关键路径上太冤。
 
 // 日历怎么看：每行几天、从哪天开始。存 cookie（见 data.ts 里那段为什么不存库）。
 //

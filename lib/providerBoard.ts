@@ -4,12 +4,18 @@ import { contiguousRuns, formatDayRanges } from "./dates";
 import { formatParty } from "./party";
 
 /**
- * 物主那张「我的资源 × 日期」日历的模型层。React 一行都没有，方便单测。
+ * 物主那张日历的模型层。React 一行都没有，方便单测。
+ *
+ * **一个块一个单子**，跟排期总览和匹配台同一个排法。原来是「一行一个资源」——
+ * 两个资源就是两行并排的日历，同一单能被两个资源接就在两行里各画一遍，
+ * 越多资源越乱，而物主要看的本来就是「有哪些单」，不是「我的资源长什么样」。
+ * 现在点一个单子，下面再问「用哪个资源接」—— 选资源是提意向那一步的事，
+ * 不该拿整张日历的纵轴去表达。
  *
  * **这不是 admin 排期总览的复用。** 两张日历看起来像，喂的数据完全不同：
- * admin 那张纵轴是全部资源、块上写着客户姓名和金额；物主这张纵轴**只有他自己的资源**，
- * 块上一个字的客户信息都没有。物主看不到客户是谁，跟客户看不到持有人是谁对称 ——
- * 直接把 admin 那张搬过来就把这条作废了，所以是另写一层，不是加个 readonly 开关。
+ * admin 那张块上写着客户姓名和金额；物主这张一个字的客户信息都没有。
+ * 物主看不到客户是谁，跟客户看不到持有人是谁对称 —— 直接把 admin 那张搬过来
+ * 就把这条作废了，所以是另写一层，不是加个 readonly 开关。
  *
  * 列宽也是另一个数：admin 的 COL_WIDTH=180 是为了在块里塞下姓名·地点·状态·备注·金额，
  * 物主这边块上只有地点和缺口，180 全是空的。这不是「第二份同一个数」，是两个数。
@@ -18,6 +24,29 @@ export const PROVIDER_COL_WIDTH = 56;
 export const PROVIDER_COL_GAP = 2;
 /** 窗口最多铺这么多天 —— 再长横着滚不完，也没人排那么远 */
 export const PROVIDER_MAX_DAYS = 120;
+
+/**
+ * 物主这张日历只看**今天往前两周、往后四周**。设置里的「从哪天开始」也只能在
+ * 这个范围里挑 —— 不是默认值而是硬边界。
+ *
+ * 为什么资源他：物主要做的决定只有一个「这单我接不接」，而能接的单都在眼前这几周。
+ * 库里有一张 11 月的单，日历就得从 9 月一路铺到 11 月，中间四十多天全是空的 ——
+ * 空格子把真有东西的那两周挤得没法看（admin 那张不资源，他要排整个季）。
+ * 窗口外还有几单不会藏着不说，日历下面写一句。
+ */
+export const PROVIDER_WINDOW_BACK_DAYS = 14;
+/**
+ * 27 不是 28：**今天自己算一格**。往后四周 = 从今天起 28 天，末尾那天是 今天+27。
+ * 写 28 的话一共 29 格，每行 14 天就切成 14 + 14 + 1 —— 最后孤零零一格单开一带子。
+ */
+export const PROVIDER_WINDOW_AHEAD_DAYS = 27;
+
+export function providerWindowBounds(today: string): { from: string; to: string } {
+  return {
+    from: shiftDay(today, -PROVIDER_WINDOW_BACK_DAYS),
+    to: shiftDay(today, PROVIDER_WINDOW_AHEAD_DAYS),
+  };
+}
 
 /**
  * 每行排几天。排不下的日子**换到下一行**，不是横着滚出去 —— 跟 admin 排期总览
@@ -47,22 +76,28 @@ export function clampProviderBandDays(days: unknown): number {
 /** 今天往前留几天：最近排出去的活儿还看得见，有个上下文 */
 const LOOKBACK_DAYS = 3;
 
-export type ProviderBlock = {
-  orderId: string;
-  startIndex: number;
-  length: number;
-  label: string;
-  title: string;
-  /** 已经提过意向了，再点没意义 */
+/** 这一单我的哪个资源接得了 —— 点完块就在这几张里挑一张提意向 */
+export type ProviderFit = {
+  resourceId: string;
+  holderName: string;
+  /** 这个资源对这一单已经提过了，再提没意义 */
   proposed: boolean;
 };
 
-export type ProviderRow = {
-  resourceId: string;
-  /** 已经排出去的（我自己的排期），不可点 */
-  booked: ProviderBlock[];
-  /** 我这个资源能接的需求，按不重叠打包成几条 */
-  lanes: ProviderBlock[][];
+export type ProviderBlock = {
+  /** 已排块没有 orderId（那是我自己的占用，不是能接的单） */
+  orderId: string;
+  startIndex: number;
+  length: number;
+  /** 块上第一行：地点。已排块写「已排」 */
+  location: string;
+  /** 块上第二行：还差几个资源。已排块写持有人名字 */
+  gap: string;
+  title: string;
+  kind: "booked" | "candidate";
+  fits: ProviderFit[];
+  /** 能接的资源都已经提过了 —— 块上标一下，点进去也没得选 */
+  proposed: boolean;
 };
 
 /** 日历下面那条清单的一项：一个资源 × 一单，不按连续段拆 */
@@ -78,17 +113,20 @@ export type ProviderCandidate = {
 
 export type ProviderBoard = {
   days: string[];
-  rows: ProviderRow[];
+  /** 互不重叠的挤一条道，重叠的往下排 —— 跟排期总览一个排法 */
+  lanes: ProviderBlock[][];
   /**
    * 跟日历上画的是同一批候选，只是摊平成一条清单。
    *
    * 为什么两份都要：日历回答「我的资源什么时候空着」，清单回答「现在有哪些能接」。
    * 手机上一屏只看得到五六天，光有日历的话，一个月后那单得横着滚半天才够得到 ——
-   * 物主大概率就是在手机上看的。**不是第二份数据**：两边都从 rows 这一份算出来。
+   * 物主大概率就是在手机上看的。**不是第二份数据**：两边都从 lanes 这一份算出来。
    */
   candidates: ProviderCandidate[];
   /** 有多少单是「有资源能接」的（去重），用来写一句概览 */
   candidateOrderCount: number;
+  /** 其中有几单落在窗口外（四周之后）—— 日历上画不出来，得用一句话交代 */
+  outsideWindowCount: number;
 };
 
 function shiftDay(iso: string, delta: number): string {
@@ -106,18 +144,30 @@ function shiftDay(iso: string, delta: number): string {
  * @param explicitStart 界面上指定了起始日就**原样用**，不再往前留那 3 天 ——
  *   说从这天开始就从这天开始，不然「我明明填了 12/1 怎么显示 11/28」很莫名。
  *   （跟 admin 的 resolveTimelineStart 同一条规矩。）
+ * @param bounds 硬边界，两头都夹住，**指定的起始日也夹**。物主那张传
+ *   `providerWindowBounds(today)`；**admin 那两张不传** —— 匹配台要排整个季，
+ *   夹住它等于把远处的单子藏起来。
  */
 export function buildDayWindow(
   today: string,
   marks: string[],
-  explicitStart?: string
+  explicitStart?: string,
+  bounds?: { from: string; to: string }
 ): string[] {
-  const sorted = [...new Set(marks)].sort();
+  // **先把界外的日子扔掉再算两头。** 拿界外的日子算终点的话，日历会一路铺到
+  // 上界，末尾拖出一条十几天全空的带子 —— 那几天什么都没有，正是因为唯一落在
+  // 那儿的单子已经被窗口挡掉了
+  const all = [...new Set(marks)].sort();
+  const sorted = bounds ? all.filter((d) => d >= bounds.from && d <= bounds.to) : all;
   if (sorted.length === 0) return [];
   const lookback = shiftDay(today, -LOOKBACK_DAYS);
   const auto = sorted[0] > lookback ? sorted[0] : lookback;
-  const start = explicitStart || auto;
+  let start = explicitStart || auto;
   const last = sorted[sorted.length - 1];
+  if (bounds) {
+    if (start < bounds.from) start = bounds.from;
+    if (start > bounds.to) start = bounds.to;
+  }
   const days: string[] = [];
   for (let d = start; d <= last && days.length < PROVIDER_MAX_DAYS; d = shiftDay(d, 1)) {
     days.push(d);
@@ -152,9 +202,11 @@ export function packLanes<T extends { startIndex: number; length: number }>(
   return lanes;
 }
 
+/** 分带之后的一段。整张日历只有一组泳道，所以包成一个「行」丢进 splitBoardIntoBands */
+export type ProviderBandRow = { booked: ProviderBlock[]; lanes: ProviderBlock[][] };
 export type ProviderBand = {
   days: string[];
-  rows: ProviderRow[];
+  rows: ProviderBandRow[];
 };
 
 /**
@@ -284,85 +336,180 @@ export function buildProviderBoard(input: {
   // 否则物主提了一堆管理员根本配不上的意向
   const actionable = actionableOrders(orders, today);
 
-  const fits = new Map<string, Order[]>();
+  // 反过来按单收：一单我有几个资源能接，是点开之后要挑的那几张
+  const fitsByOrder = new Map<string, ProviderFit[]>();
   for (const s of resources) {
     const booked = bookedByResource.get(s.id) ?? [];
-    fits.set(
-      s.id,
-      actionable.filter(
-        (o) =>
-          (o.demand_days ?? []).length > 0 &&
-          assignBlockReason({
-            order: o,
-            resource: s,
-            alreadyAssigned: assignedByOrder.get(o.id) ?? [],
-            resourceBookedDays: booked,
-          }) === null
-      )
-    );
+    for (const o of actionable) {
+      if ((o.demand_days ?? []).length === 0) continue;
+      const blocked = assignBlockReason({
+        order: o,
+        resource: s,
+        alreadyAssigned: assignedByOrder.get(o.id) ?? [],
+        resourceBookedDays: booked,
+      });
+      if (blocked) continue;
+      fitsByOrder.set(o.id, [
+        ...(fitsByOrder.get(o.id) ?? []),
+        {
+          resourceId: s.id,
+          holderName: s.holder_name ?? "?",
+          proposed: proposed.has(`${o.id}:${s.id}`),
+        },
+      ]);
+    }
   }
+
+  const fittingOrders = actionable.filter((o) => fitsByOrder.has(o.id));
 
   const marks = [
     ...resources.flatMap((s) => bookedByResource.get(s.id) ?? []),
-    ...resources.flatMap((s) => (fits.get(s.id) ?? []).flatMap((o) => o.demand_days ?? [])),
+    ...fittingOrders.flatMap((o) => o.demand_days ?? []),
   ];
-  const days = buildDayWindow(today, marks, input.start);
+  const days = buildDayWindow(today, marks, input.start, providerWindowBounds(today));
   const indexOf = new Map(days.map((d, i) => [d, i]));
 
-  const rows: ProviderRow[] = resources.map((s) => {
-    const booked = runsToBlocks(bookedByResource.get(s.id) ?? [], indexOf, (run) => ({
+  // 已经排出去的日子也画在同一张日历上 —— 它们不是「能接的单」，但正是
+  // 「这几天我接不了」的原因。分成两张表的话，物主得自己在两张之间对日期
+  const booked = resources.flatMap((s) =>
+    runsToBlocks(bookedByResource.get(s.id) ?? [], indexOf, (run) => ({
       orderId: "",
-      label: "已排",
-      title: `已排 ${formatDayRanges(run)}（${run.length}天）`,
+      kind: "booked" as const,
+      location: "已排",
+      gap: s.holder_name ?? "?",
+      title: `${s.holder_name ?? "这个资源"}已排 ${formatDayRanges(run)}（${run.length}天）`,
+      fits: [],
       proposed: false,
-    }));
+    }))
+  );
 
-    const candidates = (fits.get(s.id) ?? []).flatMap((o) => {
-      const need = computeNeed(o, assignedByOrder.get(o.id) ?? []);
-      const gap = formatGap(need);
-      const isProposed = proposed.has(`${o.id}:${s.id}`);
-      return runsToBlocks(o.demand_days ?? [], indexOf, (run) => ({
-        orderId: o.id,
-        label: [o.location || "未填地点", gap].join(" · "),
-        // 刻意没有客户姓名，也没有金额 —— 金额是客户付给平台的总价，不是物主拿的钱
-        title: [
-          formatDayRanges(o.demand_days ?? []),
-          `${(o.demand_days ?? []).length}天`,
-          o.location || "没填地点",
-          formatParty(o.male_count, o.female_count),
-          gap,
-          isProposed ? "你已经提过意向了" : "",
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        proposed: isProposed,
-      }));
-    });
+  const described = fittingOrders.map((o) => ({
+    order: o,
+    fits: fitsByOrder.get(o.id) ?? [],
+    ...describeOrder(o, assignedByOrder.get(o.id) ?? []),
+  }));
 
-    return { resourceId: s.id, booked, lanes: packLanes(candidates) };
-  });
+  const candidates = described.flatMap((d) =>
+    runsToBlocks(d.order.demand_days ?? [], indexOf, () => ({
+      orderId: d.order.id,
+      kind: "candidate" as const,
+      location: d.location,
+      gap: d.gap,
+      title: d.title,
+      fits: d.fits,
+      proposed: d.fits.every((f) => f.proposed),
+    }))
+  );
 
-  // 摊平成清单：一单被切成几段的（只用 24、25、27）在日历上是几个块，
-  // 这里只算一条 —— 清单是「有哪些单能接」，不是「画了几个块」
-  const candidates: ProviderCandidate[] = [];
-  for (const row of rows) {
-    const seen = new Set<string>();
-    for (const b of row.lanes.flat()) {
-      if (seen.has(b.orderId)) continue;
-      seen.add(b.orderId);
-      candidates.push({
-        orderId: b.orderId,
-        resourceId: row.resourceId,
-        firstDay: days[b.startIndex],
-        label: b.label,
-        title: b.title,
-        proposed: b.proposed,
+  const lanes = packLanes([...booked, ...candidates]);
+
+  // 清单**不跟着窗口走**：日历只画这几周（见 PROVIDER_WINDOW_* 那段），
+  // 但「我一共有几单能接」不该因此少报。窗口外那几单在日历下面用一句话交代，
+  // 数量就是这两个的差
+  const inWindow = new Set(candidates.map((b) => b.orderId));
+
+  // 清单仍然是「一个资源 × 一单」：点进去就是拿那个资源提，省掉再挑一次。
+  // 一单被切成几段的（只用 24、25、27）在日历上是几个块，这里只算一条
+  const list: ProviderCandidate[] = [];
+  for (const d of described) {
+    const firstDay = [...(d.order.demand_days ?? [])].sort()[0] ?? "";
+    for (const f of d.fits) {
+      list.push({
+        orderId: d.order.id,
+        resourceId: f.resourceId,
+        firstDay,
+        label: [d.location, d.gap].filter(Boolean).join(" · "),
+        title: d.title,
+        proposed: f.proposed,
       });
     }
   }
-  candidates.sort((a, b) => (a.firstDay < b.firstDay ? -1 : a.firstDay > b.firstDay ? 1 : 0));
+  list.sort((a, b) => (a.firstDay < b.firstDay ? -1 : a.firstDay > b.firstDay ? 1 : 0));
 
-  const candidateOrderCount = new Set(candidates.map((c) => c.orderId)).size;
+  return {
+    days,
+    lanes,
+    candidates: list,
+    candidateOrderCount: fittingOrders.length,
+    outsideWindowCount: fittingOrders.filter((o) => !inWindow.has(o.id)).length,
+  };
+}
 
-  return { days, rows, candidates, candidateOrderCount };
+/**
+ * 还没挂资源时给他看的那张日历：**全部在找资源的单**，一个都点不了。
+ *
+ * 为什么也走日历：空页面劝不动人，一屏需求才劝得动，而摊在时间轴上比列六行字
+ * 更像「这几周有多少活儿」。**但不能让他以为这些他都能接** —— 现在没有资源，
+ * 性别 / 有效期 / 类型一条都筛不了，所以块上一个 fit 都没有，点不动，
+ * 上面那句文案把口径说清楚。
+ */
+export function buildPreviewBoard(input: {
+  today: string;
+  orders: Order[];
+  /** 配了一半的单子要写清楚还差什么 —— 跟挂了资源之后看到的是同一句话 */
+  assignedByOrder?: Map<string, { holder_gender?: string | null }[]>;
+  start?: string;
+}): ProviderBoard {
+  const { today, orders, assignedByOrder } = input;
+  const actionable = actionableOrders(orders, today);
+  const days = buildDayWindow(
+    today,
+    actionable.flatMap((o) => o.demand_days ?? []),
+    input.start,
+    providerWindowBounds(today)
+  );
+  const indexOf = new Map(days.map((d, i) => [d, i]));
+
+  const blocks = actionable.flatMap((o) => {
+    const d = describeOrder(o, assignedByOrder?.get(o.id) ?? []);
+    return runsToBlocks(o.demand_days ?? [], indexOf, () => ({
+      orderId: o.id,
+      kind: "candidate" as const,
+      location: d.location,
+      gap: d.gap,
+      title: d.title,
+      // 一个资源都没有 = 一个都接不了，块只是给他看看
+      fits: [],
+      proposed: false,
+    }));
+  });
+
+  const inWindow = new Set(blocks.map((b) => b.orderId));
+  return {
+    days,
+    lanes: packLanes(blocks),
+    candidates: [],
+    candidateOrderCount: actionable.length,
+    outsideWindowCount: actionable.filter((o) => !inWindow.has(o.id)).length,
+  };
+}
+
+/**
+ * 一单怎么写在界面上 —— 块上两行、清单一行、hover 的 title，全从这一份来。
+ *
+ * **title 只描述这一单**，不写「几个资源接得了」「已经提过了」那种状态：状态由块的
+ * 样式和浮层说，写进 title 的话清单里每行都要跟右边的「用 xxx」「已提意向」重复。
+ * 刻意没有客户姓名，也没有金额 —— 金额是客户付给平台的总价，不是物主拿的钱。
+ */
+function describeOrder(
+  o: Order,
+  assigned: { holder_gender?: string | null }[]
+): { location: string; gap: string; title: string } {
+  // 人数一个都没填的老单子（库里还有几条）：算出来的缺口是「已配齐」，
+  // 摆在一张「还在找资源」的日历上自相矛盾。照实说没填，别让它冒充配好了的
+  const headcount = (o.male_count ?? 0) + (o.female_count ?? 0);
+  const gap = headcount === 0 ? "人数没填" : formatGap(computeNeed(o, assigned));
+  return {
+    location: o.location || "未填地点",
+    gap,
+    title: [
+      formatDayRanges(o.demand_days ?? []),
+      `${(o.demand_days ?? []).length}天`,
+      o.location || "没填地点",
+      formatParty(o.male_count, o.female_count),
+      gap,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  };
 }

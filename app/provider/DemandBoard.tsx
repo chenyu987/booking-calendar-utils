@@ -1,28 +1,29 @@
 import Link from "next/link";
-import { isWeekend, shortLabel, todayIso } from "@/lib/dates";
+import { shortLabel, todayIso } from "@/lib/dates";
+import BoardDayHeader from "@/components/BoardDayHeader";
 import {
   PROVIDER_BAND_DAYS_MAX,
   PROVIDER_BAND_DAYS_MIN,
   PROVIDER_COL_GAP,
   PROVIDER_COL_WIDTH,
+  providerWindowBounds,
   splitBoardIntoBands,
   type ProviderBand,
   type ProviderBlock,
   type ProviderBoard,
-  type ProviderRow,
 } from "@/lib/providerBoard";
 import { LOCATION_OPTIONS, REGION_LABELS, type Region } from "@/lib/locations";
 import { saveViewSettings } from "./actions";
-import { formatHolder } from "@/lib/age";
-import { proposeMatch } from "./actions";
+import ProposePicker, { ProposeOneCard } from "./ProposePicker";
 
-const LANE_H = 26;
-const HEADER_H = 36;
-const LABEL_W = 150;
+/** 块是两行的（地点一行、还差几张一行），行高跟另外两张日历同一个数 */
+const LANE_H = 42;
 
 // 物主主页上的需求视图。**同一批数据两种看法，一次只显示一种**：
 //
-//   · 日历 —— 我的资源 × 日期。回答「我的资源什么时候空着，哪几单正好落在空档里」
+//   · 日历 —— 一个块一个单子，跟排期总览和匹配台同一个排法。点一个单子，
+//     下面再问「用哪个资源接」。原来是一行一个资源，两个资源就是两张并排的日历，
+//     同一单能被两个资源接就画两遍 —— 资源越多越乱，而要看的本来就是「有哪些单」
 //   · 列表 —— 一行一单。回答「现在有哪些能接」，手机上不用横着滚
 //
 // 原来两个是上下摞着的，等于每次都把两份同样的东西看两遍。切换存在 URL 的
@@ -44,7 +45,6 @@ export default function DemandBoard({
   resources,
   card,
   view,
-  propose,
   bandDays,
   start,
   region,
@@ -55,8 +55,6 @@ export default function DemandBoard({
   /** 收窄到某一个资源，空 = 全部 */
   card: string;
   view: DemandView;
-  /** `${orderId}:${resourceId}`，待确认的那一个 */
-  propose: string;
   /** 每行排几天 */
   bandDays: number;
   /** 指定的起始日，空 = 默认 */
@@ -64,9 +62,7 @@ export default function DemandBoard({
   region: string;
   mtn: string;
 }) {
-  const byResource = new Map(resources.map((s: any) => [s.id, s]));
-  const today = todayIso();
-  const bands = splitBoardIntoBands(board, bandDays);
+  const windowBounds = providerWindowBounds(todayIso());
 
   // 切视图、换资源、点需求都从这儿出链接 —— 保证另外那两个参数不会被踢掉
   const href = (extra?: Record<string, string>) => {
@@ -149,7 +145,16 @@ export default function DemandBoard({
             <input type="hidden" name="view" value={view} />
             <label style={settingLabelStyle}>
               从哪天开始
-              <input type="date" name="start" defaultValue={start} style={settingInputStyle} />
+              {/* 上下界跟服务端夹的是同一个范围（lib/providerBoard.ts 的 providerWindowBounds）。
+                  这儿给 min/max 只是让日期选择器好用一点 —— 真正拦住的是服务端 */}
+              <input
+                type="date"
+                name="start"
+                min={windowBounds.from}
+                max={windowBounds.to}
+                defaultValue={start}
+                style={settingInputStyle}
+              />
             </label>
             <label style={settingLabelStyle}>
               每行几天
@@ -166,7 +171,9 @@ export default function DemandBoard({
               保存
             </button>
             <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
-              起始日留空 = 回到默认。排不下的日子换到下一行，不会横着滚出去。
+              日历只看今天往前两周、往后四周（{shortLabel(windowBounds.from).date} –{" "}
+              {shortLabel(windowBounds.to).date}），起始日也在这个范围里挑，留空 = 回到默认。
+              排不下的日子换到下一行，不会横着滚出去。
             </span>
           </form>
         </details>
@@ -193,27 +200,7 @@ export default function DemandBoard({
             </Link>
           </div>
 
-          {view === "calendar" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {collapseEmptyBands(bands).map((item, i) =>
-                item.kind === "band" ? (
-                  <Band
-                    key={item.band.days[0] ?? i}
-                    band={item.band}
-                    byResource={byResource}
-                    today={today}
-                    card={card}
-                    propose={propose}
-                    href={href}
-                  />
-                ) : (
-                  <div key={`gap-${item.from}`} style={gapStyle}>
-                    {shortLabel(item.from).date} – {shortLabel(item.to).date} 没有安排，也没有能接的需求
-                  </div>
-                )
-              )}
-            </div>
-          )}
+          {view === "calendar" && <BoardCalendar board={board} bandDays={bandDays} />}
           {view === "list" && board.candidates.length === 0 && (
             <p style={{ color: "var(--text-faint)", fontSize: 13, margin: "10px 0 0" }}>
               现在没有能接的需求。日历那边能看到你的资源哪几天已经排出去了。
@@ -230,7 +217,7 @@ export default function DemandBoard({
                     {!card && resources.length > 1 && (
                       <span style={{ color: "var(--text-faint)" }}>
                         {" "}
-                        · 用 {byResource.get(c.resourceId)?.holder_name ?? "?"}
+                        · 用 {resources.find((s: any) => s.id === c.resourceId)?.holder_name ?? "?"}
                       </span>
                     )}
                   </span>
@@ -239,12 +226,14 @@ export default function DemandBoard({
                       已提意向
                     </span>
                   ) : (
-                    <Link
-                      href={href({ propose: `${c.orderId}:${c.resourceId}` })}
-                      style={{ fontSize: 13, color: "var(--link)", flexShrink: 0 }}
-                    >
-                      我可以接 →
-                    </Link>
+                    // 确认长在这一行里，提完也不跳转 —— 见 ProposePicker.tsx 开头那段
+                    <ProposeOneCard
+                      orderId={c.orderId}
+                      resourceId={c.resourceId}
+                      holderName={
+                        resources.find((s: any) => s.id === c.resourceId)?.holder_name ?? "这个资源"
+                      }
+                    />
                   )}
                 </li>
               ))}
@@ -255,48 +244,6 @@ export default function DemandBoard({
     </>
   );
 }
-
-// 待确认的那一步：点色块先跳到 ?propose=<order>:<resource>，弹一条确认再提交。
-// 不是多此一举 —— 日历上点一下太轻了，而「提意向」是要发给管理员的东西，
-// 手滑提一堆出去，匹配台那边得一条条清。
-export function ProposeConfirm({
-  block,
-  resourceName,
-  orderId,
-  resourceId,
-  card,
-  view,
-}: {
-  block: ProviderBlock;
-  resourceName: string;
-  orderId: string;
-  resourceId: string;
-  card: string;
-  view: DemandView;
-}) {
-  const back = new URLSearchParams();
-  if (card) back.set("card", card);
-  if (view === "list") back.set("view", view);
-  const backHref = back.toString() ? `/provider?${back}` : "/provider";
-  return (
-    <form action={proposeMatch} style={confirmBarStyle}>
-      <input type="hidden" name="order_id" value={orderId} />
-      <input type="hidden" name="resource_id" value={resourceId} />
-      <input type="hidden" name="card" value={card} />
-      <input type="hidden" name="view" value={view} />
-      <span style={{ fontSize: 13 }}>
-        拿 <b>{resourceName}</b> 接 <b>{block.title}</b>？
-      </span>
-      <button type="submit" style={confirmButtonStyle}>
-        确认提意向
-      </button>
-      <Link href={backHref} style={cancelStyle}>
-        取消
-      </Link>
-    </form>
-  );
-}
-
 
 /**
  * 空掉的行合并成一条。
@@ -326,144 +273,119 @@ function collapseEmptyBands(
 
 // 一行 n 天。排不下的日子换到下一行 —— 跟 admin 排期总览一个道理，
 // 横着滚出去的日子等于看不见。
-function Band({
-  band,
-  byResource,
-  today,
-  card,
-  propose,
-  href,
-}: {
-  band: ProviderBand;
-  byResource: Map<string, any>;
-  today: string;
-  card: string;
-  propose: string;
-  href: (extra?: Record<string, string>) => string;
-}) {
+/**
+ * 一张物主日历。**挂了资源的主视图和还没挂资源时的那张预告共用这一个** ——
+ * 两边画的是同一种东西（一个块一个单子），差别只在块上有没有「能接的资源」，
+ * 那个差别在数据里（fits 空不空），不在渲染里。
+ */
+export function BoardCalendar({ board, bandDays }: { board: ProviderBoard; bandDays: number }) {
+  const today = todayIso();
+  // 整张日历只有一组泳道（不像原来每个资源一行），包成一个「行」丢进分带
+  const bands = splitBoardIntoBands<ProviderBlock, { booked: ProviderBlock[]; lanes: ProviderBlock[][] }>(
+    { days: board.days, rows: [{ booked: [], lanes: board.lanes }] },
+    bandDays
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {collapseEmptyBands(bands).map((item, i) =>
+        item.kind === "band" ? (
+          <Band key={item.band.days[0] ?? i} band={item.band} today={today} />
+        ) : (
+          <div key={`gap-${item.from}`} style={gapStyle}>
+            {shortLabel(item.from).date} – {shortLabel(item.to).date} 没有安排，也没有能接的需求
+          </div>
+        )
+      )}
+      {/* 窗口外的单子**不藏着不说**：日历只看四周内，但「还有几单在更远处」
+          得让他知道，不然会以为一共就这些 */}
+      {board.outsideWindowCount > 0 && (
+        <p style={{ fontSize: 12, color: "var(--text-faint)", margin: 0 }}>
+          还有 {board.outsideWindowCount} 单在四周以后，日历上暂时不画 —— 到日子附近了自然会出现。
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Band({ band, today }: { band: ProviderBand; today: string }) {
+  const lanes = band.rows[0].lanes;
   const totalWidth =
     band.days.length * PROVIDER_COL_WIDTH + Math.max(0, band.days.length - 1) * PROVIDER_COL_GAP;
 
   return (
-          <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 6 }}>
-            {/* 左边资源名那一列不跟着横滚，不然滚两下就不知道哪行是哪个资源 */}
-            <div style={{ width: LABEL_W, flexShrink: 0, borderRight: "1px solid var(--border)" }}>
-              <div style={{ height: HEADER_H, borderBottom: "1px solid var(--border)" }} />
-              {band.rows.map((row) => {
-                const s: any = byResource.get(row.resourceId);
+    <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflowX: "auto" }}>
+      <div style={{ width: totalWidth, minWidth: "100%" }}>
+        <BoardDayHeader days={band.days} today={today} />
+
+        {/* **底下固定空一格。** 选资源的浮层贴在被点那个块下面，而这块地
+            `overflowX: auto` 会把超出去的部分连着竖着一起切掉。空一格是留给它的 ——
+            点开之后再临时长高做不到了：开没开是客户端的事，服务端不知道 */}
+        <div style={{ position: "relative", height: (Math.max(1, lanes.length) + 1) * LANE_H }}>
+          {lanes.map((lane, laneIndex) =>
+            lane.map((b) => {
+              const base = blockBase(b, laneIndex);
+              // 已排是我自己的占用，不是能接的单 —— 点了也没有下一步
+              if (b.kind === "booked") {
                 return (
-                  <div key={row.resourceId} style={{ ...labelCellStyle, height: rowHeight(row) }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{s?.holder_name ?? "?"}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                      {formatHolder(s?.holder_gender, s?.holder_date_of_birth)} · {s?.item_type}
-                    </div>
+                  <div
+                    key={`k-${b.startIndex}-${b.gap}`}
+                    style={{ ...base, ...bookedStyle }}
+                    title={b.title}
+                  >
+                    <div style={blockLineStyle}>{b.location}</div>
+                    <div style={{ ...blockLineStyle, opacity: 0.8 }}>{b.gap}</div>
                   </div>
                 );
-              })}
-            </div>
-
-            <div style={{ overflowX: "auto", flex: 1 }}>
-              <div style={{ width: totalWidth, minWidth: "100%" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: PROVIDER_COL_GAP,
-                    height: HEADER_H,
-                    borderBottom: "1px solid var(--border)",
-                  }}
-                >
-                  {band.days.map((d) => {
-                    const { date, weekday } = shortLabel(d);
-                    return (
-                      <div
-                        key={d}
-                        style={{
-                          width: PROVIDER_COL_WIDTH,
-                          flexShrink: 0,
-                          textAlign: "center",
-                          fontSize: 11,
-                          paddingTop: 4,
-                          background: isWeekend(d) ? "var(--weekend-bg)" : undefined,
-                          color: d === today ? "var(--link)" : "var(--text-muted)",
-                          fontWeight: d === today ? 600 : 400,
-                        }}
-                      >
-                        <div>{date}</div>
-                        <div style={{ fontSize: 10 }}>{weekday}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {band.rows.map((row) => (
+              }
+              // 一张能接的资源都没有（还没挂资源时那张预告），或者能接的都已经提过了 ——
+              // 两种都不给点：点进去没有下一步，别让人白点
+              if (b.fits.length === 0) {
+                return (
                   <div
-                    key={row.resourceId}
-                    style={{
-                      position: "relative",
-                      height: rowHeight(row),
-                      borderBottom: "1px solid var(--border)",
-                    }}
+                    key={`${b.orderId}-${b.startIndex}`}
+                    style={{ ...base, ...candidateStyle, cursor: "default" }}
+                    title={b.title}
                   >
-                    {/* 周末和今天的竖条铺在最底下 */}
-                    {band.days.map((d, i) =>
-                      isWeekend(d) || d === today ? (
-                        <div
-                          key={d}
-                          style={{
-                            position: "absolute",
-                            left: colLeft(i),
-                            top: 0,
-                            bottom: 0,
-                            width: PROVIDER_COL_WIDTH,
-                            background: d === today ? "var(--row-tint)" : "var(--weekend-bg)",
-                          }}
-                        />
-                      ) : null
-                    )}
-
-                    {row.booked.map((b, i) => (
-                      <div key={`b${i}`} style={{ ...blockBase(b, 0), ...bookedStyle }} title={b.title}>
-                        {b.label}
-                      </div>
-                    ))}
-
-                    {row.lanes.map((lane, laneIndex) =>
-                      lane.map((b) => {
-                        const style = {
-                          ...blockBase(b, laneIndex + 1),
-                          ...(b.proposed ? proposedStyle : candidateStyle),
-                          ...(propose === `${b.orderId}:${row.resourceId}`
-                            ? { outline: "2px solid var(--link)", outlineOffset: 1 }
-                            : null),
-                        };
-                        // 已经提过的不再是个链接 —— 点了也没用，别让人白点
-                        return b.proposed ? (
-                          <div key={`${b.orderId}-${b.startIndex}`} style={style} title={b.title}>
-                            已提 · {b.label}
-                          </div>
-                        ) : (
-                          <Link
-                            key={`${b.orderId}-${b.startIndex}`}
-                            href={href({ propose: `${b.orderId}:${row.resourceId}` })}
-                            style={{ ...style, textDecoration: "none" }}
-                            title={b.title}
-                          >
-                            {b.label}
-                          </Link>
-                        );
-                      })
-                    )}
+                    <div style={blockLineStyle}>{b.location}</div>
+                    <div style={blockLineStyle}>{b.gap}</div>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
+                );
+              }
+              if (b.proposed) {
+                return (
+                  <div
+                    key={`${b.orderId}-${b.startIndex}`}
+                    style={{ ...base, ...proposedStyle }}
+                    title={b.title}
+                  >
+                    <div style={blockLineStyle}>{b.location}</div>
+                    <div style={blockLineStyle}>已提意向</div>
+                  </div>
+                );
+              }
+              // 点开选资源这一步**不走服务端**：/provider 渲染一次 2 秒多，而「看看
+              // 哪几个资源能接」根本没有服务端的事要做。见 ProposePicker.tsx
+              return (
+                <ProposePicker
+                  key={`${b.orderId}-${b.startIndex}`}
+                  orderId={b.orderId}
+                  location={b.location}
+                  gap={b.gap}
+                  title={b.title}
+                  fits={b.fits}
+                  blockStyle={{ ...base, ...candidateStyle }}
+                  selectedStyle={{ outline: "2px solid var(--link)", outlineOffset: 1 }}
+                  popoverTop={(laneIndex + 1) * LANE_H + 1}
+                  popoverLeft={colLeft(b.startIndex)}
+                />
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
   );
-}
-
-function rowHeight(row: Pick<ProviderRow, "lanes">): number {
-  // 一条给已排，剩下的给候选。一条都没有也留一条的高度，不然行会瘪成一条线
-  return (1 + Math.max(1, row.lanes.length)) * LANE_H + 6;
 }
 
 function colLeft(index: number): number {
@@ -476,17 +398,25 @@ function blockBase(b: ProviderBlock, lane: number): React.CSSProperties {
     left: colLeft(b.startIndex),
     top: lane * LANE_H + 3,
     width: b.length * PROVIDER_COL_WIDTH + (b.length - 1) * PROVIDER_COL_GAP,
-    height: LANE_H - 4,
+    height: LANE_H - 6,
     borderRadius: 3,
     fontSize: 11,
-    lineHeight: `${LANE_H - 6}px`,
-    padding: "0 5px",
+    lineHeight: 1.4,
+    padding: "2px 5px",
     boxSizing: "border-box",
     overflow: "hidden",
-    whiteSpace: "nowrap",
-    textOverflow: "ellipsis",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
   };
 }
+
+// 两行都可能比块宽（一天的单子才 56px），各自省略号截断
+const blockLineStyle: React.CSSProperties = {
+  overflow: "hidden",
+  whiteSpace: "nowrap",
+  textOverflow: "ellipsis",
+};
 
 const bookedStyle: React.CSSProperties = {
   background: "var(--st-assigned-bg)",
@@ -503,12 +433,6 @@ const proposedStyle: React.CSSProperties = {
   background: "var(--st-pickup-bg)",
   border: "1px solid var(--st-pickup-border)",
   color: "var(--st-pickup-text)",
-};
-const labelCellStyle: React.CSSProperties = {
-  padding: "6px 8px",
-  borderBottom: "1px solid var(--border)",
-  boxSizing: "border-box",
-  overflow: "hidden",
 };
 const listStyle: React.CSSProperties = {
   listStyle: "none",
@@ -616,25 +540,14 @@ const chipActiveStyle: React.CSSProperties = {
   color: "var(--on-solid)",
   borderColor: "var(--solid-bg)",
 };
-const confirmBarStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  flexWrap: "wrap",
-  marginTop: 12,
-  padding: "10px 12px",
-  border: "1px solid var(--notice-border)",
-  background: "var(--notice-bg)",
-  borderRadius: 6,
-};
 const confirmButtonStyle: React.CSSProperties = {
-  padding: "7px 14px",
+  padding: "4px 10px",
+  fontSize: 12,
   border: "none",
   background: "var(--solid-bg)",
   color: "var(--on-solid)",
   borderRadius: 4,
   cursor: "pointer",
-  fontSize: 13,
 };
 const cancelStyle: React.CSSProperties = {
   fontSize: 13,

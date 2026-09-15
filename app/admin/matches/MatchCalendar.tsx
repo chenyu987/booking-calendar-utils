@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { isWeekend, shortLabel, todayIso } from "@/lib/dates";
+import { todayIso } from "@/lib/dates";
+import BoardDayHeader from "@/components/BoardDayHeader";
 import { statusColor, STATUS_LABELS } from "@/lib/orderStatus";
 import { BAND_GAP, EXTRA_LANES } from "@/lib/bandDays";
 import { PROVIDER_COL_GAP, PROVIDER_COL_WIDTH, splitBoardIntoBands } from "@/lib/providerBoard";
@@ -7,7 +8,6 @@ import type { MatchBoard, OrderBlock } from "@/lib/matchBoard";
 
 /** 块是两行的，行高跟排期总览同一个数 */
 const LANE_H = 42;
-const HEADER_H = 36;
 
 // 匹配台的日历：**照搬排期总览那张**。一张日历，色块是订单，横轴日期，
 // 互不冲突的单子挤在同一条道上，颜色跟着订单状态走 —— 全是总览那一套。
@@ -89,42 +89,8 @@ export default function MatchCalendar({
               style={{ marginBottom: last ? 0 : BAND_GAP }}
             >
               <div>
-                {/* 周末和今天的标注**照搬排期总览**：橙色底和那条粗下边线都只画在
-                    日期格上，不往下带。总览那边整列贯通的竖条是留给 peak date 的
-                    （限制资源进不了场，比「今天是周几」要紧得多）；周末拿它一画，
-                    泳道里就多出几条跟订单无关的竖条，反倒盖过色块本身 */}
-                <div style={{ display: "flex", gap: PROVIDER_COL_GAP, height: HEADER_H }}>
-                  {band.days.map((d) => {
-                    const { date, weekday } = shortLabel(d);
-                    const weekend = isWeekend(d);
-                    return (
-                      <div
-                        key={d}
-                        data-today={d === today ? "1" : undefined}
-                        style={{
-                          width: PROVIDER_COL_WIDTH,
-                          flexShrink: 0,
-                          boxSizing: "border-box",
-                          textAlign: "center",
-                          fontSize: 11,
-                          paddingTop: 4,
-                          background: weekend ? "var(--weekend-bg)" : "var(--surface-2)",
-                          borderBottom:
-                            d === today ? "2px solid var(--text)" : "1px solid var(--border)",
-                          color: weekend ? "var(--warn)" : "var(--text-muted)",
-                          fontWeight: d === today ? 600 : 400,
-                        }}
-                      >
-                        <div>{date}</div>
-                        <div style={{ fontSize: 10 }}>{weekday}</div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <BoardDayHeader days={band.days} today={today} />
 
-                {/* 带子底下空两条泳道再加 BAND_GAP —— 跟排期总览同一份数字，
-                    效果就是「最后一个单子离下一层日历有两个单子那么远」。
-                    最后一带不用留：下面没有东西接着了 */}
                 <div
                   style={{
                     position: "relative",
