@@ -1,19 +1,20 @@
+"use client";
+
 import Link from "next/link";
-import { shortLabel, todayIso } from "@/lib/dates";
+import { useState } from "react";
+import { shortLabel } from "@/lib/dates";
 import BoardDayHeader from "@/components/BoardDayHeader";
 import {
-  PROVIDER_BAND_DAYS_MAX,
-  PROVIDER_BAND_DAYS_MIN,
   PROVIDER_COL_GAP,
   PROVIDER_COL_WIDTH,
-  providerWindowBounds,
+  filterBoardByCard,
   splitBoardIntoBands,
   type ProviderBand,
   type ProviderBlock,
   type ProviderBoard,
 } from "@/lib/providerBoard";
 import { LOCATION_OPTIONS, REGION_LABELS, type Region } from "@/lib/locations";
-import { saveViewSettings } from "./actions";
+import type { DemandView } from "@/lib/providerView";
 import ProposePicker, { ProposeOneCard } from "./ProposePicker";
 
 /** 块是两行的（地点一行、还差几张一行），行高跟另外两张日历同一个数 */
@@ -26,159 +27,89 @@ const LANE_H = 42;
 //     同一单能被两个资源接就画两遍 —— 资源越多越乱，而要看的本来就是「有哪些单」
 //   · 列表 —— 一行一单。回答「现在有哪些能接」，手机上不用横着滚
 //
-// 原来两个是上下摞着的，等于每次都把两份同样的东西看两遍。切换存在 URL 的
-// `?view=` 上（跟 `?card=` 一个路子）：能收藏、刷新不丢、不用客户端状态。
+// 原来两个是上下摞着的，等于每次都把两份同样的东西看两遍。
+//
+// **换资源和切视图都在界面上当场完成，不回服务端。** 这两件事原来是 `?card=` /
+// `?view=` 两个链接，点一下就是一次整页渲染 —— 这一页要查资源、单、分配、意向，
+// 实测 1.5 秒起，而这两个开关**一个新数据都不需要**：服务端算的是「全部资源」那个
+// 盘子，收窄到某个资源要的东西盘子里全有（见 lib 的 filterBoardByCard），
+// 两个视图画的也是同一批候选。
+//
+// URL 照样跟着变，用 `history.replaceState` —— 不触发导航，但收藏、刷新、
+// 分享链接都还是原来那套（服务端读 searchParams 决定初始值）。
 //
 // 跟管理员那张排期总览是两张表，不是同一张开了只读。管理员那张纵轴是全部资源、
 // 块上写着客户姓名和金额；这张纵轴只有他自己的资源，块上一个字的客户信息都没有 ——
 // 物主看不到客户是谁，跟客户看不到持有人是谁对称。
 //
 // 能做的事只有一件：点一个需求 → 确认 → 提意向。改不了任何单子。
-export type DemandView = "calendar" | "list";
-
-export function parseView(value: string | undefined): DemandView {
-  return value === "list" ? "list" : "calendar";
-}
+//
+// `parseView` / `DemandView` 在 lib/providerView.ts —— 客户端模块导出的函数，
+// 服务端 import 到的是个客户端引用，调不了
 
 export default function DemandBoard({
-  board,
+  board: allCards,
   resources,
-  card,
-  view,
+  today,
+  initialCard,
+  initialView,
   bandDays,
-  start,
-  region,
-  mtn,
+  initialRegion,
+  initialMtn,
 }: {
+  /** **全部资源**那个盘子。收窄到某一个资源在这儿当场算，不回服务端 */
   board: ProviderBoard;
   resources: any[];
-  /** 收窄到某一个资源，空 = 全部 */
-  card: string;
-  view: DemandView;
-  /** 每行排几天 */
+  /** 今天是哪天由服务端给 —— 客户端自己算的话，服务器在 UTC 而浏览器在本地时区，
+      两边对不上就是一次 hydration 不匹配 */
+  today: string;
+  /** 进来时收窄到哪个资源（URL 里的 ?card=），空 = 全部 */
+  initialCard: string;
+  initialView: DemandView;
+  /** 每行排几天（设置收在账号菜单里，见 ViewSettings.tsx） */
   bandDays: number;
-  /** 指定的起始日，空 = 默认 */
-  start: string;
-  region: string;
-  mtn: string;
+  initialRegion: string;
+  initialMtn: string;
 }) {
-  const windowBounds = providerWindowBounds(todayIso());
+  const [card, setCard] = useState(initialCard);
+  const [view, setView] = useState<DemandView>(initialView);
+  const [region, setRegion] = useState(initialRegion);
+  const [mtn, setMtn] = useState(initialMtn);
+  const board = filterBoardByCard(allCards, card, { region, mtn });
 
-  // 切视图、换资源、点需求都从这儿出链接 —— 保证另外那两个参数不会被踢掉
-  const href = (extra?: Record<string, string>) => {
+  // 地址栏跟着变，但**不触发导航**：收藏 / 刷新 / 把链接发给别人都还是原来那套，
+  // 代价只是一次 replaceState
+  const syncUrl = (next: Partial<{ card: string; view: DemandView; region: string; mtn: string }>) => {
+    const s = { card, view, region, mtn, ...next };
     const q = new URLSearchParams();
-    if (card) q.set("card", card);
-    if (view === "list") q.set("view", view);
-    if (region) q.set("region", region);
-    if (mtn) q.set("mtn", mtn);
-    for (const [k, v] of Object.entries(extra ?? {})) {
-      if (v) q.set(k, v);
-      else q.delete(k);
-    }
-    const s = q.toString();
-    return s ? `/provider?${s}` : "/provider";
+    if (s.card) q.set("card", s.card);
+    if (s.view === "list") q.set("view", "list");
+    if (s.region) q.set("region", s.region);
+    if (s.mtn) q.set("mtn", s.mtn);
+    const qs = q.toString();
+    window.history.replaceState(null, "", qs ? `/provider?${qs}` : "/provider");
+  };
+  const pickCard = (id: string) => {
+    setCard(id);
+    syncUrl({ card: id });
+  };
+  const pickView = (v: DemandView) => {
+    setView(v);
+    syncUrl({ view: v });
+  };
+  const pickRegion = (r: string) => {
+    // 换了区域，原来选的那个地点多半不在这个区里了 —— 一起清掉，别留一个自相矛盾的组合
+    setRegion(r);
+    setMtn("");
+    syncUrl({ region: r, mtn: "" });
+  };
+  const pickMtn = (m: string) => {
+    setMtn(m);
+    syncUrl({ mtn: m });
   };
 
   return (
     <>
-      {/* 资源选择器只在**有两张以上**的时候出现。只有一个资源的时候，
-          一个只有一个选项的下拉纯属噪音，而且「全部」跟「那一张」是同一个画面。 */}
-      {resources.length > 1 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "12px 0 0" }}>
-          <Link href={href({ card: "" })} style={card ? chipStyle : chipActiveStyle}>
-            全部资源
-          </Link>
-          {resources.map((s: any) => (
-            <Link
-              key={s.id}
-              href={href({ card: s.id })}
-              style={card === s.id ? chipActiveStyle : chipStyle}
-            >
-              {s.holder_name ?? "?"}
-            </Link>
-          ))}
-        </div>
-      )}
-
-      {/* 按地点 / 区域筛。GET 表单原生提交，不用客户端状态 —— 跟 admin 那排筛选
-          同一个路子，判断也共用 lib/locations.ts 的 matchesLocationFilter。
-          card / view 用 hidden 带着走，筛一下不会把资源和视图踢回默认。 */}
-      <form method="get" action="/provider" style={filterRowStyle}>
-        {card && <input type="hidden" name="card" value={card} />}
-        {view === "list" && <input type="hidden" name="view" value="list" />}
-        {/* key 不能省：defaultValue 只在挂载时读一次，URL 变了而 DOM 节点被复用的话
-            下拉会一直显示旧值，看着像「筛选开着但没生效」。admin 那边记的是同一个坑 */}
-        <select key={`region-${region}`} name="region" defaultValue={region} style={selectStyle}>
-          <option value="">全部区域</option>
-          {(Object.keys(REGION_LABELS) as Region[]).map((r) => (
-            <option key={r} value={r}>
-              {REGION_LABELS[r]}
-            </option>
-          ))}
-        </select>
-        <select key={`mtn-${mtn}`} name="mtn" defaultValue={mtn} style={selectStyle}>
-          <option value="">全部地点</option>
-          {LOCATION_OPTIONS.filter((m) => !region || m.region === region).map((m) => (
-            <option key={m.value} value={m.value} title={m.hint}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-        <button type="submit" style={smallButtonStyle}>
-          筛选
-        </button>
-        {(region || mtn) && (
-          <Link href={href({ region: "", mtn: "" })} style={clearStyle}>
-            清掉
-          </Link>
-        )}
-      </form>
-
-      {/* 日历怎么排。只有日历视图用得上，列表视图不显示 —— 摆着只会让人琢磨它管什么 */}
-      {view === "calendar" && (
-        <details className="disc" style={settingsBoxStyle}>
-          <summary style={{ fontSize: 12, color: "var(--text-faint)", cursor: "pointer" }}>
-            显示设置
-          </summary>
-          <form action={saveViewSettings} style={settingsFormStyle}>
-            {card && <input type="hidden" name="card" value={card} />}
-            <input type="hidden" name="view" value={view} />
-            <label style={settingLabelStyle}>
-              从哪天开始
-              {/* 上下界跟服务端夹的是同一个范围（lib/providerBoard.ts 的 providerWindowBounds）。
-                  这儿给 min/max 只是让日期选择器好用一点 —— 真正拦住的是服务端 */}
-              <input
-                type="date"
-                name="start"
-                min={windowBounds.from}
-                max={windowBounds.to}
-                defaultValue={start}
-                style={settingInputStyle}
-              />
-            </label>
-            <label style={settingLabelStyle}>
-              每行几天
-              <input
-                type="number"
-                name="band_days"
-                min={PROVIDER_BAND_DAYS_MIN}
-                max={PROVIDER_BAND_DAYS_MAX}
-                defaultValue={bandDays}
-                style={settingInputStyle}
-              />
-            </label>
-            <button type="submit" style={smallButtonStyle}>
-              保存
-            </button>
-            <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
-              日历只看今天往前两周、往后四周（{shortLabel(windowBounds.from).date} –{" "}
-              {shortLabel(windowBounds.to).date}），起始日也在这个范围里挑，留空 = 回到默认。
-              排不下的日子换到下一行，不会横着滚出去。
-            </span>
-          </form>
-        </details>
-      )}
-
       {board.days.length === 0 ? (
         <p style={{ color: "var(--text-muted)", fontSize: 14, marginTop: 14 }}>
           {card
@@ -191,16 +122,92 @@ export default function DemandBoard({
             现在有 <b>{board.candidateOrderCount}</b> 单是
             {card ? "这个资源" : "你的资源"}接得了的。
           </p>
-          <div style={toggleRowStyle}>
-            <Link href={href({ view: "" })} style={view === "calendar" ? segActiveStyle : segStyle}>
-              日历
-            </Link>
-            <Link href={href({ view: "list" })} style={view === "list" ? segActiveStyle : segStyle}>
-              列表
-            </Link>
+          {/* 「接得了」什么意思，就挨着写着它的那句话 —— 原来在整段的最上面，
+              离它解释的东西隔着一排芯片和一排筛选。
+              三行说明只有第一次有用，之后每次进来都占一屏，所以收起来，要看再点 */}
+          <details style={{ margin: "0 0 8px" }}>
+            <summary style={{ fontSize: 12, color: "var(--text-faint)", cursor: "pointer" }}>
+              怎么算「接得了」？
+            </summary>
+            <p
+              style={{
+                color: "var(--text-muted)",
+                fontSize: 13,
+                margin: "6px 0 0",
+                lineHeight: 1.7,
+              }}
+            >
+              一个块是一单。虚线框是你的资源接得了的需求 —— 有效期盖得住、那几天没占着、
+              缺的正好是你手上这个资源的性别；蓝色是你已经排出去的日子。
+              点一个单子，再挑用哪个资源接，管理员确认之后才算数。
+            </p>
+          </details>
+          {/* 资源选择器只在**有两张以上**的时候出现。只有一个资源的时候，
+              一个只有一个选项的下拉纯属噪音，而且「全部」跟「那一张」是同一个画面 */}
+          {resources.length > 1 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "12px 0 0" }}>
+              <button type="button" onClick={() => pickCard("")} style={card ? chipStyle : chipActiveStyle}>
+                全部资源
+              </button>
+              {resources.map((s: any) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => pickCard(s.id)}
+                  style={card === s.id ? chipActiveStyle : chipStyle}
+                >
+                  {s.holder_name ?? "?"}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* 日历/列表 跟 区域/地点 **摆同一行**：都是「我想看哪些、怎么看」，
+              一行放得下就别占两行 —— 日历上面每多一行，正事就往下挪一行。
+              按地点 / 区域**选了就是筛了，没有「筛选」按钮**：下拉本来就「一选就定」，
+              再让人点一下确认是多一步；而且这一下也不回服务端 —— 盘子里每个块身上
+              挂着自己是哪个地点（locationKey），当场挑出来就行，判断共用
+              lib/locations.ts 的 matchesLocationFilter。
+              「清掉」也不用了：选回「全部区域 / 全部地点」就是清掉 */}
+          <div style={controlRowStyle}>
+            <div style={toggleRowStyle}>
+              <button
+                type="button"
+                onClick={() => pickView("calendar")}
+                style={view === "calendar" ? segActiveStyle : segStyle}
+              >
+                日历
+              </button>
+              <button
+                type="button"
+                onClick={() => pickView("list")}
+                style={view === "list" ? segActiveStyle : segStyle}
+              >
+                列表
+              </button>
+            </div>
+
+            <select value={region} onChange={(e) => pickRegion(e.target.value)} style={selectStyle}>
+              <option value="">全部区域</option>
+              {(Object.keys(REGION_LABELS) as Region[]).map((r) => (
+                <option key={r} value={r}>
+                  {REGION_LABELS[r]}
+                </option>
+              ))}
+            </select>
+            <select value={mtn} onChange={(e) => pickMtn(e.target.value)} style={selectStyle}>
+              <option value="">全部地点</option>
+              {LOCATION_OPTIONS.filter((m) => !region || m.region === region).map((m) => (
+                <option key={m.value} value={m.value} title={m.hint}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {view === "calendar" && <BoardCalendar board={board} bandDays={bandDays} />}
+          {view === "calendar" && (
+            <BoardCalendar board={board} bandDays={bandDays} today={today} />
+          )}
           {view === "list" && board.candidates.length === 0 && (
             <p style={{ color: "var(--text-faint)", fontSize: 13, margin: "10px 0 0" }}>
               现在没有能接的需求。日历那边能看到你的资源哪几天已经排出去了。
@@ -239,8 +246,9 @@ export default function DemandBoard({
               ))}
             </ul>
           )}
-        </>
+      </>
       )}
+
     </>
   );
 }
@@ -278,8 +286,16 @@ function collapseEmptyBands(
  * 两边画的是同一种东西（一个块一个单子），差别只在块上有没有「能接的资源」，
  * 那个差别在数据里（fits 空不空），不在渲染里。
  */
-export function BoardCalendar({ board, bandDays }: { board: ProviderBoard; bandDays: number }) {
-  const today = todayIso();
+export function BoardCalendar({
+  board,
+  bandDays,
+  today,
+}: {
+  board: ProviderBoard;
+  bandDays: number;
+  /** 由服务端给 —— 客户端自己算会跟服务端渲染出来的 HTML 对不上（时区） */
+  today: string;
+}) {
   // 整张日历只有一组泳道（不像原来每个资源一行），包成一个「行」丢进分带
   const bands = splitBoardIntoBands<ProviderBlock, { booked: ProviderBlock[]; lanes: ProviderBlock[][] }>(
     { days: board.days, rows: [{ booked: [], lanes: board.lanes }] },
@@ -456,67 +472,43 @@ const gapStyle: React.CSSProperties = {
   fontSize: 12,
   color: "var(--text-faint)",
 };
-const filterRowStyle: React.CSSProperties = {
+const controlRowStyle: React.CSSProperties = {
   display: "flex",
-  gap: 6,
+  gap: 8,
   alignItems: "center",
   flexWrap: "wrap",
-  margin: "10px 0 0",
+  margin: "10px 0 8px",
 };
+/**
+ * 这一行里段控件和下拉框摆在一起，**高度写死同一个数**：段控件本来 33px、
+ * 下拉 26px，挨着就是一排高低不齐的框（admin 那排筛选踩过同一个坑）。
+ *
+ * 30 不是「刚好够」：12px 的字撑开约 15px，减掉上下边框和内边距还剩 20，
+ * 留了 5px 余量 —— CI 上的字体宽一点也不会被切。
+ */
+const CONTROL_H = 30;
 const selectStyle: React.CSSProperties = {
+  height: CONTROL_H,
+  boxSizing: "border-box",
   padding: "4px 6px",
   border: "1px solid var(--border-strong)",
   borderRadius: 4,
   fontSize: 12,
   maxWidth: 150,
 };
-const smallButtonStyle: React.CSSProperties = {
-  padding: "5px 12px",
-  border: "none",
-  background: "var(--solid-bg)",
-  color: "var(--on-solid)",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
-};
-const clearStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "var(--text-muted)",
-  textDecoration: "none",
-};
-const settingsBoxStyle: React.CSSProperties = {
-  marginTop: 8,
-};
-const settingsFormStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 10,
-  alignItems: "flex-end",
-  flexWrap: "wrap",
-  padding: "8px 0 0",
-};
-const settingLabelStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 3,
-  fontSize: 11,
-  color: "var(--text-muted)",
-};
-const settingInputStyle: React.CSSProperties = {
-  padding: "4px 6px",
-  border: "1px solid var(--border-strong)",
-  borderRadius: 4,
-  fontSize: 12,
-  width: 130,
-};
 const toggleRowStyle: React.CSSProperties = {
   display: "inline-flex",
+  height: CONTROL_H,
+  boxSizing: "border-box",
   border: "1px solid var(--border-strong)",
   borderRadius: 6,
   overflow: "hidden",
-  margin: "0 0 8px",
 };
 const segStyle: React.CSSProperties = {
-  padding: "5px 14px",
+  padding: "0 14px",
+  border: "none",
+  background: "none",
+  cursor: "pointer",
   fontSize: 12,
   color: "var(--text-muted)",
   textDecoration: "none",

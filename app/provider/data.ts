@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 
 import { supabase } from "@/lib/supabase";
 import { clampProviderBandDays, PROVIDER_BAND_DAYS_DEFAULT } from "@/lib/providerBoard";
+import { VIEW_COOKIES } from "@/lib/providerView";
 import { isIsoDate } from "@/lib/timelineStart";
 
 // 物主这一页要的几个查询。**不是 lib/** —— lib 那一层按约定全是纯逻辑、不连库，
@@ -42,10 +43,8 @@ export async function bookedDaysFor(
 // 全局 key/value 表 —— 单 admin 够用，物主是多用户，共用一行等于互相改对方的。
 // 而且这两个本来就是「这台机器上我习惯怎么看」（手机 7 天一行、桌面 28），
 // 跟缩放、面板宽度同一类，`lib/appSettings.ts` 开头那段写的就是这条界线。
-export const VIEW_COOKIES = {
-  bandDays: "provider_band_days",
-  start: "provider_start",
-} as const;
+//
+// cookie 的名字在 lib/providerView.ts —— 写它的是客户端组件，而这个文件带着 next/headers
 
 export function readViewSettings(): { bandDays: number; start: string } {
   const jar = cookies();

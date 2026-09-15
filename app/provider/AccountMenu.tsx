@@ -1,25 +1,49 @@
 import Link from "next/link";
 import { saveContact } from "./actions";
 import ThemeToggle from "./ThemeToggle";
+import ViewSettings from "./ViewSettings";
 import type { Theme } from "@/lib/theme";
 
 // 右上角的账号菜单。**联系方式从主体挪进来了** —— 它是账号设置，不是物主每次
 // 进来要看的东西，跟「有哪些需求」抢同一层视觉重量纯属浪费。
 //
-// 同样用原生 <details>：点外面不会自动收起（那需要 JS），但这个面板里没有
-// 破坏性操作，开着也不碍事，不值得为它引一个客户端组件。
+// 同样用原生 <details>，**点外面收起来也不用 JS**：见下面 acctCss 那段。
 //
 // 两种情况下默认展开：正在编辑联系方式、或者聊天还没填（那是要办的事）。
+
+/**
+ * 点菜单外面任何地方都收起来 —— **一条 CSS，不用客户端组件**。
+ *
+ * 菜单开着的时候，给 summary 铺一张看不见的全屏底板（`::after` + `position: fixed`）。
+ * 点到底板上 = 点到 summary 上（伪元素的事件目标就是宿主元素），原生 <details>
+ * 收起来。面板 z-index 10 比底板高，所以点面板里的东西照常有效。
+ *
+ * 为什么不写个 `useEffect` 挂 document 上的 click：那要引一个客户端组件进来，
+ * 还得自己负责卸载时摘监听（CLAUDE.md 那条「命令式改了 DOM 就得自己负责撤」）。
+ * 这条规则跟节点的生死无关，天然不用清理 —— 跟 BulkSelect 注入 CSS 是同一个路子。
+ */
+export const acctCss = `
+  .acct[open] > summary::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    cursor: default;
+  }
+`;
 export default function AccountMenu({
   email,
   me,
   theme,
+  view,
   editing,
   errorText,
 }: {
   email: string;
   me: any;
   theme: Theme | null;
+  /** 日历怎么排。**收在这儿**：一年调一次的东西，不值得在正文里占一行 */
+  view: { bandDays: number; start: string; from: string; to: string };
   editing: boolean;
   errorText: string | null;
 }) {
@@ -80,20 +104,34 @@ export default function AccountMenu({
               <Row label="账号" value={me?.chat} warn={noChat} />
               <Row label="手机号" value={me?.phone_number} />
             </dl>
+            {/* 「改联系方式」挨着它要改的那两行 —— 原来在最底下跟「退出」并排，
+                离得远不说，还容易看成一类东西（一个是改资料，一个是走人） */}
+            <div style={{ marginTop: 6 }}>
+              <Link href="/provider?edit=contact" style={{ fontSize: 12, color: "var(--link)" }}>
+                改联系方式
+              </Link>
+            </div>
             {noChat && (
               <p style={{ fontSize: 11, color: "var(--warn)", margin: "6px 0 0", lineHeight: 1.6 }}>
                 账号还没填 —— 有人要租你的资源，我们是通过聊天找你的。
               </p>
             )}
             <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 6 }}>日历</div>
+              <ViewSettings
+                bandDays={view.bandDays}
+                start={view.start}
+                from={view.from}
+                to={view.to}
+              />
+            </div>
+
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
               <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 6 }}>外观</div>
               <ThemeToggle initial={theme} />
             </div>
 
             <div style={footerStyle}>
-              <Link href="/provider?edit=contact" style={{ fontSize: 12, color: "var(--link)" }}>
-                改联系方式
-              </Link>
               <form action="/auth/signout" method="post">
                 <button type="submit" style={signOutStyle}>
                   退出
@@ -140,7 +178,7 @@ const panelStyle: React.CSSProperties = {
 const footerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  justifyContent: "space-between",
+  justifyContent: "flex-end",
   gap: 8,
   marginTop: 10,
   paddingTop: 10,

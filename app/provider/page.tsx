@@ -8,15 +8,20 @@ import { formatParty } from "@/lib/party";
 import { RESOURCE_EDIT_ERRORS } from "@/lib/resourceEdit";
 import { matchDisplay, isOpenMatch, isStaleMatch } from "@/lib/matchStatus";
 import { firstDay } from "@/lib/matchSort";
-import { actionableOrders, buildProviderBoard, buildPreviewBoard } from "@/lib/providerBoard";
-import { matchesLocationFilter } from "@/lib/locations";
+import {
+  actionableOrders,
+  buildProviderBoard,
+  buildPreviewBoard,
+  providerWindowBounds,
+} from "@/lib/providerBoard";
 import { parseTheme, THEME_COOKIE } from "@/lib/theme";
 import { cookies } from "next/headers";
 
 import { bookedDaysFor, readViewSettings } from "./data";
-import DemandBoard, { BoardCalendar, parseView } from "./DemandBoard";
+import DemandBoard, { BoardCalendar } from "./DemandBoard";
+import { parseView } from "@/lib/providerView";
 import ResourceList from "./ResourceList";
-import AccountMenu from "./AccountMenu";
+import AccountMenu, { acctCss } from "./AccountMenu";
 import Disclosure, { summaryCss } from "./Disclosure";
 
 export const dynamic = "force-dynamic";
@@ -128,26 +133,25 @@ export default async function ProviderHomePage({
   // 日历只看在出租的资源。**资源选择器是个筛选，不是必选其一** —— 默认「全部资源」，
   // 因为一单常常好几个资源都能接，排开才看得出「这单我哪几张都行」。
   const activeResources = myResources.filter((s: any) => s.status === "active");
+  // **盘子永远按「全部资源」算**，收窄到某一张是界面上当场做的事（见 DemandBoard
+  // 开头那段）—— 服务端按资源各算一份的话，换个资源就得再渲染一次整页，1.5 秒起
   const card = activeResources.some((s: any) => s.id === searchParams.card)
     ? (searchParams.card as string)
     : "";
-  const boardResources = card ? activeResources.filter((s: any) => s.id === card) : activeResources;
 
   const viewSettings = readViewSettings();
   const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
   const region = searchParams.region ?? "";
   const mtn = searchParams.mtn ?? "";
 
-  // 地点 / 区域筛选只作用在**需求**上，不碰「已排」—— 那是这个资源自己的占用情况，
-  // 按地点筛掉的话，日历上会凭空空出几天，看着像资源空着其实是被占着的
-  const visibleOrders = (orders ?? []).filter((o: any) =>
-    matchesLocationFilter(o.location, { region, mtn })
-  );
+  // 地点 / 区域**不在这儿筛**：盘子按全量算，筛在界面上当场做（每个块身上挂着
+  // 自己是哪个地点）。筛选只作用在需求上、不碰「已排」这条规矩没变，现在写在
+  // lib/providerBoard.ts 的 filterBoardByCard 里
 
   const board = buildProviderBoard({
     today: todayIso(),
-    resources: boardResources,
-    orders: visibleOrders,
+    resources: activeResources,
+    orders: orders ?? [],
     start: viewSettings.start,
     assignedByOrder,
     bookedByResource,
@@ -184,7 +188,7 @@ export default async function ProviderHomePage({
           `>` 变 &gt;、`"` 变 &quot;，而 <style> 是 raw text 元素、浏览器不还原，
           选择器就整个废了，还会带出 hydration 不匹配。CLAUDE.md 记着这条，
           OptimisticAssign / BulkSelect 里也是这么写的 —— 我又踩了一遍 */}
-      <style dangerouslySetInnerHTML={{ __html: summaryCss }} />
+      <style dangerouslySetInnerHTML={{ __html: summaryCss + acctCss }} />
 
       <div style={headRowStyle}>
         <h1 style={{ fontSize: 20, margin: 0 }}>我的资源</h1>
@@ -192,6 +196,7 @@ export default async function ProviderHomePage({
           email={user.email ?? ""}
           me={me}
           theme={theme}
+          view={{ ...viewSettings, ...providerWindowBounds(todayIso()) }}
           editing={editing === "contact"}
           errorText={editing === "contact" ? errorText : null}
         />
@@ -245,24 +250,13 @@ export default async function ProviderHomePage({
                 assignedByOrder,
               })}
               bandDays={viewSettings.bandDays}
+              today={todayIso()}
             />
           )}
         </>
       ) : (
       <section style={{ marginTop: 16 }}>
         <h2 style={{ fontSize: 16, margin: "0 0 4px" }}>看看有哪些需求</h2>
-        {/* 三行说明只有第一次有用，之后每次进来都占一屏。收起来，要看再点 */}
-        <details>
-          <summary style={{ fontSize: 12, color: "var(--text-faint)", cursor: "pointer" }}>
-            怎么算「接得了」？
-          </summary>
-          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "6px 0 0", lineHeight: 1.7 }}>
-            一个块是一单。虚线框是你的资源接得了的需求 —— 有效期盖得住、那几天没占着、
-            缺的正好是你手上这个资源的性别；蓝色是你已经排出去的日子。
-            点一个单子，再挑用哪个资源接，管理员确认之后才算数。
-          </p>
-        </details>
-
         {activeResources.length === 0 ? (
           // 挂过资源，但一张都不在出租中（暂停 / 已下架）。跟「一张都没挂」不是一回事，
           // 该说的也不一样 —— 他要做的是把状态改回来，不是再挂一张
@@ -276,12 +270,12 @@ export default async function ProviderHomePage({
             // **传全部在出租的资源，不是筛过的那张** —— 芯片行要靠它才画得出来。
             // 传筛过的话，一收窄到某个资源，选择器自己就没了，回不到「全部资源」。
             resources={activeResources}
-            card={card}
-            view={view}
+            today={todayIso()}
+            initialCard={card}
+            initialView={view}
             bandDays={viewSettings.bandDays}
-            start={viewSettings.start}
-            region={region}
-            mtn={mtn}
+            initialRegion={region}
+            initialMtn={mtn}
           />
         )}
       </section>

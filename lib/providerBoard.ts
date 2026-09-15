@@ -1,4 +1,5 @@
 import { assignBlockReason } from "./assignable";
+import { matchesLocationFilter } from "./locations";
 import { computeNeed, formatGap } from "./assignment";
 import { contiguousRuns, formatDayRanges } from "./dates";
 import { formatParty } from "./party";
@@ -87,10 +88,14 @@ export type ProviderFit = {
 export type ProviderBlock = {
   /** 已排块没有 orderId（那是我自己的占用，不是能接的单） */
   orderId: string;
+  /** 已排块是哪个资源占着的。候选块看 fits，这里是空的 */
+  resourceId: string;
   startIndex: number;
   length: number;
   /** 块上第一行：地点。已排块写「已排」 */
   location: string;
+  /** 库里那个原始值，只拿来筛 —— 上面那个是给人看的（空的时候写「未填地点」） */
+  locationKey: string | null;
   /** 块上第二行：还差几个资源。已排块写持有人名字 */
   gap: string;
   title: string;
@@ -104,6 +109,8 @@ export type ProviderBlock = {
 export type ProviderCandidate = {
   orderId: string;
   resourceId: string;
+  /** 筛地点用，跟块上那个是同一个原始值 */
+  locationKey: string | null;
   /** 排序和显示都用它 —— 这一单最早的那天 */
   firstDay: string;
   label: string;
@@ -374,8 +381,11 @@ export function buildProviderBoard(input: {
   const booked = resources.flatMap((s) =>
     runsToBlocks(bookedByResource.get(s.id) ?? [], indexOf, (run) => ({
       orderId: "",
+      resourceId: s.id,
       kind: "booked" as const,
       location: "已排",
+      // 已排是我自己的占用，跟筛哪个地点无关 —— null 的块筛的时候一律留着
+      locationKey: null,
       gap: s.holder_name ?? "?",
       title: `${s.holder_name ?? "这个资源"}已排 ${formatDayRanges(run)}（${run.length}天）`,
       fits: [],
@@ -392,8 +402,10 @@ export function buildProviderBoard(input: {
   const candidates = described.flatMap((d) =>
     runsToBlocks(d.order.demand_days ?? [], indexOf, () => ({
       orderId: d.order.id,
+      resourceId: "",
       kind: "candidate" as const,
       location: d.location,
+      locationKey: d.order.location ?? null,
       gap: d.gap,
       title: d.title,
       fits: d.fits,
@@ -417,6 +429,7 @@ export function buildProviderBoard(input: {
       list.push({
         orderId: d.order.id,
         resourceId: f.resourceId,
+        locationKey: d.order.location ?? null,
         firstDay,
         label: [d.location, d.gap].filter(Boolean).join(" · "),
         title: d.title,
@@ -432,6 +445,52 @@ export function buildProviderBoard(input: {
     candidates: list,
     candidateOrderCount: fittingOrders.length,
     outsideWindowCount: fittingOrders.filter((o) => !inWindow.has(o.id)).length,
+  };
+}
+
+/**
+ * 收窄：哪个资源、哪个区域 / 地点。**服务端只算一次全量的盘子，这几个开关在界面上
+ * 当场切** —— 每个都要等一次整页渲染（这一页 1.5 秒起）实在太亏，而收窄需要的
+ * 东西盘子里全有：候选块身上挂着哪几个资源接得了、是哪个地点，已排块身上挂着是哪个资源。
+ *
+ * 放在 lib 里而不是组件里：它是「怎么算」不是「怎么画」，而且这么一来能单测 ——
+ * **收窄的结果必须跟「服务端直接按这个条件算一遍」画出同一批块**。
+ *
+ * 已排的块不受地点的筛选影响：那是「这几天我接不了」的原因，跟你在看哪个地点无关。
+ * 按地点筛掉的话日历上会凭空空出几天，看着像资源空着其实是被占着的。
+ */
+export function filterBoardByCard(
+  board: ProviderBoard,
+  resourceId: string,
+  location?: { region?: string | null; mtn?: string | null }
+): ProviderBoard {
+  const fitsLocation = (key: string | null) =>
+    !location || matchesLocationFilter(key, location);
+
+  const blocks = board.lanes.flat();
+  const kept = blocks.flatMap((b) => {
+    if (b.kind === "booked") return !resourceId || b.resourceId === resourceId ? [b] : [];
+    if (!fitsLocation(b.locationKey)) return [];
+    if (!resourceId) return [b];
+    const fits = b.fits.filter((f) => f.resourceId === resourceId);
+    if (fits.length === 0) return [];
+    return [{ ...b, fits, proposed: fits.every((f) => f.proposed) }];
+  });
+
+  const candidates = board.candidates.filter(
+    (c) => (!resourceId || c.resourceId === resourceId) && fitsLocation(c.locationKey)
+  );
+
+  // 窗口外那几单：清单里有、日历上没有的那些（清单不跟着窗口走）
+  const drawn = new Set(kept.filter((b) => b.kind === "candidate").map((b) => b.orderId));
+  const all = new Set(candidates.map((c) => c.orderId));
+
+  return {
+    days: board.days,
+    lanes: packLanes(kept),
+    candidates,
+    candidateOrderCount: all.size,
+    outsideWindowCount: [...all].filter((id) => !drawn.has(id)).length,
   };
 }
 
@@ -464,8 +523,10 @@ export function buildPreviewBoard(input: {
     const d = describeOrder(o, assignedByOrder?.get(o.id) ?? []);
     return runsToBlocks(o.demand_days ?? [], indexOf, () => ({
       orderId: o.id,
+      resourceId: "",
       kind: "candidate" as const,
       location: d.location,
+      locationKey: o.location ?? null,
       gap: d.gap,
       title: d.title,
       // 一个资源都没有 = 一个都接不了，块只是给他看看

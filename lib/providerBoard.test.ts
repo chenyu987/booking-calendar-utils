@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildDayWindow,
   buildPreviewBoard,
+  filterBoardByCard,
   providerWindowBounds,
   packLanes,
   buildProviderBoard,
@@ -376,6 +377,136 @@ describe("buildProviderBoard", () => {
     const text = `${block.location} ${block.gap} ${block.title}`;
     expect(text).not.toContain("小王");
     expect(text).not.toContain("960");
+  });
+});
+
+// 换资源是界面上当场做的事：服务端只算「全部资源」那个盘子，这个函数负责收窄。
+// 收窄的结果必须跟「服务端直接按这个资源算一遍」一模一样，否则换资源看到的东西
+// 跟刷新之后看到的就不是一回事
+describe("filterBoardByCard", () => {
+  const maleCard = {
+    id: "s-male",
+    status: "active",
+    holder_name: "阿男",
+    holder_gender: "male",
+    item_type: "alpha",
+    date_range_start: null,
+    date_range_end: null,
+  };
+  const femaleCard = { ...maleCard, id: "s-female", holder_name: "阿女", holder_gender: "female" };
+  const orders = [
+    // 两个资源都接得了
+    { id: "both", location: "locaa", demand_days: ["2026-09-20"], male_count: 1, female_count: 1 },
+    // 只有女资源接得了
+    { id: "fem", location: "locaa", demand_days: ["2026-09-22"], male_count: 0, female_count: 1 },
+  ];
+  const full = () =>
+    buildProviderBoard({
+      today: "2026-09-15",
+      resources: [maleCard, femaleCard],
+      orders,
+      assignedByOrder: new Map(),
+      bookedByResource: new Map([["s-male", ["2026-09-18"]]]),
+      proposed: new Set(["both:s-male"]),
+    });
+
+  it("不给资源就原样返回", () => {
+    const b = full();
+    expect(filterBoardByCard(b, "").lanes.flat().length).toBe(b.lanes.flat().length);
+  });
+
+  it("只留这个资源接得了的单，fits 也跟着收窄", () => {
+    const b = filterBoardByCard(full(), "s-female");
+    const cands = b.lanes.flat().filter((x) => x.kind === "candidate");
+    expect(cands.map((c) => c.orderId).sort()).toEqual(["both", "fem"]);
+    expect(cands.every((c) => c.fits.every((f) => f.resourceId === "s-female"))).toBe(true);
+  });
+
+  it("已排只留这个资源自己的", () => {
+    const mine = filterBoardByCard(full(), "s-male").lanes.flat().filter((x) => x.kind === "booked");
+    expect(mine).toHaveLength(1);
+    expect(mine[0].resourceId).toBe("s-male");
+    expect(filterBoardByCard(full(), "s-female").lanes.flat().filter((x) => x.kind === "booked"))
+      .toHaveLength(0);
+  });
+
+  // 「提过没」是按「资源 × 单」算的：男资源提过的那一单，切到女资源视角还能提
+  it("提没提过跟着资源走", () => {
+    const male = filterBoardByCard(full(), "s-male").lanes.flat().find((x) => x.orderId === "both");
+    const female = filterBoardByCard(full(), "s-female").lanes.flat().find((x) => x.orderId === "both");
+    expect(male!.proposed).toBe(true);
+    expect(female!.proposed).toBe(false);
+  });
+
+  it("数字跟着收窄 —— 男资源只接得了一单", () => {
+    const b = filterBoardByCard(full(), "s-male");
+    expect(b.candidateOrderCount).toBe(1);
+    expect(b.candidates.every((c) => c.resourceId === "s-male")).toBe(true);
+  });
+
+  it("按地点筛：只留这个地点的单，已排不受影响", () => {
+    const b = buildProviderBoard({
+      today: "2026-09-15",
+      resources: [maleCard],
+      orders: [
+        { id: "locaa", location: "locaa", demand_days: ["2026-09-20"], male_count: 1, female_count: 0 },
+        { id: "locac", location: "locac", demand_days: ["2026-09-22"], male_count: 1, female_count: 0 },
+      ],
+      assignedByOrder: new Map(),
+      bookedByResource: new Map([["s-male", ["2026-09-18"]]]),
+      proposed: new Set(),
+    });
+    const only = filterBoardByCard(b, "", { mtn: "locaa" });
+    expect(only.lanes.flat().filter((x) => x.kind === "candidate").map((x) => x.orderId)).toEqual([
+      "locaa",
+    ]);
+    // **已排不跟着地点筛掉** —— 那是「这几天我接不了」的原因，跟你在看哪个地点无关。
+    // 筛掉的话日历上会凭空空出几天，看着像资源空着其实是被占着的
+    expect(only.lanes.flat().filter((x) => x.kind === "booked")).toHaveLength(1);
+    expect(only.candidateOrderCount).toBe(1);
+    expect(only.candidates.map((c) => c.orderId)).toEqual(["locaa"]);
+  });
+
+  it("按区域筛跟按地点筛走的是同一份判断（lib/locations）", () => {
+    const b = buildProviderBoard({
+      today: "2026-09-15",
+      resources: [maleCard],
+      orders: [
+        { id: "regionB", location: "locag", demand_days: ["2026-09-20"], male_count: 1, female_count: 0 },
+        { id: "co", location: "locac", demand_days: ["2026-09-22"], male_count: 1, female_count: 0 },
+      ],
+      assignedByOrder: new Map(),
+      bookedByResource: new Map(),
+      proposed: new Set(),
+    });
+    const regionB = filterBoardByCard(b, "", { region: "regionB" });
+    expect(regionB.lanes.flat().map((x) => x.orderId)).toEqual(["regionB"]);
+  });
+
+  // 这条是这个函数存在的理由：界面上换资源，跟带着 ?card= 刷新一次，画出来必须是同一批块。
+  //
+  // **比的是「哪一单画在哪一天」，不是下标。** 收窄不动窗口（`days` 原样留着），
+  // 所以下标是相对「全部资源」那个窗口算的；服务端单独按女资源算的话窗口本身会更窄
+  // （男资源 9/18 那天的占用不在了）。窗口不跟着资源变是故意的：换个资源日历不该整个
+  // 左右跳一下，代价只是开头可能多一列空的
+  it("跟服务端直接按这个资源算一遍，画的是同一批块（比日期不比下标）", () => {
+    const onlyFemale = buildProviderBoard({
+      today: "2026-09-15",
+      resources: [femaleCard],
+      orders,
+      assignedByOrder: new Map(),
+      bookedByResource: new Map([["s-male", ["2026-09-18"]]]),
+      proposed: new Set(["both:s-male"]),
+    });
+    const narrowed = filterBoardByCard(full(), "s-female");
+    const shape = (b: typeof narrowed) =>
+      b.lanes
+        .flat()
+        .map((x) => `${x.kind}:${x.orderId}:${b.days[x.startIndex]}:${x.length}`)
+        .sort();
+    expect(shape(narrowed)).toEqual(shape(onlyFemale));
+    expect(narrowed.candidateOrderCount).toBe(onlyFemale.candidateOrderCount);
+    expect(narrowed.outsideWindowCount).toBe(onlyFemale.outsideWindowCount);
   });
 });
 

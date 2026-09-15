@@ -8,7 +8,7 @@ import { claimProvider } from "@/lib/accountClaim";
 import { validateResourceEdit, deleteBlockReason } from "@/lib/resourceEdit";
 import { cookies } from "next/headers";
 
-import { bookedDaysFor, VIEW_COOKIES } from "./data";
+import { bookedDaysFor } from "./data";
 import { clampProviderBandDays } from "@/lib/providerBoard";
 import { isIsoDate } from "@/lib/timelineStart";
 
@@ -136,25 +136,6 @@ export async function saveContact(formData: FormData) {
 // 校验和写库在 app/provider/proposeIntent.ts。Server Action 末尾的 redirect 会把整个
 // /provider 先渲染完才回响应（实测 2 秒多），挂在「点一下资源名」的关键路径上太冤。
 
-// 日历怎么看：每行几天、从哪天开始。存 cookie（见 data.ts 里那段为什么不存库）。
-//
-// 一年的有效期：这是个偏好不是会话状态，下次进来还该是他调好的样子。
-export async function saveViewSettings(formData: FormData) {
-  const jar = cookies();
-  const opts = { path: "/", maxAge: 31536000 } as const;
-
-  jar.set(VIEW_COOKIES.bandDays, String(clampProviderBandDays(text(formData, "band_days"))), opts);
-
-  // 留空 = 回到默认起点。填了但不是真实存在的日子，也当没填 ——
-  // 与其让日历从一个说不清的地方开始，不如回默认
-  const start = text(formData, "start");
-  if (isIsoDate(start)) jar.set(VIEW_COOKIES.start, start, opts);
-  else jar.set(VIEW_COOKIES.start, "", { path: "/", maxAge: 0 });
-
-  const card = text(formData, "card");
-  const view = text(formData, "view");
-  const q = new URLSearchParams();
-  if (card) q.set("card", card);
-  if (view === "list") q.set("view", view);
-  redirect(q.toString() ? `/provider?${q}` : "/provider");
-}
+// 日历怎么看那两个设置**不在这儿**：cookie 由客户端直接写（app/provider/ViewSettings.tsx），
+// 写完 router.refresh()。原来是个 Server Action + redirect —— redirect 要把整个 /provider
+// 渲染完才回响应，还会把界面上换过的资源、切过的视图一起冲掉（那些现在是组件状态）。
