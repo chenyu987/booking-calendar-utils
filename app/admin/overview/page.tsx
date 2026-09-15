@@ -36,7 +36,7 @@ import {
   formatDayRanges,
 } from "@/lib/dates";
 import { isPeakDate } from "@/lib/peakDates";
-import { COL_WIDTH, clampRailWidth } from "@/lib/bandDays";
+import { BAND_GAP, COL_WIDTH, EXTRA_LANES, clampRailWidth } from "@/lib/bandDays";
 import { shortHolderNames } from "@/lib/holderName";
 import { resolveTimelineStart, ordersBeforeStart } from "@/lib/timelineStart";
 import { previousOrdersFor, type ResourceUse } from "@/lib/previousUse";
@@ -202,12 +202,10 @@ const PANEL_WIDTH = 260;
 // 段的起点对齐到周一，所以每段正好是 4 个完整自然周。
 // 每行几天现在跟着右边那道帘子走（lib/bandWeeks.ts），不再是写死的。
 // 帘子收着的时候就是 28 天 —— 原来的样子。
-// 每段除了实际用到的泳道，底下再空几行：一是留位置拖拽建新单，二是跟下一段隔开
-const EXTRA_LANES = 2;
-// 最后一段底下留多一点：下面没有别的段接着了，往后加新单子都得在这儿拖
+// EXTRA_LANES / BAND_GAP 在 lib/bandDays.ts（匹配台那张日历共用同一份）
+// 最后一段底下留多一点：下面没有别的段接着了，往后加新单子都得在这儿拖。
+// **这条只有排期总览有** —— 匹配台不能拖着建单
 const EXTRA_LANES_LAST = 5;
-// 段与段之间再补一点视觉间距，跟上面那几行空泳道加一起就是"隔几个单位"的效果
-const BAND_GAP = 12;
 
 async function createQuickOrder(formData: FormData) {
   "use server";

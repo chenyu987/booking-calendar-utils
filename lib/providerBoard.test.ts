@@ -5,6 +5,8 @@ import {
   buildProviderBoard,
   splitBoardIntoBands,
   clampProviderBandDays,
+  type ProviderBlock,
+  type ProviderRow,
   PROVIDER_BAND_DAYS_DEFAULT,
 } from "./providerBoard";
 
@@ -339,14 +341,14 @@ describe("splitBoardIntoBands", () => {
   };
 
   it("按每行天数切段", () => {
-    const bands = splitBoardIntoBands(board as any, 7);
+    const bands = splitBoardIntoBands<ProviderBlock, ProviderRow>(board as any, 7);
     expect(bands).toHaveLength(3); // 7 + 7 + 6
     expect(bands[0].days).toHaveLength(7);
     expect(bands[2].days).toHaveLength(6);
   });
 
   it("跨接缝的块在上下两行各画一截，下标重新按本行算", () => {
-    const bands = splitBoardIntoBands(board as any, 7);
+    const bands = splitBoardIntoBands<ProviderBlock, ProviderRow>(board as any, 7);
     const first = bands[0].rows[0].lanes[0][0];
     const second = bands[1].rows[0].lanes[0][0];
     expect(first).toMatchObject({ startIndex: 5, length: 2 }); // 第 6、7 天
@@ -354,7 +356,7 @@ describe("splitBoardIntoBands", () => {
   });
 
   it("空掉的 lane 压掉 —— 块贴着行顶排，不悬在行底", () => {
-    const bands = splitBoardIntoBands(board as any, 7);
+    const bands = splitBoardIntoBands<ProviderBlock, ProviderRow>(board as any, 7);
     // o2 全局在第 2 条 lane 上，但第三行里第 1 条是空的，压掉之后它上到第 1 条
     expect(bands[2].rows[0].lanes).toHaveLength(1);
     expect(bands[2].rows[0].lanes[0][0].orderId).toBe("o2");
@@ -376,12 +378,12 @@ describe("splitBoardIntoBands", () => {
         },
       ],
     };
-    const bands = splitBoardIntoBands(twoLanes as any, 7);
+    const bands = splitBoardIntoBands<ProviderBlock, ProviderRow>(twoLanes as any, 7);
     expect(bands[0].rows[0].lanes.map((l) => l[0].orderId)).toEqual(["a", "b"]);
   });
 
   it("已排的段也跟着切", () => {
-    const bands = splitBoardIntoBands(board as any, 7);
+    const bands = splitBoardIntoBands<ProviderBlock, ProviderRow>(board as any, 7);
     expect(bands[0].rows[0].booked).toHaveLength(1);
     expect(bands[1].rows[0].booked).toHaveLength(0);
   });

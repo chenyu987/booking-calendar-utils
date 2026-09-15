@@ -7,8 +7,20 @@ import Link from "next/link";
 import { assignBlockReason } from "@/lib/assignable";
 import { computeNeed, formatNeed } from "@/lib/assignment";
 import { formatDayRanges } from "@/lib/dates";
-import { MATCH_SORTS, firstDay, parseMatchSort, sortMatches, type MatchSort } from "@/lib/matchSort";
+import { MATCH_SORTS, firstDay, parseMatchSort, sortMatches } from "@/lib/matchSort";
 import { isStaleMatch } from "@/lib/matchStatus";
+import { groupMatchesByOrder, parseMatchView, type MatchView } from "@/lib/matchGroup";
+import { buildMatchBoard, candidateOf } from "@/lib/matchBoard";
+import AutoSubmitForm from "./AutoSubmitForm";
+import { MIN_BAND_DAYS, MAX_BAND_DAYS } from "@/lib/bandDays";
+import {
+  getMatchesBandDays,
+  getMatchesStart,
+  setMatchesBandDays,
+  setMatchesStart,
+} from "@/lib/appSettings";
+import MatchCalendar from "./MatchCalendar";
+import { formatPerson } from "@/lib/person";
 import { todayIso } from "@/lib/dates";
 import {
   GAP_FILTER_LABELS,
@@ -45,13 +57,13 @@ export const dynamic = "force-dynamic";
  * 没下限的话屏幕一窄它们就被挤成一条，文字抖行，整张表糊成一团。
  */
 const COL = {
-  // 两个日期框要并排放得下（量出来的，见筛选行那条注释）
-  date: 252,
-  mtn: 110,
+  // 这一格要并排放下**两个日期框 + 排序下拉**（量出来的，见筛选行那条注释）
+  date: 360,
+  mtn: 132,   // 放得下「全部地点」
   customer: 100,
   party: 104,
   need: 116,
-  ostatus: 96,
+  ostatus: 124, // 放得下「全部订单状态」
   mstatus: 92,
   actions: 186,
   providerMin: 190,
@@ -65,6 +77,10 @@ const COL = {
 const MIN_TABLE_WIDTH =
   Object.values(COL).reduce((a, b) => a + b, 0) + 6 * 9; // 6px 的 gap × 列间隔
 
+/** 聚合视图只剩四列（Provider / Resource / 状态 / 操作），窄得多 */
+const GROUP_MIN_WIDTH =
+  COL.providerMin + COL.resourceMin + COL.mstatus + COL.actions + 6 * 3 + 12;
+
 async function createMatch(formData: FormData) {
   "use server";
   // Provider 从 resource 带出来，不重复存
@@ -77,6 +93,24 @@ async function createMatch(formData: FormData) {
   revalidatePath("/admin/matches");
   revalidatePath("/admin/overview");
   revalidatePath("/admin/orders");
+}
+
+// 日历怎么排：每行几天、从哪天开始。**这一页自己的设置，跟排期总览无关** ——
+// 两张表、两种用法，在这儿调一下不该把总览也带着变。
+async function saveCalendarSettings(formData: FormData) {
+  "use server";
+  const days = Number(formData.get("band_days"));
+  if (Number.isFinite(days)) await setMatchesBandDays(days);
+  // 留空 = 回到默认起点；填了个不存在的日子也当没填（setOverviewStart 自己会验）
+  await setMatchesStart(((formData.get("start") as string) ?? "").trim() || null);
+
+  revalidatePath("/admin/matches");
+
+  // 不用回一个「已保存」的标记：**日历自己就是反馈** —— 改了每行天数，带子当场重排；
+  // 改了起始日，第一列就变了。再写一句「已按每行 N 天重排」，是把旁边那个输入框里
+  // 已经写着的数字又念一遍
+  const back = (formData.get("back") as string) ?? "/admin/matches";
+  redirect(back);
 }
 
 async function updateMatchStatus(formData: FormData) {
@@ -193,13 +227,16 @@ export default async function MatchesAdminPage({
 }) {
   const sort = parseMatchSort(searchParams.sort);
   const filters = parseMatchFilters(searchParams);
+  const view = parseMatchView(searchParams.group);
+  const grouped = view === "order";
+  const calendar = view === "calendar";
   const filtering = hasAnyMatchFilter(filters);
   const [{ data: matches, error }, { data: orders }, { data: resources }] =
     await Promise.all([
       supabase
         .from("matches")
         .select(
-          "id, status, created_at, order_id, resource_id, orders(location, demand_days, status, male_count, female_count, customers(first_name)), resources(item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(first_name, last_name, chat))"
+          "id, status, created_at, order_id, resource_id, orders(location, demand_days, status, male_count, female_count, customers(first_name, last_name, chat)), resources(id, status, deleted_at, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(first_name, last_name, chat))"
         )
         .order("created_at", { ascending: false }),
       supabase
@@ -237,10 +274,32 @@ export default async function MatchesAdminPage({
   // 那是从 order_assignments 现算的（CLAUDE.md：能算出来的不存字段），写进 SQL
   // 就得在两处维护同一套算法
   const today = todayIso();
+  // 日历那张每行排几天。用的是排期总览那条设置，设置弹窗里能调
+  const [bandDays, calendarStart] = calendar
+    ? await Promise.all([getMatchesBandDays(), getMatchesStart()])
+    : [0, null];
   // 落空与否**现算不存**：到了订单开始那天还没被选中就再也用不上了。
   // 在那之前留着当后备 —— 中标的那条可能退单，其余几条随时能顶上去。见 lib/matchStatus.ts
   const staleOf = (m: any) => isStaleMatch(m.status, firstDay(m), today);
 
+  // 日历那张要「这个资源已经排出去了哪几天」—— 按 resource 聚一份。
+  // 只查身上挂着意向的那几个资源，别的资源去排期总览看
+  const resourceIds = [...new Set((matches ?? []).map((m: any) => m.resource_id))];
+  const bookedByResource = new Map<string, string[]>();
+  if (resourceIds.length > 0) {
+    const { data } = await supabase
+      .from("order_assignments")
+      .select("resource_id, orders(demand_days)")
+      .in("resource_id", resourceIds);
+    for (const a of data ?? []) {
+      const days = (a as any).orders?.demand_days ?? [];
+      if (days.length === 0) continue;
+      bookedByResource.set(a.resource_id, [...(bookedByResource.get(a.resource_id) ?? []), ...days]);
+    }
+  }
+
+  // 日历那张的两份索引：每个资源身上挂着哪些意向、这个资源长什么样。
+  // **用筛过的 rows 而不是全部** —— 筛选对三个视图都该生效
   const all = sortMatches((matches ?? []) as any[], sort);
   const rows = all.filter((m: any) => {
     const need = m.orders ? computeNeed(m.orders, assignedByOrder.get(m.order_id) ?? []) : null;
@@ -261,6 +320,23 @@ export default async function MatchesAdminPage({
       filters
     );
   });
+
+  // 日历用：一个订单挂着哪几条意向（顺序跟着上面的排序走）。
+  // **资源的 status / deleted_at 必须取**（见上面那条 select）：日历要跑
+  // assignBlockReason 判断每条意向现在能不能拍板，那套校验第一条看的就是挂牌状态 ——
+  // 少取一个字段，整张表会全判成「这个资源不在出租中」，而且看不出是为什么
+  const matchesByOrder = new Map<string, any[]>();
+  for (const m of rows as any[]) {
+    matchesByOrder.set(m.order_id, [...(matchesByOrder.get(m.order_id) ?? []), m]);
+  }
+  // 点开的那一单有哪几个人想接
+  const assignOrder = searchParams.assign ?? "";
+  const assignCandidates = assignOrder
+    ? (matchesByOrder.get(assignOrder) ?? []).map((m: any) =>
+        candidateOf(m, today, assignedByOrder, bookedByResource)
+      )
+    : [];
+  const assignOrderRow = assignOrder ? (matchesByOrder.get(assignOrder) ?? [])[0] : null;
 
   return (
     <main>
@@ -303,6 +379,25 @@ export default async function MatchesAdminPage({
       {error && <p style={{ color: "var(--danger)" }}>{error.message}</p>}
       {searchParams.error && <p style={actionErrorStyle}>没改成：{searchParams.error}</p>}
 
+      {/* 整张表的三件事摆在一起：视图、排序、筛选。
+          视图 —— 日历一个块一个订单（默认，匹配是按日期做的决定），聚合一行一个订单、
+          底下挂着抢它的物主，平铺一行一个「订单 × 资源」。
+          意向是多对多堆起来的，平铺时订单那六列每条意向都要重印一遍。 */}
+      <div style={toolbarStyle}>
+        {/* 默认那个摆左边 —— 段控件里左边那格默认就读作「常态」 */}
+        <div style={segGroupStyle}>
+          <Link href={viewHref(searchParams, "calendar")} style={calendar ? segActiveStyle : segStyle}>
+            日历
+          </Link>
+          <Link href={viewHref(searchParams, "order")} style={view === "order" ? segActiveStyle : segStyle}>
+            按单聚合
+          </Link>
+          <Link href={viewHref(searchParams, "flat")} style={view === "flat" ? segActiveStyle : segStyle}>
+            平铺
+          </Link>
+        </div>
+      </div>
+
       {/* 表头 + 紧贴其下的逐列筛选行。
           这一页原来是真 <table>，而 <form> 塞不进表格结构里 —— 所以改成跟
           /admin/resources 一样的 div 布局：筛选控件的 flex/width 跟表头一一对齐，
@@ -312,24 +407,12 @@ export default async function MatchesAdminPage({
           而不是把列挤到文字抖行（或者把整页撑出一条横条，那样侧边栏和标题也跟着跑）。
           之前包在 <table> 外面的那层，改成 div 布局时丢了。 */}
       <div style={{ overflowX: "auto" }}>
-      <div style={{ minWidth: MIN_TABLE_WIDTH }}>
+      <div style={{ minWidth: view === "flat" ? MIN_TABLE_WIDTH : view === "order" ? GROUP_MIN_WIDTH : 0 }}>
+      {view === "flat" && (
       <div style={headerRowStyle}>
-        <div style={{ ...cellStyle, width: COL.date }}>
-          日期{" "}
-          {(Object.keys(MATCH_SORTS) as MatchSort[]).map((k) => (
-            <Link
-              key={k}
-              // 换排序不该把筛选清掉 —— 两件事互不相干
-              href={sortHref(searchParams, k)}
-              style={k === sort ? sortActiveStyle : sortLinkStyle}
-              title={MATCH_SORTS[k]}
-            >
-              {k === "date" ? "近↑" : k === "dateDesc" ? "远↓" : "新"}
-            </Link>
-          ))}
-        </div>
-        <div style={{ ...cellStyle, width: COL.mtn }}>地点</div>
+        <div style={{ ...cellStyle, width: COL.date }}>日期</div>
         <div style={{ ...cellStyle, width: COL.customer }}>客户</div>
+        <div style={{ ...cellStyle, width: COL.mtn }}>地点</div>
         <div style={{ ...cellStyle, width: COL.party }}>人数</div>
         <div style={{ ...cellStyle, width: COL.need }}>分配进度</div>
         <div style={{ ...cellStyle, width: COL.ostatus }}>订单状态</div>
@@ -338,18 +421,63 @@ export default async function MatchesAdminPage({
         <div style={{ ...cellStyle, width: COL.mstatus }}>状态</div>
         <div style={{ ...cellStyle, width: COL.actions }}>操作</div>
       </div>
+      )}
 
+      {/* 筛选控件两种视图共用**同一份**，只换外面那层格子的样式：
+          平铺时按列对齐（列就在头上），聚合时那些列不存在了，对齐没有意义，
+          换成自然排布。控件本身一个字都不重写 —— 重写就是第二份。 */}
+      {/* 日历的显示设置跟筛选**排在同一行**。两者是两个表单（一个写库的 Server Action、
+          一个拼 URL 的 GET），合不成一个 <form>，但可以并排站在同一行里。
+          说明那句话收进 title —— 一行里塞不下一句话，塞进去就把筛选挤到下一行了 */}
+      <div style={view !== "flat" ? { ...oneLineStyle, marginBottom: 12 } : oneLineStyle}>
+        {calendar && (
+          <AutoSubmitForm action={saveCalendarSettings} style={calFormStyle}>
+            <input type="hidden" name="back" value={pickHref(searchParams)} />
+            <input
+              type="date"
+              name="start"
+              title="日历从哪天开始。留空 = 回到默认"
+              defaultValue={calendarStart ?? ""}
+              style={filterInputStyle}
+            />
+            <input
+              type="number"
+              name="band_days"
+              title="每行排几天"
+              min={MIN_BAND_DAYS}
+              max={MAX_BAND_DAYS}
+              defaultValue={bandDays}
+              style={{ ...filterInputStyle, width: 64 }}
+            />
+          </AutoSubmitForm>
+        )}
       <FilterForm action="/admin/matches">
-        <div style={{ ...rowStyle, background: "var(--surface-2)" }}>
-          {/* 排序不是筛选，但得跟着一起带走，不然一筛就跳回默认排序 */}
-          <input type="hidden" name="sort" value={sort === "date" ? "" : sort} />
+        <div
+          style={
+            view !== "flat"
+              ? { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }
+              : { ...rowStyle, background: "var(--surface-2)" }
+          }
+        >
           {/* 两个日期框并排。列宽是**量出来的**：在浏览器里撑一个 type=date 到
               内容最小宽度是 112px（年/月/日 + 那个小日历图标）。
               两个框是弹性的（各占一半），所以列宽 252 → 每个 124，比最小宽度多 12px。
               300 那一版每个框 148px，框里「年/月/日」右边空出一大截，很难看；
               框又不能缩到 112 以下，所以列宽就按「刚好让框接近自然宽度」来定。
-              **不能再窄**：弹性项缩不到内容最小宽度以下，再窄就会溢出到隔壁列。 */}
-          <div style={{ ...cellStyle, width: COL.date, display: "flex", gap: 4 }}>
+              **不能再窄**：弹性项缩不到内容最小宽度以下，再窄就会溢出到隔壁列。
+
+              **日历视图里不给这两个框**：那边上面已经有「从哪天开始」管日期窗口了，
+              两个管同一件事的控件摆在一起只会让人猜哪个说了算。
+              平铺和聚合没有那个设置，日期就得靠这儿筛。 */}
+          <div
+            style={
+              calendar
+                ? { display: "none" }
+                : view !== "flat"
+                  ? { display: "flex", gap: 4 }
+                  : { ...cellStyle, width: COL.date, display: "flex", gap: 4 }
+            }
+          >
             <input
               name="from"
               type="date"
@@ -364,10 +492,33 @@ export default async function MatchesAdminPage({
               defaultValue={filters.to}
               style={filterInputStyle}
             />
+            {/* **排序跟日期放在一起**。它管的就是日期，摆在视图开关旁边不搭界；
+                而且原来是三个小链接，跟旁边一排下拉不是一种东西 —— 换成下拉，
+                跟别的筛选控件同一种形态，也就一起被 FilterForm 的「改了就自动筛」管着 */}
+            <select
+              name="sort"
+              defaultValue={sort === "date" ? "" : sort}
+              title="怎么排"
+              style={filterInputStyle}
+            >
+              <option value="">{MATCH_SORTS.date}</option>
+              <option value="dateDesc">{MATCH_SORTS.dateDesc}</option>
+              <option value="created">{MATCH_SORTS.created}</option>
+            </select>
           </div>
-          <div style={{ ...cellStyle, width: COL.mtn }}>
+          <div style={view !== "flat" ? { width: 130 } : { ...cellStyle, width: COL.customer }}>
+            <input
+              name="customer"
+              defaultValue={filters.customer}
+              placeholder="客户"
+              style={filterInputStyle}
+            />
+          </div>
+          <div style={view !== "flat" ? { width: 130 } : { ...cellStyle, width: COL.mtn }}>
+            {/* 占位文字要说清楚筛的是什么。光写「全部」，一排下拉摆在一起谁知道
+                哪个是全部啥 —— 列宽不够就把列拉宽，不能靠人猜 */}
             <select name="mtn" defaultValue={filters.mtn} style={filterInputStyle}>
-              <option value="">全部</option>
+              <option value="">全部地点</option>
               {LOCATION_OPTIONS.filter(
                 (m) => !filters.region || m.region === filters.region
               ).map((m) => (
@@ -377,16 +528,8 @@ export default async function MatchesAdminPage({
               ))}
             </select>
           </div>
-          <div style={{ ...cellStyle, width: COL.customer }}>
-            <input
-              name="customer"
-              defaultValue={filters.customer}
-              placeholder="客户"
-              style={filterInputStyle}
-            />
-          </div>
           {/* 人数那列没什么好筛的，拿来放区域 —— 它跟地点是一对，挨着才好用 */}
-          <div style={{ ...cellStyle, width: COL.party }}>
+          <div style={view !== "flat" ? { width: 130 } : { ...cellStyle, width: COL.party }}>
             <select name="region" defaultValue={filters.region} style={filterInputStyle}>
               <option value="">全部区域</option>
               {(Object.keys(REGION_LABELS) as Region[]).map((r) => (
@@ -396,7 +539,7 @@ export default async function MatchesAdminPage({
               ))}
             </select>
           </div>
-          <div style={{ ...cellStyle, width: COL.need }}>
+          <div style={view !== "flat" ? { width: 130 } : { ...cellStyle, width: COL.need }}>
             <select name="gap" defaultValue={filters.gap} style={filterInputStyle}>
               {(Object.keys(GAP_FILTER_LABELS) as GapFilter[]).map((k) => (
                 <option key={k} value={k}>
@@ -405,9 +548,9 @@ export default async function MatchesAdminPage({
               ))}
             </select>
           </div>
-          <div style={{ ...cellStyle, width: COL.ostatus }}>
+          <div style={view !== "flat" ? { width: 130 } : { ...cellStyle, width: COL.ostatus }}>
             <select name="ostatus" defaultValue={filters.ostatus} style={filterInputStyle}>
-              <option value="">全部</option>
+              <option value="">全部订单状态</option>
               {Object.entries(ORDER_STATUS_LABELS).map(([k, label]) => (
                 <option key={k} value={k}>
                   {label}
@@ -417,7 +560,7 @@ export default async function MatchesAdminPage({
           </div>
           {/* 物主和持有人一个框一起搜 —— 找人的时候没人分得清自己记住的是哪一个。
               框放在 Provider 那列，横跨 Provider + Resource 两列的意思 */}
-          <div style={{ ...cellStyle, flex: 1.2, minWidth: COL.providerMin }}>
+          <div style={view !== "flat" ? { width: 150 } : { ...cellStyle, flex: 1.2, minWidth: COL.providerMin }}>
             <input
               name="resource"
               defaultValue={filters.resource}
@@ -425,8 +568,8 @@ export default async function MatchesAdminPage({
               style={filterInputStyle}
             />
           </div>
-          <div style={{ ...cellStyle, flex: 1.6, minWidth: COL.resourceMin }} />
-          <div style={{ ...cellStyle, width: COL.mstatus }}>
+          {view === "flat" && <div style={{ ...cellStyle, flex: 1.6, minWidth: COL.resourceMin }} />}
+          <div style={view !== "flat" ? { width: 130 } : { ...cellStyle, width: COL.mstatus }}>
             <select name="mstatus" defaultValue={filters.mstatus} style={filterInputStyle}>
               {(Object.keys(MATCH_STATUS_FILTER_LABELS) as MatchStatusFilter[]).map((k) => (
                 <option key={k} value={k}>
@@ -436,20 +579,18 @@ export default async function MatchesAdminPage({
             </select>
           </div>
           <div
-            style={{
-              ...cellStyle,
-              width: COL.actions,
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-            }}
+            style={
+              view !== "flat"
+                ? { display: "flex", gap: 8, alignItems: "center" }
+                : { ...cellStyle, width: COL.actions, display: "flex", gap: 8, alignItems: "center" }
+            }
           >
             {filtering && (
               <>
                 <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
                   {rows.length}/{all.length}
                 </span>
-                <Link href={sortHref({ sort: searchParams.sort }, sort)} style={clearFilterStyle}>
+                <Link href={clearFiltersHref(searchParams)} style={clearFilterStyle}>
                   清掉
                 </Link>
               </>
@@ -457,8 +598,141 @@ export default async function MatchesAdminPage({
           </div>
         </div>
       </FilterForm>
+      </div>
 
-      {rows.map((m: any) => {
+      {calendar && (
+        <MatchCalendar
+          board={buildMatchBoard({
+            today,
+            matchesByOrder,
+            assignedByOrder,
+            bookedByResource,
+            start: calendarStart ?? undefined,
+          })}
+          // 每行几天**跟排期总览共用同一个设置**（设置弹窗里那一项）——
+          // 两页各存一个的话，调了一处另一处不动，就成了两套记忆
+          bandDays={bandDays}
+          assign={searchParams.assign ?? ""}
+          href={(extra) => pickHref(searchParams, extra)}
+        />
+      )}
+
+      {/* 点开一个单子之后列出谁愿意接它 —— 这就是这张日历跟排期总览的差别：
+          总览列的是全部资源让你挑，这儿只列已经有人主动说想接的那几张。
+          配不上的不给按钮，直接把原因写出来，省得点下去才被拦 */}
+      {calendar && assignOrder && (
+        <div style={candidatePanelStyle}>
+          <div style={{ fontSize: 13, marginBottom: 8 }}>
+            <b>
+              {formatDayRanges(assignOrderRow?.orders?.demand_days ?? [])} ·{" "}
+              {formatPerson(
+                assignOrderRow?.orders?.customers?.first_name,
+                assignOrderRow?.orders?.customers?.last_name
+              )}
+              {assignOrderRow?.orders?.location ? ` · ${assignOrderRow.orders.location}` : ""}
+            </b>
+            <span style={{ color: "var(--text-muted)" }}>
+              {" "}
+              · {assignCandidates.length} 个物主想接
+            </span>
+            <Link
+              href={pickHref(searchParams, { assign: "" })}
+              style={{ marginLeft: 10, fontSize: 12, color: "var(--text-muted)" }}
+            >
+              收起
+            </Link>
+          </div>
+          {assignCandidates.map((c) => (
+            <div key={c.matchId} style={candidateRowStyle}>
+              <div style={{ ...cellStyle, flex: 1.2, minWidth: COL.providerMin }}>{c.providerLine}</div>
+              <div style={{ ...cellStyle, flex: 1.6, minWidth: COL.resourceMin }}>
+                {c.holderName}
+                <div style={{ color: "var(--text-faint)", fontSize: 12 }}>{c.holderLine}</div>
+              </div>
+              <div style={{ ...cellStyle, flex: 2 }}>
+                {c.chosen ? (
+                  <span style={{ color: "var(--ok)" }}>已经选了这张</span>
+                ) : c.stale ? (
+                  <span style={{ color: "var(--text-faint)" }}>已过期 —— 这一单已经开始了</span>
+                ) : c.blocked ? (
+                  <span style={{ color: "var(--text-faint)" }}>配不上：{c.blocked}</span>
+                ) : (
+                  <form action={updateMatchStatus}>
+                    <input type="hidden" name="match_id" value={c.matchId} />
+                    <input type="hidden" name="status" value="chosen" />
+                    <button type="submit" style={buttonStyle}>
+                      就选这张
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {grouped &&
+        groupMatchesByOrder(rows as any[]).map((g) => {
+          const o = g.first.orders;
+          const days = o?.demand_days ?? [];
+          const need = o ? computeNeed(o, assignedByOrder.get(g.orderId) ?? []) : null;
+          return (
+            <div key={g.orderId} style={groupStyle}>
+              {/* 订单信息**只印一遍**。平铺时这六列每条意向重印一遍，
+                  而「这一单有几个人想接、我得挑一个」反倒要靠眼睛把相邻几行认出来 */}
+              <div style={orderHeadStyle}>
+                <b>
+                  {days.length > 0 ? `${formatDayRanges(days)} · ${days.length}天` : "没填日期"}
+                </b>
+                <span style={{ color: "var(--text-muted)" }}>
+                  {/* 先人后地点：这一单是谁求的，比它去哪儿更该先看到。
+                      客户的聊天不放这儿 —— 匹配这一步要联系的是物主，不是客户 */}
+                  {formatPerson(o?.customers?.first_name, o?.customers?.last_name)} ·{" "}
+                  {o?.location || "没填地点"} · {formatParty(o?.male_count, o?.female_count)}
+                </span>
+                <span style={{ color: need?.isComplete ? "var(--ok)" : undefined }}>
+                  {need ? formatNeed(need) : "-"}
+                </span>
+                <span style={{ color: "var(--text-muted)" }}>
+                  {o?.status ? ORDER_STATUS_LABELS[o.status] ?? o.status : "-"}
+                </span>
+                <span style={{ flex: 1 }} />
+                <span style={{ color: "var(--text-faint)", fontSize: 12 }}>
+                  {g.matches.length} 个物主想接
+                </span>
+              </div>
+              {g.matches.map((m: any) => (
+                <div key={m.id} style={candidateRowStyle}>
+                  <div style={{ ...cellStyle, flex: 1.2, minWidth: COL.providerMin }}>
+                    {formatPerson(
+                      m.resources?.providers?.first_name,
+                      m.resources?.providers?.last_name,
+                      m.resources?.providers?.chat
+                    )}
+                  </div>
+                  <div style={{ ...cellStyle, flex: 1.6, minWidth: COL.resourceMin }}>
+                    {m.resources?.holder_name ?? "-"}{" "}
+                    <span style={{ color: "var(--text-faint)" }}>
+                      {formatHolder(m.resources?.holder_gender, m.resources?.holder_date_of_birth)}
+                    </span>
+                    <div style={{ color: "var(--text-faint)", fontSize: 12 }}>
+                      {m.resources?.item_type} {formatValidity(m.resources)}
+                    </div>
+                  </div>
+                  <div style={{ ...cellStyle, width: COL.mstatus }}>
+                    <MatchStatusText status={m.status} stale={staleOf(m)} />
+                  </div>
+                  <div style={{ ...cellStyle, width: COL.actions }}>
+                    <MatchActions id={m.id} status={m.status} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+
+      {view === "flat" &&
+        rows.map((m: any) => {
         const days = m.orders?.demand_days ?? [];
         const need = m.orders
           ? computeNeed(m.orders, assignedByOrder.get(m.order_id) ?? [])
@@ -475,11 +749,13 @@ export default async function MatchesAdminPage({
                 <span style={{ color: "var(--text-faint)" }}>没填日期</span>
               )}
             </div>
+            {/* 先人后地点，跟聚合视图的订单头一个顺序。
+                客户的聊天不放这儿 —— 匹配这一步要联系的是物主，不是客户 */}
+            <div style={{ ...cellStyle, width: COL.customer }}>
+              {formatPerson(m.orders?.customers?.first_name, m.orders?.customers?.last_name)}
+            </div>
             <div style={{ ...cellStyle, width: COL.mtn }}>
               {m.orders?.location || <span style={{ color: "var(--text-faint)" }}>没填</span>}
-            </div>
-            <div style={{ ...cellStyle, width: COL.customer }}>
-              {m.orders?.customers?.first_name ?? "-"}
             </div>
             <div style={{ ...cellStyle, width: COL.party }}>
               {formatParty(m.orders?.male_count, m.orders?.female_count)}
@@ -498,8 +774,11 @@ export default async function MatchesAdminPage({
               {m.orders?.status ? ORDER_STATUS_LABELS[m.orders.status] ?? m.orders.status : "-"}
             </div>
             <div style={{ ...cellStyle, flex: 1.2, minWidth: COL.providerMin }}>
-              {m.resources?.providers?.first_name} {m.resources?.providers?.last_name} (
-              {m.resources?.providers?.chat})
+              {formatPerson(
+                m.resources?.providers?.first_name,
+                m.resources?.providers?.last_name,
+                m.resources?.providers?.chat
+              )}
             </div>
             <div style={{ ...cellStyle, flex: 1.6, minWidth: COL.resourceMin }}>
               {m.resources?.holder_name ?? "-"}{" "}
@@ -511,26 +790,10 @@ export default async function MatchesAdminPage({
               </div>
             </div>
             <div style={{ ...cellStyle, width: COL.mstatus }}>
-              {m.status}
-              {/* 库里还写着 proposed，但那一单已经开始了 —— 再也顶不上去了。
-                  不改库：订单日期还会变，存成字段迟早对不上（见 lib/matchStatus.ts） */}
-              {staleOf(m) && (
-                <div style={{ fontSize: 11, color: "var(--text-faint)" }}>已过期</div>
-              )}
+              <MatchStatusText status={m.status} stale={staleOf(m)} />
             </div>
             <div style={{ ...cellStyle, width: COL.actions }}>
-              <form action={updateMatchStatus} style={{ display: "flex", gap: 6 }}>
-                <input type="hidden" name="match_id" value={m.id} />
-                <select name="status" defaultValue={m.status} style={selectStyle}>
-                  <option value="proposed">proposed</option>
-                  <option value="allowed">allowed</option>
-                  <option value="chosen">chosen</option>
-                  <option value="unfulfilled">unfulfilled</option>
-                </select>
-                <button type="submit" style={buttonStyle}>
-                  更新
-                </button>
-              </form>
+              <MatchActions id={m.id} status={m.status} />
             </div>
           </div>
         );
@@ -548,22 +811,16 @@ export default async function MatchesAdminPage({
   );
 }
 
-// 换排序时把现有的筛选原样带上。**空值不拼进去** —— 不然地址栏一长串
-// ?customer=&mtn=&from= 的空参数，跟 FilterForm 那边的做法保持一致
-function sortHref(sp: Record<string, string | undefined>, next: MatchSort): string {
-  const q = new URLSearchParams();
-  for (const [k, v] of Object.entries(sp)) {
-    if (k === "sort" || k === "error") continue;
-    if (v) q.set(k, v);
-  }
-  if (next !== "date") q.set("sort", next);
-  const qs = q.toString();
-  return qs ? `/admin/matches?${qs}` : "/admin/matches";
-}
 
 // 跟 /admin/resources 那份一模一样的道理：**宽度必须是 100% + border-box**。
 // 写死像素的话控件跟它头上那一列对不齐，列越多错得越远 —— 刚才就是这么歪的。
+// 这一行里 input / select / type=date 的自然高度各不相同（实测 22 / 24 / 27）——
+// 挨着摆就是一排高低不齐的框。**写死同一个高度**，三种控件才对得齐。
+// 26 不是「刚好够」：12px 的字撑开约 15px，26 减掉上下边框和内边距还剩 18，
+// 留了 3px 余量（CI 上的字体宽一点也不会被切）
+const FILTER_H = 26;
 const filterInputStyle: React.CSSProperties = {
+  height: FILTER_H,
   padding: "3px 5px",
   border: "1px solid var(--border-strong)",
   borderRadius: 4,
@@ -576,18 +833,6 @@ const clearFilterStyle: React.CSSProperties = {
   color: "var(--link)",
   textDecoration: "none",
 };
-const sortLinkStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 400,
-  color: "var(--text-faint)",
-  textDecoration: "none",
-  marginLeft: 5,
-};
-const sortActiveStyle: React.CSSProperties = {
-  ...sortLinkStyle,
-  color: "var(--link)",
-  fontWeight: 600,
-};
 const actionErrorStyle: React.CSSProperties = {
   color: "var(--danger)",
   fontSize: 13,
@@ -596,4 +841,148 @@ const actionErrorStyle: React.CSSProperties = {
   background: "var(--danger-soft-bg)",
   borderRadius: 6,
   padding: "8px 12px",
+};
+
+// 状态格里的内容。两种视图共用一份 —— 「已过期」那个标记只该有一处说法
+function MatchStatusText({ status, stale }: { status: string; stale: boolean }) {
+  return (
+    <>
+      {status}
+      {/* 库里还写着 proposed，但那一单已经开始了 —— 再也顶不上去了。
+          不改库：订单日期还会变，存成字段迟早对不上（见 lib/matchStatus.ts） */}
+      {stale && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>已过期</div>}
+    </>
+  );
+}
+
+// 改状态那个表单。同上，两种视图共用一份
+function MatchActions({ id, status }: { id: string; status: string }) {
+  return (
+    <form action={updateMatchStatus} style={{ display: "flex", gap: 6 }}>
+      <input type="hidden" name="match_id" value={id} />
+      <select name="status" defaultValue={status} style={selectStyle}>
+        <option value="proposed">proposed</option>
+        <option value="allowed">allowed</option>
+        <option value="chosen">chosen</option>
+        <option value="unfulfilled">unfulfilled</option>
+      </select>
+      <button type="submit" style={buttonStyle}>
+        更新
+      </button>
+    </form>
+  );
+}
+
+// 清筛选：**排序和视图得留着**。排序现在长在筛选表单里，所以「清掉」这个链接
+// 得自己把它带上 —— 不然清一下筛选，排序也跟着回默认了
+function clearFiltersHref(sp: Record<string, string | undefined>): string {
+  const q = new URLSearchParams();
+  if (sp.sort) q.set("sort", sp.sort);
+  if (sp.group) q.set("group", sp.group);
+  const qs = q.toString();
+  return qs ? `/admin/matches?${qs}` : "/admin/matches";
+}
+
+// 日历上点一个块 → 跳到 ?pick=<matchId>，弹一条确认再落。
+// 排序、筛选、视图三样原样带着走
+function pickHref(
+  sp: Record<string, string | undefined>,
+  extra?: Record<string, string>
+): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (k === "pick" || k === "error") continue;
+    if (v) q.set(k, v);
+  }
+  for (const [k, v] of Object.entries(extra ?? {})) {
+    if (v) q.set(k, v);
+    else q.delete(k);
+  }
+  const qs = q.toString();
+  return qs ? `/admin/matches?${qs}` : "/admin/matches";
+}
+
+// 换视图时把现有的筛选和排序原样带上 —— 三件事互不相干
+function viewHref(sp: Record<string, string | undefined>, next: MatchView): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (k === "group" || k === "error") continue;
+    if (v) q.set(k, v);
+  }
+  // URL 里只出现**非默认**的那个：默认是日历
+  if (next !== "calendar") q.set("group", next);
+  const qs = q.toString();
+  return qs ? `/admin/matches?${qs}` : "/admin/matches";
+}
+
+const groupStyle: React.CSSProperties = {
+  border: "1px solid var(--border)",
+  borderRadius: 8,
+  marginBottom: 10,
+  overflow: "hidden",
+};
+const orderHeadStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: 10,
+  flexWrap: "wrap",
+  padding: "8px 12px",
+  background: "var(--surface-2)",
+  borderBottom: "1px solid var(--border)",
+  fontSize: 13,
+};
+const candidateRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "6px 12px",
+  borderBottom: "1px solid var(--border)",
+};
+const oneLineStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+const calFormStyle: React.CSSProperties = {
+  display: "inline-flex",
+  gap: 6,
+  alignItems: "center",
+};
+const calLabelStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+  fontSize: 11,
+  color: "var(--text-muted)",
+};
+const candidatePanelStyle: React.CSSProperties = {
+  border: "1px solid var(--notice-border)",
+  background: "var(--notice-bg)",
+  borderRadius: 8,
+  padding: "10px 12px",
+  marginTop: 12,
+};
+const toolbarStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 10,
+};
+const segGroupStyle: React.CSSProperties = {
+  display: "inline-flex",
+  border: "1px solid var(--border-strong)",
+  borderRadius: 6,
+  overflow: "hidden",
+};
+const segStyle: React.CSSProperties = {
+  padding: "5px 14px",
+  fontSize: 12,
+  color: "var(--text-muted)",
+  textDecoration: "none",
+};
+const segActiveStyle: React.CSSProperties = {
+  ...segStyle,
+  background: "var(--solid-bg)",
+  color: "var(--on-solid)",
 };

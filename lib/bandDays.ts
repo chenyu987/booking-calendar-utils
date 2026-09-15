@@ -28,6 +28,16 @@ export const RAIL_TOTAL_WIDTH = 245;
 /** 竖向滚动条的宽度。日历那一格留出这么多，不然竖条一出来就挤出一根横条 */
 export const SCROLLBAR_ALLOWANCE = 16;
 
+/**
+ * 每段除了实际用到的泳道，底下再空几行 —— 一是留位置拖拽建新单（只有排期总览有），
+ * 二是跟下一段隔开。**匹配台那张日历也照这个数**：两条空泳道 + BAND_GAP，
+ * 就是「最后一个单子离下一层日历有两个单子那么远」。
+ * 各写各的话，两张日历看着就是两个东西 —— 第二份数字和第二份样式是同一个 bug。
+ */
+export const EXTRA_LANES = 2;
+/** 段与段之间再补一点视觉间距，跟上面那几行空泳道加一起就是「隔几个单位」的效果 */
+export const BAND_GAP = 12;
+
 export const MIN_BAND_DAYS = 3;
 /** 四周一行 —— 没设过、量不到、双击「放回去」，都回到这个数 */
 export const DEFAULT_BAND_DAYS = 28;

@@ -161,19 +161,26 @@ export type ProviderBand = {
  * 把整条时间轴切成每行 n 天。跨着接缝的块在上下两行各画一截 ——
  * 渲染那边本来就是按段切的，这里只是再切一刀。
  *
+ * 泛型：块的类型由调用方定 —— 物主那张日历和匹配台那张画的东西不一样
+ * （一个是「我能接的需求」，一个是「有人想拿这个资源接的单」），但**几何是同一套**。
+ * 两边各写一份分带和排道，就是第二份数字和第二份样式那条。
+ *
  * **空掉的 lane 压掉，相对顺序不动。** 一开始想的是「lane 编号跨行保持不变」，
  * 免得同一单在行与行之间上下跳；实际画出来才发现这条更糟 —— 某一行前面几条
  * lane 全空的时候，块会悬在行底、上面空一大截，看着像渲染错了。
  * 压掉之后块贴着行顶排，相对顺序还在（本来就在同一条 lane 上的仍然在同一条），
  * 跨行的单最多往上挪一格，而上下两行本来就隔着老远，那点位移看不出来。
  */
-export function splitBoardIntoBands(board: ProviderBoard, bandDays: number): ProviderBand[] {
+export function splitBoardIntoBands<
+  B extends { startIndex: number; length: number },
+  R extends { booked: B[]; lanes: B[][] },
+>(board: { days: string[]; rows: R[] }, bandDays: number): { days: string[]; rows: R[] }[] {
   const n = clampProviderBandDays(bandDays);
-  const bands: ProviderBand[] = [];
+  const bands: { days: string[]; rows: R[] }[] = [];
 
   for (let from = 0; from < board.days.length; from += n) {
     const to = Math.min(from + n, board.days.length);
-    const clip = (b: ProviderBlock): ProviderBlock | null => {
+    const clip = (b: B): B | null => {
       const start = Math.max(b.startIndex, from);
       const end = Math.min(b.startIndex + b.length, to);
       if (end <= start) return null;
@@ -184,11 +191,11 @@ export function splitBoardIntoBands(board: ProviderBoard, bandDays: number): Pro
       days: board.days.slice(from, to),
       rows: board.rows.map((row) => {
         const lanes = row.lanes
-          .map((lane) => lane.map(clip).filter((b): b is ProviderBlock => b !== null))
+          .map((lane) => lane.map(clip).filter((b): b is B => b !== null))
           .filter((lane) => lane.length > 0);
         return {
-          resourceId: row.resourceId,
-          booked: row.booked.map(clip).filter((b): b is ProviderBlock => b !== null),
+          ...row,
+          booked: row.booked.map(clip).filter((b): b is B => b !== null),
           lanes,
         };
       }),

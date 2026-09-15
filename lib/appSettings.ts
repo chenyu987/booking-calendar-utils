@@ -18,6 +18,10 @@ export const SETTING_KEYS = {
   overviewStart: "overview_start",
   /** 排期总览每行排几天 */
   overviewBandDays: "overview_band_days",
+  /** 匹配台日历从哪天开始 */
+  matchesStart: "matches_start",
+  /** 匹配台日历每行排几天 */
+  matchesBandDays: "matches_band_days",
 } as const;
 
 async function readSetting(key: string): Promise<string | null> {
@@ -70,4 +74,30 @@ export async function getOverviewBandDays(): Promise<number> {
 
 export async function setOverviewBandDays(value: number) {
   await writeSetting(SETTING_KEYS.overviewBandDays, String(clampBandDays(value)));
+}
+
+// 匹配台那张日历的两条设置。
+//
+// **跟排期总览各存各的，不共用。** 一开始图省事让两边读同一条，结果是：在匹配台
+// 调一下每行天数，排期总览跟着变 —— 那是两张不同的表、不同的用法，凭什么互相牵连。
+// key/value 表里多两行的成本，比「改这儿那儿也动」的意外低得多。
+export async function getMatchesStart(): Promise<string | null> {
+  const raw = await readSetting(SETTING_KEYS.matchesStart);
+  return isIsoDate(raw ?? undefined) ? raw : null;
+}
+
+export async function setMatchesStart(value: string | null) {
+  await writeSetting(
+    SETTING_KEYS.matchesStart,
+    isIsoDate(value ?? undefined) ? value : null
+  );
+}
+
+export async function getMatchesBandDays(): Promise<number> {
+  const raw = await readSetting(SETTING_KEYS.matchesBandDays);
+  return raw === null ? DEFAULT_BAND_DAYS : clampBandDays(Number(raw));
+}
+
+export async function setMatchesBandDays(value: number) {
+  await writeSetting(SETTING_KEYS.matchesBandDays, String(clampBandDays(value)));
 }
