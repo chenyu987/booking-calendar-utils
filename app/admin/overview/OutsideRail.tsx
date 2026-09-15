@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import Link from "next/link";
 import {
   clampBandDays,
   clampRailWidth,
@@ -12,7 +11,7 @@ import {
   MIN_BAND_DAYS,
   RAIL_WIDTH,
 } from "@/lib/bandDays";
-import { PUBLIC_LINKS } from "@/lib/publicLinks";
+import PublicRailShell from "@/components/PublicRailShell";
 
 // 日历右边那道帘子。同一根条，拖起来有两种意思，看你有没有滑到日历最右边：
 //
@@ -168,67 +167,19 @@ export default function OutsideRail({
         marginTop: -liftTop,
       }}
     >
-      <div
-        onMouseDown={beginDrag}
-        onDoubleClick={toggle}
+      <PublicRailShell
+        width={width}
+        dragging={dragging}
+        headerText={mode === "days" ? `每行 ${days} 天 · 松手重排` : "对外页面"}
+        headerHighlighted={mode === "days"}
         title={
           width === 0
             ? "拖开 / 双击展开对外页面"
             : "滑到日历最右边时拖它改每行几天（拖到边上压着会一直减）；没用到最右边时拖它拉宽拉窄这一栏"
         }
-        style={{
-          width: 5,
-          flexShrink: 0,
-          cursor: "col-resize",
-          borderLeft: `1px solid ${dragging ? "var(--text-faint)" : "var(--border)"}`,
-        }}
+        onMouseDown={beginDrag}
+        onDoubleClick={toggle}
       />
-      <aside
-        style={{
-          width,
-          flexShrink: 0,
-          marginLeft: width > 0 ? 12 : 0,
-          // 内容定宽、外壳裁切：拖窄时卡片是被切掉而不是换行，
-          // 换行会把这一栏撑得老高（跟侧边栏一个做法）
-          overflow: "hidden",
-        }}
-      >
-        <div style={{ width: RAIL_WIDTH }}>
-          {/* 改天数的时候这行临时变成读数：宽度跟手、换行要松手才重排，
-              得有个地方告诉人现在是几天 */}
-          <div
-            style={{
-              fontSize: 12,
-              color: mode === "days" ? "var(--text)" : "var(--text-faint)",
-              fontWeight: 500,
-              margin: "8px 0 10px",
-              lineHeight: "20px",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {mode === "days" ? `每行 ${days} 天 · 松手重排` : "对外页面"}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {PUBLIC_LINKS.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                style={{
-                  display: "block",
-                  border: "1px solid var(--border)",
-                  borderRadius: 6,
-                  padding: "8px 10px",
-                  textDecoration: "none",
-                  color: "inherit",
-                }}
-              >
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{l.label}</div>
-                <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{l.desc}</div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </aside>
     </div>
   );
 }

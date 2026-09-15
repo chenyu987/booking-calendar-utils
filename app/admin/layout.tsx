@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import BackToHome from "@/components/BackToHome";
 import ResizableNav from "./ResizableNav";
+import PublicRail from "./PublicRail";
+import { clampRailWidth } from "@/lib/bandDays";
 import { parseNavWidth } from "@/lib/navWidth";
 import SettingsTrigger from "@/components/SettingsTrigger";
 import { parseTheme, THEME_COOKIE } from "@/lib/theme";
@@ -25,6 +27,9 @@ export default function AdminLayout({
   // Next 14.2 的 cookies() 是同步的（15 开始变 Promise，又一个不能升级的理由）。
   const initialWidth = parseNavWidth(cookies().get("admin_nav_width")?.value);
   const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
+  // 「对外页面」那道帘子的宽度。跟排期总览共用同一个 cookie —— 对人来说那就是
+  // 同一道帘子，在总览拖宽了、切到 Order 页还该是那么宽
+  const railWidth = clampRailWidth(Number(cookies().get("overview_rail_width")?.value));
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
@@ -65,6 +70,9 @@ export default function AdminLayout({
           拉开距离，但侧边栏自己已经有 16 内边距、外面还有 6px 拖拽条，再留 24 就多了；
           侧边栏拖到 0 的时候这 24 更是纯浪费。 */}
       <div style={{ flex: 1, minWidth: 0, padding: "10px 8px 8px 10px" }}>{children}</div>
+      {/* 「对外页面」帘子：**每个 admin 页都有**，切 tab 不会丢。
+          排期总览自己那道兼着「改每行几天」，所以 PublicRail 在总览页让开 */}
+      <PublicRail initialWidth={railWidth} />
     </div>
   );
 }
