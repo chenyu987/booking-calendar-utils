@@ -5,6 +5,7 @@ import {
   filterBoardByCard,
   providerWindowBounds,
   packLanes,
+  padDaysToFullBands,
   buildProviderBoard,
   splitBoardIntoBands,
   clampProviderBandDays,
@@ -583,6 +584,38 @@ describe("clampProviderBandDays", () => {
     expect(clampProviderBandDays("")).toBe(PROVIDER_BAND_DAYS_DEFAULT);
     expect(clampProviderBandDays(undefined)).toBe(PROVIDER_BAND_DAYS_DEFAULT);
     expect(clampProviderBandDays(NaN)).toBe(PROVIDER_BAND_DAYS_DEFAULT);
+  });
+});
+
+describe("padDaysToFullBands", () => {
+  const days = (from: string, n: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const d = new Date(`${from}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + i);
+      return d.toISOString().slice(0, 10);
+    });
+
+  it("刚好整行就不动", () => {
+    const d = days("2026-09-15", 14);
+    expect(padDaysToFullBands(d, 14)).toEqual(d);
+  });
+
+  // 半截的带子右边缺一块，整张表看着像被啃了一口
+  it("差几天就补几天", () => {
+    const out = padDaysToFullBands(days("2026-09-15", 20), 14);
+    expect(out).toHaveLength(28);
+    expect(out[27]).toBe("2026-10-12");
+  });
+
+  // 补过头等于偷偷把「只看四周」放宽了
+  it("有上界就补到上界为止", () => {
+    const out = padDaysToFullBands(days("2026-09-15", 20), 14, "2026-10-08");
+    expect(out[out.length - 1]).toBe("2026-10-08");
+    expect(out).toHaveLength(24);
+  });
+
+  it("空的还是空的", () => {
+    expect(padDaysToFullBands([], 14)).toEqual([]);
   });
 });
 

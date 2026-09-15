@@ -242,16 +242,19 @@ export default async function ProviderHomePage({
               筛不了，所以这是全部在找资源的单（块上一个能接的资源都没有，点不动），
               上面那句话把口径说清楚了。
               一样不带客户姓名和金额，跟挂了资源之后的规矩一致。 */}
+          {/* 跟上面那个框隔开一段 —— 两块东西贴着边，看着像一块被线切开的 */}
           {waiting.length > 0 && (
-            <BoardCalendar
-              board={buildPreviewBoard({
-                today: todayIso(),
-                orders: orders ?? [],
-                assignedByOrder,
-              })}
-              bandDays={viewSettings.bandDays}
-              today={todayIso()}
-            />
+            <div style={{ marginTop: 20 }}>
+              <BoardCalendar
+                board={buildPreviewBoard({
+                  today: todayIso(),
+                  orders: orders ?? [],
+                  assignedByOrder,
+                })}
+                bandDays={viewSettings.bandDays}
+                today={todayIso()}
+              />
+            </div>
           )}
         </>
       ) : (

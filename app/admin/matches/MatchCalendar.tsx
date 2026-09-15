@@ -3,7 +3,12 @@ import { todayIso } from "@/lib/dates";
 import BoardDayHeader from "@/components/BoardDayHeader";
 import { statusColor, STATUS_LABELS } from "@/lib/orderStatus";
 import { BAND_GAP, EXTRA_LANES } from "@/lib/bandDays";
-import { PROVIDER_COL_GAP, PROVIDER_COL_WIDTH, splitBoardIntoBands } from "@/lib/providerBoard";
+import {
+  PROVIDER_COL_GAP,
+  PROVIDER_COL_WIDTH,
+  padDaysToFullBands,
+  splitBoardIntoBands,
+} from "@/lib/providerBoard";
 import type { MatchBoard, OrderBlock } from "@/lib/matchBoard";
 
 /** 块是两行的，行高跟排期总览同一个数 */
@@ -27,15 +32,19 @@ export default function MatchCalendar({
   href: (extra?: Record<string, string>) => string;
 }) {
   const today = todayIso();
+  // 最后一带不够一整行就用空日子补齐，右边不留半截
+  const days = padDaysToFullBands(board.days, bandDays);
   // 订单日历只有一组泳道（不像物主那张每个资源一行），所以包成一个「行」丢进去
   const bands = splitBoardIntoBands<OrderBlock, { booked: OrderBlock[]; lanes: OrderBlock[][] }>(
-    { days: board.days, rows: [{ booked: [], lanes: board.lanes }] },
+    { days, rows: [{ booked: [], lanes: board.lanes }] },
     bandDays
   );
-  // 整张表按**满一带**的宽度来，最后一条带子短一点也不让整张表跟着缩
-  const fullWidth =
-    Math.min(bandDays, board.days.length) * PROVIDER_COL_WIDTH +
-    Math.max(0, Math.min(bandDays, board.days.length) - 1) * PROVIDER_COL_GAP;
+  // **所有带子共用一份列模板**，按满一带的天数算 —— 最后一带短几天就空几列，
+  // 整张表不跟着缩。列是弹性的：地方宽就一起撑开填满，窄到 56px 一列放不下时
+  // 停在 56，外面那层横着滚
+  const perBand = Math.min(bandDays, Math.max(1, days.length));
+  const columns = `repeat(${perBand}, minmax(${PROVIDER_COL_WIDTH}px, 1fr))`;
+  const minWidth = perBand * PROVIDER_COL_WIDTH + Math.max(0, perBand - 1) * PROVIDER_COL_GAP;
 
   if (board.days.length === 0) {
     return (
@@ -79,7 +88,7 @@ export default function MatchCalendar({
       </div>
 
       <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflowX: "auto" }}>
-        <div style={{ width: fullWidth, minWidth: "100%" }}>
+        <div style={{ minWidth }}>
         {bands.map((band, i) => {
           const lanes = band.rows[0].lanes;
           const last = i === bands.length - 1;
@@ -89,14 +98,15 @@ export default function MatchCalendar({
               style={{ marginBottom: last ? 0 : BAND_GAP }}
             >
               <div>
-                <BoardDayHeader days={band.days} today={today} />
+                <BoardDayHeader days={band.days} today={today} columns={columns} />
 
                 <div
                   style={{
-                    position: "relative",
-                    height:
-                      (Math.max(1, lanes.length) + (last ? 0 : EXTRA_LANES)) * LANE_H +
-                      (last ? 6 : 0),
+                    display: "grid",
+                    gridTemplateColumns: columns,
+                    gap: PROVIDER_COL_GAP,
+                    gridAutoRows: `${LANE_H}px`,
+                    paddingBottom: last ? 6 : 0,
                   }}
                 >
                   {lanes.map((lane, laneIndex) =>
@@ -109,7 +119,9 @@ export default function MatchCalendar({
                           href={href({ assign: selected ? "" : b.orderId })}
                           title={b.title}
                           style={{
-                            ...blockBase(b, laneIndex),
+                            ...blockBase,
+                            gridColumn: `${b.startIndex + 1} / span ${b.length}`,
+                            gridRow: laneIndex + 1,
                             background: c.bg,
                             border: `1px solid ${c.border}`,
                             color: c.text,
@@ -141,6 +153,15 @@ export default function MatchCalendar({
                       );
                     })
                   )}
+
+                  {/* 带子底下空两条泳道（跟排期总览同一份数字），效果是「最后一个单子
+                      离下一层日历有两个单子那么远」。grid 只给放了东西的行开行，
+                      所以拿一个占位的把它们撑出来。最后一带不用留：下面没东西接着了 */}
+                  {!last && (
+                    <div
+                      style={{ gridRow: Math.max(1, lanes.length) + EXTRA_LANES, gridColumn: 1 }}
+                    />
+                  )}
                 </div>
               </div>
             </div>
@@ -153,28 +174,24 @@ export default function MatchCalendar({
   );
 }
 
-function colLeft(index: number): number {
-  return index * (PROVIDER_COL_WIDTH + PROVIDER_COL_GAP);
-}
 
-function blockBase(b: OrderBlock, lane: number): React.CSSProperties {
-  return {
-    position: "absolute",
-    left: colLeft(b.startIndex),
-    top: lane * LANE_H + 3,
-    width: b.length * PROVIDER_COL_WIDTH + (b.length - 1) * PROVIDER_COL_GAP,
-    height: LANE_H - 6,
-    borderRadius: 3,
-    fontSize: 11,
-    lineHeight: "1.4",
-    padding: "2px 5px",
-    boxSizing: "border-box",
-    overflow: "hidden",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-  };
-}
+// 块长什么样。**位置交给 grid**（gridColumn / gridRow），这儿一个像素都不算 ——
+// 原来是 `left = 下标 × (列宽 + 间距)`，列宽一变成弹性的就全错位了
+const blockBase: React.CSSProperties = {
+  // **块填满整行，行与行之间只隔一个 grid gap（2px）** —— 跟排期总览量出来的一样
+  // （那边块高 42、间隔 2）。原来块比行矮 6px 再居中，等于每两块之间空 6px，
+  // 块少的时候还看得过去，一列堆五六个就散了
+  minWidth: 0,
+  borderRadius: 3,
+  fontSize: 11,
+  lineHeight: "1.4",
+  padding: "2px 5px",
+  boxSizing: "border-box",
+  overflow: "hidden",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+};
 
 const legendStyle: React.CSSProperties = {
   display: "flex",

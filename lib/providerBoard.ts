@@ -217,6 +217,31 @@ export type ProviderBand = {
 };
 
 /**
+ * 最后一带不够一整行的话，**用空日子补齐**。
+ *
+ * 不补的话最后一带是半截的：右边缺一块，整张表看着像被啃了一口。补出来的那几天
+ * 本来就什么都没有（有东西的话窗口早就铺到那儿了），画出来就是几个空格子 ——
+ * 代价只是几列空白，换来一张完整的方表。
+ *
+ * @param maxDay 有上界就不越过它（物主那张只看到今天+27，补过头等于偷偷放宽窗口）。
+ *   admin 那张不传，补齐就是了。
+ */
+export function padDaysToFullBands(days: string[], bandDays: number, maxDay?: string): string[] {
+  const n = clampProviderBandDays(bandDays);
+  if (days.length === 0) return days;
+  const short = days.length % n;
+  if (short === 0) return days;
+
+  const out = [...days];
+  for (let i = 0; i < n - short; i++) {
+    const next = shiftDay(out[out.length - 1], 1);
+    if (maxDay && next > maxDay) break;
+    out.push(next);
+  }
+  return out;
+}
+
+/**
  * 把整条时间轴切成每行 n 天。跨着接缝的块在上下两行各画一截 ——
  * 渲染那边本来就是按段切的，这里只是再切一刀。
  *

@@ -12,9 +12,31 @@ import { PROVIDER_COL_GAP, PROVIDER_COL_WIDTH } from "@/lib/providerBoard";
  */
 export const BOARD_HEADER_H = 36;
 
-export default function BoardDayHeader({ days, today }: { days: string[]; today: string }) {
+export default function BoardDayHeader({
+  days,
+  today,
+  columns,
+}: {
+  days: string[];
+  today: string;
+  /**
+   * 列怎么分。外面那张 grid 传什么，这排日期就用什么 —— **同一份模板**，
+   * 不然日期跟底下的块差个一两像素，看着就毛躁了。
+   * 不传就按自己这几天铺（列宽弹性，最窄 56px）。
+   */
+  columns?: string;
+}) {
+  const template =
+    columns ?? `repeat(${days.length}, minmax(${PROVIDER_COL_WIDTH}px, 1fr))`;
   return (
-    <div style={{ display: "flex", gap: PROVIDER_COL_GAP, height: BOARD_HEADER_H }}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: template,
+        gap: PROVIDER_COL_GAP,
+        height: BOARD_HEADER_H,
+      }}
+    >
       {days.map((d) => {
         const { date, weekday } = shortLabel(d);
         const weekend = isWeekend(d);
@@ -23,8 +45,6 @@ export default function BoardDayHeader({ days, today }: { days: string[]; today:
             key={d}
             data-today={d === today ? "1" : undefined}
             style={{
-              width: PROVIDER_COL_WIDTH,
-              flexShrink: 0,
               boxSizing: "border-box",
               textAlign: "center",
               fontSize: 11,

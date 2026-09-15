@@ -24,8 +24,7 @@ export default function ProposePicker({
   fits,
   blockStyle,
   selectedStyle,
-  popoverTop,
-  popoverLeft,
+  popoverPlace,
 }: {
   orderId: string;
   location: string;
@@ -36,8 +35,8 @@ export default function ProposePicker({
   blockStyle: React.CSSProperties;
   /** 选中时多加的那圈光 */
   selectedStyle: React.CSSProperties;
-  popoverTop: number;
-  popoverLeft: number;
+  /** 浮层摆在哪 —— 块下面那一格，位置由外面那张 grid 给（这儿不算像素） */
+  popoverPlace: React.CSSProperties;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -99,30 +98,34 @@ export default function ProposePicker({
             style={{ position: "fixed", inset: 0, zIndex: 3 }}
             aria-hidden
           />
-          <div style={{ ...popoverStyle, top: popoverTop, left: popoverLeft }}>
-            {left.map((f) => (
-              <button
-                key={f.resourceId}
-                type="button"
-                disabled={Boolean(busy)}
-                onClick={() => propose(f.resourceId)}
-                style={{ ...buttonStyle, opacity: busy && busy !== f.resourceId ? 0.5 : 1 }}
-              >
-                {busy === f.resourceId ? "提交中…" : f.holderName}
-              </button>
-            ))}
-            {/* 提过的那张也得说一声，不然「我明明有两个资源怎么只给一个按钮」 */}
-            {fits
-              .filter((f) => f.proposed || done.includes(f.resourceId))
-              .map((f) => (
-                <span key={f.resourceId} style={{ fontSize: 11, color: "var(--text-faint)" }}>
-                  {f.holderName} 已提
-                </span>
+          {/* 浮层比一格宽是常事（两个资源名 + 取消），所以外面这层只负责「站在哪一格」，
+              里面那层绝对定位、`width: max-content`，想多宽多宽，不被格子勒住 */}
+          <div style={{ ...popoverPlace, position: "relative", zIndex: 4, minWidth: 0 }}>
+            <div style={popoverStyle}>
+              {left.map((f) => (
+                <button
+                  key={f.resourceId}
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() => propose(f.resourceId)}
+                  style={{ ...buttonStyle, opacity: busy && busy !== f.resourceId ? 0.5 : 1 }}
+                >
+                  {busy === f.resourceId ? "提交中…" : f.holderName}
+                </button>
               ))}
-            {error && <span style={{ fontSize: 11, color: "var(--danger)" }}>{error}</span>}
-            <button type="button" onClick={() => setOpen(false)} style={cancelStyle}>
-              {left.length === 0 ? "知道了" : "取消"}
-            </button>
+              {/* 提过的那张也得说一声，不然「我明明有两个资源怎么只给一个按钮」 */}
+              {fits
+                .filter((f) => f.proposed || done.includes(f.resourceId))
+                .map((f) => (
+                  <span key={f.resourceId} style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                    {f.holderName} 已提
+                  </span>
+                ))}
+              {error && <span style={{ fontSize: 11, color: "var(--danger)" }}>{error}</span>}
+              <button type="button" onClick={() => setOpen(false)} style={cancelStyle}>
+                {left.length === 0 ? "知道了" : "取消"}
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -137,7 +140,9 @@ const lineStyle: React.CSSProperties = {
 };
 const popoverStyle: React.CSSProperties = {
   position: "absolute",
-  zIndex: 4,
+  top: 1,
+  left: 0,
+  width: "max-content",
   display: "flex",
   alignItems: "center",
   gap: 6,

@@ -4,10 +4,14 @@ import Link from "next/link";
 import { useState } from "react";
 import { shortLabel } from "@/lib/dates";
 import BoardDayHeader from "@/components/BoardDayHeader";
+import { BAND_GAP } from "@/lib/bandDays";
 import {
   PROVIDER_COL_GAP,
   PROVIDER_COL_WIDTH,
+  clampProviderBandDays,
   filterBoardByCard,
+  providerWindowBounds,
+  padDaysToFullBands,
   splitBoardIntoBands,
   type ProviderBand,
   type ProviderBlock,
@@ -296,51 +300,102 @@ export function BoardCalendar({
   /** 由服务端给 —— 客户端自己算会跟服务端渲染出来的 HTML 对不上（时区） */
   today: string;
 }) {
+  // 最后一带不够一整行就用空日子补齐 —— 半截的带子右边缺一块，整张表像被啃了一口。
+  // **不越过窗口上界**：补过头等于偷偷把「只看四周」放宽了
+  const days = padDaysToFullBands(board.days, bandDays, providerWindowBounds(today).to);
   // 整张日历只有一组泳道（不像原来每个资源一行），包成一个「行」丢进分带
   const bands = splitBoardIntoBands<ProviderBlock, { booked: ProviderBlock[]; lanes: ProviderBlock[][] }>(
-    { days: board.days, rows: [{ booked: [], lanes: board.lanes }] },
+    { days, rows: [{ booked: [], lanes: board.lanes }] },
     bandDays
   );
 
+  // **所有带子共用一份列模板**，按满一带的天数算 —— 最后一带短几天就空几列。
+  // 各带各按自己的天数分列的话，短的那带列会被拉宽，上下两排日期对不上，
+  // 看着像两张表拼的（排期总览也是这么干的）。
+  const perBand = Math.min(clampProviderBandDays(bandDays), Math.max(1, days.length));
+  const columns = `repeat(${perBand}, minmax(${PROVIDER_COL_WIDTH}px, 1fr))`;
+  const minWidth = perBand * PROVIDER_COL_WIDTH + Math.max(0, perBand - 1) * PROVIDER_COL_GAP;
+  const items = collapseEmptyBands(bands);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {collapseEmptyBands(bands).map((item, i) =>
-        item.kind === "band" ? (
-          <Band key={item.band.days[0] ?? i} band={item.band} today={today} />
-        ) : (
-          <div key={`gap-${item.from}`} style={gapStyle}>
-            {shortLabel(item.from).date} – {shortLabel(item.to).date} 没有安排，也没有能接的需求
-          </div>
-        )
-      )}
+    <>
+      {/* **一个框，带子在里面摞着**，不是一带一个框。中间断开的话，同一条时间轴
+          看着像两张表；而且两个框之间那道缝还得再补一次边距。
+          外面这层横着滚：窄到放不下 56px 一列的时候（手机），滚它 */}
+      <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflowX: "auto" }}>
+        <div style={{ minWidth }}>
+          {items.map((item, i) =>
+            item.kind === "band" ? (
+              <Band
+                key={item.band.days[0] ?? i}
+                band={item.band}
+                today={today}
+                columns={columns}
+                last={i === items.length - 1}
+              />
+            ) : (
+              <div key={`gap-${item.from}`} style={gapStyle}>
+                {shortLabel(item.from).date} – {shortLabel(item.to).date} 没有安排，也没有能接的需求
+              </div>
+            )
+          )}
+        </div>
+      </div>
       {/* 窗口外的单子**不藏着不说**：日历只看四周内，但「还有几单在更远处」
           得让他知道，不然会以为一共就这些 */}
       {board.outsideWindowCount > 0 && (
-        <p style={{ fontSize: 12, color: "var(--text-faint)", margin: 0 }}>
+        <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "8px 0 0" }}>
           还有 {board.outsideWindowCount} 单在四周以后，日历上暂时不画 —— 到日子附近了自然会出现。
         </p>
       )}
-    </div>
+    </>
   );
 }
 
-function Band({ band, today }: { band: ProviderBand; today: string }) {
+function Band({
+  band,
+  today,
+  columns,
+  last,
+}: {
+  band: ProviderBand;
+  today: string;
+  /**
+   * 列模板由外面给（所有带子共用一份）。**列是弹性的**：容器宽了就一起撑开、
+   * 把整行填满；窄到放不下 56px 一列的时候停在 56，外面那层横着滚（手机上就是这种）。
+   * 一行最多还是排「每行几天」那么多天 —— 撑开的是列宽，不是天数。
+   *
+   * 用 grid 而不是「算好像素再绝对定位」：块跨几天就是 `span 几`，跟表头那排天然对齐，
+   * 不用把列宽和间距在两处各算一遍（第二份数字和第二份样式是同一个 bug）
+   */
+  columns: string;
+  last: boolean;
+}) {
   const lanes = band.rows[0].lanes;
-  const totalWidth =
-    band.days.length * PROVIDER_COL_WIDTH + Math.max(0, band.days.length - 1) * PROVIDER_COL_GAP;
 
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflowX: "auto" }}>
-      <div style={{ width: totalWidth, minWidth: "100%" }}>
-        <BoardDayHeader days={band.days} today={today} />
+    <div style={{ marginBottom: last ? 0 : BAND_GAP }}>
+      <div>
+        <BoardDayHeader days={band.days} today={today} columns={columns} />
 
         {/* **底下固定空一格。** 选资源的浮层贴在被点那个块下面，而这块地
             `overflowX: auto` 会把超出去的部分连着竖着一起切掉。空一格是留给它的 ——
             点开之后再临时长高做不到了：开没开是客户端的事，服务端不知道 */}
-        <div style={{ position: "relative", height: (Math.max(1, lanes.length) + 1) * LANE_H }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: columns,
+            gap: PROVIDER_COL_GAP,
+            gridAutoRows: `${LANE_H}px`,
+          }}
+        >
           {lanes.map((lane, laneIndex) =>
             lane.map((b) => {
-              const base = blockBase(b, laneIndex);
+              const place = {
+                gridColumn: `${b.startIndex + 1} / span ${b.length}`,
+                gridRow: laneIndex + 1,
+              };
+              const base = { ...blockBase, ...place };
               // 已排是我自己的占用，不是能接的单 —— 点了也没有下一步
               if (b.kind === "booked") {
                 return (
@@ -349,8 +404,8 @@ function Band({ band, today }: { band: ProviderBand; today: string }) {
                     style={{ ...base, ...bookedStyle }}
                     title={b.title}
                   >
-                    <div style={blockLineStyle}>{b.location}</div>
-                    <div style={{ ...blockLineStyle, opacity: 0.8 }}>{b.gap}</div>
+                    <div style={blockTitleStyle}>{b.location}</div>
+                    <div style={blockSubStyle}>{b.gap}</div>
                   </div>
                 );
               }
@@ -360,11 +415,11 @@ function Band({ band, today }: { band: ProviderBand; today: string }) {
                 return (
                   <div
                     key={`${b.orderId}-${b.startIndex}`}
-                    style={{ ...base, ...candidateStyle, cursor: "default" }}
+                    style={{ ...base, ...previewStyle }}
                     title={b.title}
                   >
-                    <div style={blockLineStyle}>{b.location}</div>
-                    <div style={blockLineStyle}>{b.gap}</div>
+                    <div style={blockTitleStyle}>{b.location}</div>
+                    <div style={blockSubStyle}>{b.gap}</div>
                   </div>
                 );
               }
@@ -375,8 +430,8 @@ function Band({ band, today }: { band: ProviderBand; today: string }) {
                     style={{ ...base, ...proposedStyle }}
                     title={b.title}
                   >
-                    <div style={blockLineStyle}>{b.location}</div>
-                    <div style={blockLineStyle}>已提意向</div>
+                    <div style={blockTitleStyle}>{b.location}</div>
+                    <div style={blockSubStyle}>已提意向</div>
                   </div>
                 );
               }
@@ -392,40 +447,40 @@ function Band({ band, today }: { band: ProviderBand; today: string }) {
                   fits={b.fits}
                   blockStyle={{ ...base, ...candidateStyle }}
                   selectedStyle={{ outline: "2px solid var(--link)", outlineOffset: 1 }}
-                  popoverTop={(laneIndex + 1) * LANE_H + 1}
-                  popoverLeft={colLeft(b.startIndex)}
+                  popoverPlace={{
+                    gridColumn: `${b.startIndex + 1} / -1`,
+                    gridRow: laneIndex + 2,
+                  }}
                 />
               );
             })
           )}
+          {/* 空那一格：grid 只给放了东西的行开行，所以拿一个占位的把它撑出来 */}
+          <div style={{ gridRow: Math.max(1, lanes.length) + 1, gridColumn: 1 }} />
         </div>
       </div>
     </div>
   );
 }
 
-function colLeft(index: number): number {
-  return index * (PROVIDER_COL_WIDTH + PROVIDER_COL_GAP);
-}
 
-function blockBase(b: ProviderBlock, lane: number): React.CSSProperties {
-  return {
-    position: "absolute",
-    left: colLeft(b.startIndex),
-    top: lane * LANE_H + 3,
-    width: b.length * PROVIDER_COL_WIDTH + (b.length - 1) * PROVIDER_COL_GAP,
-    height: LANE_H - 6,
-    borderRadius: 3,
-    fontSize: 11,
-    lineHeight: 1.4,
-    padding: "2px 5px",
-    boxSizing: "border-box",
-    overflow: "hidden",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-  };
-}
+// 块长什么样。**位置交给 grid**（gridColumn / gridRow），这儿一个像素都不算 ——
+// 原来是 `left = 下标 × (列宽 + 间距)`，列宽一变成弹性的就全错位了
+const blockBase: React.CSSProperties = {
+  // **块填满整行，行与行之间只隔一个 grid gap（2px）** —— 跟排期总览量出来的一样
+  // （那边块高 42、间隔 2）。原来块比行矮 6px 再居中，等于每两块之间空 6px，
+  // 块少的时候还看得过去，一列堆五六个就散了
+  minWidth: 0,
+  borderRadius: 3,
+  fontSize: 11,
+  lineHeight: 1.4,
+  padding: "2px 5px",
+  boxSizing: "border-box",
+  overflow: "hidden",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+};
 
 // 两行都可能比块宽（一天的单子才 56px），各自省略号截断
 const blockLineStyle: React.CSSProperties = {
@@ -433,17 +488,35 @@ const blockLineStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
   textOverflow: "ellipsis",
 };
+/** 第一行（地点）压过第二行一档：一眼先看见是哪个地点，再看还差几张 */
+const blockTitleStyle: React.CSSProperties = { ...blockLineStyle, fontWeight: 500 };
+const blockSubStyle: React.CSSProperties = { ...blockLineStyle, opacity: 0.85 };
 
 const bookedStyle: React.CSSProperties = {
   background: "var(--st-assigned-bg)",
   border: "1px solid var(--st-assigned-border)",
   color: "var(--st-assigned-text)",
 };
+/**
+ * **能接的单子画成实心的绿块**，不再是虚线框。原来一片灰虚线，看着像占位符，
+ * 而这些正是要他动手的东西 —— 排期总览那边订单就是实心色块，颜色自己会说话。
+ *
+ * 这一页的颜色是自成一套的，跟订单状态无关（物主看不到订单状态）：
+ * 绿 = 我能接、橙 = 我提过了、蓝 = 已排出去、灰 = 接不了（还没挂资源时那张预告）。
+ * 颜色全是 lib/theme.ts 里现成的 token 对，两套配色都有。
+ */
 const candidateStyle: React.CSSProperties = {
-  background: "var(--surface-2)",
-  border: "1px dashed var(--border-strong)",
-  color: "var(--link)",
+  background: "var(--st-complete-bg)",
+  border: "1px solid var(--st-complete-border)",
+  color: "var(--st-complete-text)",
   cursor: "pointer",
+};
+/** 还没挂资源时那张预告：一个资源都没有，一个都接不了 —— 灰着，也点不动 */
+const previewStyle: React.CSSProperties = {
+  background: "var(--st-created-bg)",
+  border: "1px solid var(--st-created-border)",
+  color: "var(--st-created-text)",
+  cursor: "default",
 };
 const proposedStyle: React.CSSProperties = {
   background: "var(--st-pickup-bg)",
@@ -465,12 +538,14 @@ const listItemStyle: React.CSSProperties = {
   padding: "9px 12px",
   borderBottom: "1px solid var(--border)",
 };
+// 空档那条提示现在长在同一个框里，所以不自己画边框了 —— 上下各一条分隔线就够
 const gapStyle: React.CSSProperties = {
-  border: "1px dashed var(--border)",
-  borderRadius: 6,
   padding: "8px 12px",
   fontSize: 12,
   color: "var(--text-faint)",
+  background: "var(--surface-2)",
+  borderTop: "1px solid var(--border)",
+  borderBottom: "1px solid var(--border)",
 };
 const controlRowStyle: React.CSSProperties = {
   display: "flex",
