@@ -7,8 +7,19 @@ import { matchesLocationFilter } from "./locations";
 // 一个物主提好几单，行数涨得比订单快。而且很多行是死的（那一单早配齐了，
 // 这条意向根本插不进去），不筛的话真正要处理的几条会被埋掉。
 
-/** 意向状态。`open` 是个合成档：proposed + allowed，也就是「还没结的」 */
-export type MatchStatusFilter = "" | "open" | "proposed" | "allowed" | "chosen" | "unfulfilled";
+/**
+ * 意向状态。两个合成档：
+ * - `open`「还没结的」= proposed/allowed **且那一单还没开始**（真正要处理的就这些）
+ * - `stale`「过期没选上」= proposed/allowed 但那一单已经开始了，再也用不上了
+ */
+export type MatchStatusFilter =
+  | ""
+  | "open"
+  | "stale"
+  | "proposed"
+  | "allowed"
+  | "chosen"
+  | "unfulfilled";
 /** 分配进度：这一单还缺不缺资源 */
 export type GapFilter = "" | "gap" | "full";
 
@@ -40,6 +51,7 @@ export const EMPTY_MATCH_FILTERS: MatchFilters = {
 const MSTATUS_VALUES: MatchStatusFilter[] = [
   "",
   "open",
+  "stale",
   "proposed",
   "allowed",
   "chosen",
@@ -50,6 +62,7 @@ const GAP_VALUES: GapFilter[] = ["", "gap", "full"];
 export const MATCH_STATUS_FILTER_LABELS: Record<MatchStatusFilter, string> = {
   "": "全部意向",
   open: "还没结的",
+  stale: "过期没选上",
   proposed: "proposed",
   allowed: "allowed",
   chosen: "chosen",
@@ -94,6 +107,8 @@ export type FilterableMatch = {
   days: string[];
   /** 这一单配齐了没。没有订单就算不出来 */
   isComplete: boolean | null;
+  /** 落空了没 —— 那一单已经开始、这条还没被选中。见 lib/matchStatus.ts 的 isStaleMatch */
+  stale: boolean;
 };
 
 function contains(haystack: string | null, needle: string): boolean {
@@ -115,8 +130,12 @@ function overlapsRange(days: string[], from: string, to: string): boolean {
 }
 
 export function matchesMatchFilters(m: FilterableMatch, f: MatchFilters): boolean {
+  const open = m.matchStatus === "proposed" || m.matchStatus === "allowed";
   if (f.mstatus === "open") {
-    if (m.matchStatus !== "proposed" && m.matchStatus !== "allowed") return false;
+    // 「还没结的」= 还能动的。那一单都开始了的不算 —— 它挂在这儿只是没人清
+    if (!open || m.stale) return false;
+  } else if (f.mstatus === "stale") {
+    if (!open || !m.stale) return false;
   } else if (f.mstatus && m.matchStatus !== f.mstatus) return false;
 
   if (f.ostatus && m.orderStatus !== f.ostatus) return false;

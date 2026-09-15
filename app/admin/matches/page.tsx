@@ -7,7 +7,9 @@ import Link from "next/link";
 import { assignBlockReason } from "@/lib/assignable";
 import { computeNeed, formatNeed } from "@/lib/assignment";
 import { formatDayRanges } from "@/lib/dates";
-import { MATCH_SORTS, parseMatchSort, sortMatches, type MatchSort } from "@/lib/matchSort";
+import { MATCH_SORTS, firstDay, parseMatchSort, sortMatches, type MatchSort } from "@/lib/matchSort";
+import { isStaleMatch } from "@/lib/matchStatus";
+import { todayIso } from "@/lib/dates";
 import {
   GAP_FILTER_LABELS,
   MATCH_STATUS_FILTER_LABELS,
@@ -38,6 +40,9 @@ export const dynamic = "force-dynamic";
  * 每一列多宽。**唯一出处** —— 表头、筛选行、数据行三处都从这儿取，
  * 三份各写一个数字就是「第二份数字和第二份样式是同一个 bug」那条规矩里说的事：
  * 改了一处忘了另两处，列就错开了。
+ *
+ * Provider / Resource 那两列是弹性的，这里存的是它们的**下限** ——
+ * 没下限的话屏幕一窄它们就被挤成一条，文字抖行，整张表糊成一团。
  */
 const COL = {
   // 两个日期框要并排放得下（量出来的，见筛选行那条注释）
@@ -49,7 +54,16 @@ const COL = {
   ostatus: 96,
   mstatus: 92,
   actions: 186,
+  providerMin: 190,
+  resourceMin: 250,
 } as const;
+
+/**
+ * 整张表最窄到多宽 —— **算出来的，不是拍的**，所以加一列不用记得改它。
+ * 窄过这个就横着滑，而不是把列挤爆。
+ */
+const MIN_TABLE_WIDTH =
+  Object.values(COL).reduce((a, b) => a + b, 0) + 6 * 9; // 6px 的 gap × 列间隔
 
 async function createMatch(formData: FormData) {
   "use server";
@@ -222,6 +236,11 @@ export default async function MatchesAdminPage({
   // 筛选在内存里做，跟 orderFilter / resourceFilter 一个路子：判断要用到「配齐了没」，
   // 那是从 order_assignments 现算的（CLAUDE.md：能算出来的不存字段），写进 SQL
   // 就得在两处维护同一套算法
+  const today = todayIso();
+  // 落空与否**现算不存**：到了订单开始那天还没被选中就再也用不上了。
+  // 在那之前留着当后备 —— 中标的那条可能退单，其余几条随时能顶上去。见 lib/matchStatus.ts
+  const staleOf = (m: any) => isStaleMatch(m.status, firstDay(m), today);
+
   const all = sortMatches((matches ?? []) as any[], sort);
   const rows = all.filter((m: any) => {
     const need = m.orders ? computeNeed(m.orders, assignedByOrder.get(m.order_id) ?? []) : null;
@@ -237,6 +256,7 @@ export default async function MatchesAdminPage({
         holderName: m.resources?.holder_name ?? null,
         days: m.orders?.demand_days ?? [],
         isComplete: need ? need.isComplete : null,
+        stale: staleOf(m),
       },
       filters
     );
@@ -288,6 +308,11 @@ export default async function MatchesAdminPage({
           /admin/resources 一样的 div 布局：筛选控件的 flex/width 跟表头一一对齐，
           就是表头下面的一行。FilterForm 跟 Order / Resource 两页共用：
           改一个条件就自动筛，空值不拼进 URL。 */}
+      {/* 十列在笔记本或窄窗口下放不下。让表格**在自己这块地里横滑**，
+          而不是把列挤到文字抖行（或者把整页撑出一条横条，那样侧边栏和标题也跟着跑）。
+          之前包在 <table> 外面的那层，改成 div 布局时丢了。 */}
+      <div style={{ overflowX: "auto" }}>
+      <div style={{ minWidth: MIN_TABLE_WIDTH }}>
       <div style={headerRowStyle}>
         <div style={{ ...cellStyle, width: COL.date }}>
           日期{" "}
@@ -308,8 +333,8 @@ export default async function MatchesAdminPage({
         <div style={{ ...cellStyle, width: COL.party }}>人数</div>
         <div style={{ ...cellStyle, width: COL.need }}>分配进度</div>
         <div style={{ ...cellStyle, width: COL.ostatus }}>订单状态</div>
-        <div style={{ ...cellStyle, flex: 1.2 }}>Provider</div>
-        <div style={{ ...cellStyle, flex: 1.6 }}>Resource</div>
+        <div style={{ ...cellStyle, flex: 1.2, minWidth: COL.providerMin }}>Provider</div>
+        <div style={{ ...cellStyle, flex: 1.6, minWidth: COL.resourceMin }}>Resource</div>
         <div style={{ ...cellStyle, width: COL.mstatus }}>状态</div>
         <div style={{ ...cellStyle, width: COL.actions }}>操作</div>
       </div>
@@ -392,7 +417,7 @@ export default async function MatchesAdminPage({
           </div>
           {/* 物主和持有人一个框一起搜 —— 找人的时候没人分得清自己记住的是哪一个。
               框放在 Provider 那列，横跨 Provider + Resource 两列的意思 */}
-          <div style={{ ...cellStyle, flex: 1.2 }}>
+          <div style={{ ...cellStyle, flex: 1.2, minWidth: COL.providerMin }}>
             <input
               name="resource"
               defaultValue={filters.resource}
@@ -400,7 +425,7 @@ export default async function MatchesAdminPage({
               style={filterInputStyle}
             />
           </div>
-          <div style={{ ...cellStyle, flex: 1.6 }} />
+          <div style={{ ...cellStyle, flex: 1.6, minWidth: COL.resourceMin }} />
           <div style={{ ...cellStyle, width: COL.mstatus }}>
             <select name="mstatus" defaultValue={filters.mstatus} style={filterInputStyle}>
               {(Object.keys(MATCH_STATUS_FILTER_LABELS) as MatchStatusFilter[]).map((k) => (
@@ -472,11 +497,11 @@ export default async function MatchesAdminPage({
             <div style={{ ...cellStyle, width: COL.ostatus }}>
               {m.orders?.status ? ORDER_STATUS_LABELS[m.orders.status] ?? m.orders.status : "-"}
             </div>
-            <div style={{ ...cellStyle, flex: 1.2 }}>
+            <div style={{ ...cellStyle, flex: 1.2, minWidth: COL.providerMin }}>
               {m.resources?.providers?.first_name} {m.resources?.providers?.last_name} (
               {m.resources?.providers?.chat})
             </div>
-            <div style={{ ...cellStyle, flex: 1.6 }}>
+            <div style={{ ...cellStyle, flex: 1.6, minWidth: COL.resourceMin }}>
               {m.resources?.holder_name ?? "-"}{" "}
               <span style={{ color: "var(--text-faint)" }}>
                 {formatHolder(m.resources?.holder_gender, m.resources?.holder_date_of_birth)}
@@ -485,7 +510,14 @@ export default async function MatchesAdminPage({
                 {m.resources?.item_type} {formatValidity(m.resources)}
               </div>
             </div>
-            <div style={{ ...cellStyle, width: COL.mstatus }}>{m.status}</div>
+            <div style={{ ...cellStyle, width: COL.mstatus }}>
+              {m.status}
+              {/* 库里还写着 proposed，但那一单已经开始了 —— 再也顶不上去了。
+                  不改库：订单日期还会变，存成字段迟早对不上（见 lib/matchStatus.ts） */}
+              {staleOf(m) && (
+                <div style={{ fontSize: 11, color: "var(--text-faint)" }}>已过期</div>
+              )}
+            </div>
             <div style={{ ...cellStyle, width: COL.actions }}>
               <form action={updateMatchStatus} style={{ display: "flex", gap: 6 }}>
                 <input type="hidden" name="match_id" value={m.id} />
@@ -503,6 +535,9 @@ export default async function MatchesAdminPage({
           </div>
         );
       })}
+
+      </div>
+      </div>
 
       {rows.length === 0 && (
         <p style={{ color: "var(--text-muted)", fontSize: 14, marginTop: 14 }}>

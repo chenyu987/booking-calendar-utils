@@ -6,7 +6,8 @@ import { claimProvider } from "@/lib/accountClaim";
 import { formatDayRanges, todayIso } from "@/lib/dates";
 import { formatParty } from "@/lib/party";
 import { RESOURCE_EDIT_ERRORS } from "@/lib/resourceEdit";
-import { matchDisplay, isOpenMatch } from "@/lib/matchStatus";
+import { matchDisplay, isOpenMatch, isStaleMatch } from "@/lib/matchStatus";
+import { firstDay } from "@/lib/matchSort";
 import { actionableOrders, buildProviderBoard } from "@/lib/providerBoard";
 import { matchesLocationFilter } from "@/lib/locations";
 import { parseTheme, THEME_COOKIE } from "@/lib/theme";
@@ -164,7 +165,12 @@ export default async function ProviderHomePage({
     ?.lanes.flat()
     .find((b) => b.orderId === pendingOrder);
 
-  const openMatches = (myMatches ?? []).filter((m: any) => isOpenMatch(m.status));
+  // 「在等」不算已经落空的：那一单都开始了，跟他说「等确认」就是在骗他 ——
+  // 他再等也等不到了。落空与否现算不存，见 lib/matchStatus.ts
+  const staleOf = (m: any) => isStaleMatch(m.status, firstDay(m), todayIso());
+  const openMatches = (myMatches ?? []).filter(
+    (m: any) => isOpenMatch(m.status) && !staleOf(m)
+  );
   // 还没挂资源时预告用：还在找资源的单，按最早那天排。跟日历共用同一条「还接得了」的口径
   const waiting = actionableOrders(orders ?? [], todayIso()).sort((a: any, b: any) => {
     const x = (a.demand_days ?? []).slice().sort()[0] ?? "";
@@ -325,7 +331,7 @@ export default async function ProviderHomePage({
           ) : (
             <ul style={listStyle}>
               {(myMatches ?? []).map((m: any) => {
-                const d = matchDisplay(m.status);
+                const d = matchDisplay(m.status, staleOf(m));
                 const o = m.orders;
                 return (
                   <li key={m.id} style={listItemStyle}>

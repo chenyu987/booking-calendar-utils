@@ -17,6 +17,7 @@ const row: FilterableMatch = {
   holderName: "david chang",
   days: ["2026-09-10", "2026-09-11", "2026-09-12"],
   isComplete: false,
+  stale: false,
 };
 const f = (over: Partial<MatchFilters> = {}): MatchFilters => ({
   ...EMPTY_MATCH_FILTERS,
@@ -39,6 +40,17 @@ describe("parseMatchFilters", () => {
 describe("matchesMatchFilters", () => {
   it("没筛就全留", () => {
     expect(matchesMatchFilters(row, f())).toBe(true);
+  });
+
+  it("「还没结的」不含已经落空的 —— 那一单都开始了，它挂在这儿只是没人清", () => {
+    expect(matchesMatchFilters({ ...row, stale: true }, f({ mstatus: "open" }))).toBe(false);
+    expect(matchesMatchFilters({ ...row, stale: true }, f({ mstatus: "stale" }))).toBe(true);
+    expect(matchesMatchFilters(row, f({ mstatus: "stale" }))).toBe(false);
+  });
+
+  it("落空只对还没结的成立 —— chosen 不会被算成「过期没选上」", () => {
+    const done = { ...row, matchStatus: "chosen", stale: true };
+    expect(matchesMatchFilters(done, f({ mstatus: "stale" }))).toBe(false);
   });
 
   it("意向状态：open 是 proposed + allowed 的合成档", () => {
