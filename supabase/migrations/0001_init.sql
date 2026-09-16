@@ -16,10 +16,30 @@ create table customers (
   -- 客户登录后对应的 Supabase Auth 用户。unique：一个 auth 用户只认领一行，
   -- 免得同一个人在库里裂成两条（0007）
   auth_user_id uuid unique references auth.users(id) on delete set null,
-  created_at timestamptz not null default now()
+  -- 介绍人返点（0014）：关系存在**被介绍人**这一行上，不在介绍人那行存一个 list。
+  -- 「A 介绍了哪些人」= where referred_by = A，算出来的。数组存法要回答反方向的
+  -- 「B 这一单该返给谁」得扫全表，而那才是高频的那个方向。
+  referred_by uuid references customers(id) on delete set null,
+  -- 建立关系那一刻的比例快照（0.1 = 10%），留空 = 跟随 app_settings 的全局默认。
+  -- 不快照的话，改一次全局默认所有历史返点金额一起跳。
+  referral_rate numeric(5, 4)
+    check (referral_rate is null or (referral_rate >= 0 and referral_rate <= 1)),
+  -- 返点生效窗口（0015）：只有活动日落在窗口里的单子才算返点。
+  -- 两头各自可空，空 = 这一头不设限，跟 resources 的有效期同一套约定
+  referral_from date,
+  referral_until date,
+  created_at timestamptz not null default now(),
+  -- 自己介绍自己拦在库层面。更长的环（A→B→A）check 表达不了，
+  -- 写入时走 lib/referral.ts 的 referralBlockReason()
+  constraint customers_no_self_referral
+    check (referred_by is null or referred_by <> id),
+  -- 窗口填反了的话所有单子都不算返点，而界面上看着像设好了。写进去那一刻就拦
+  constraint customers_referral_window_order
+    check (referral_from is null or referral_until is null or referral_from <= referral_until)
 );
 create index on customers (auth_user_id);
 create index on customers (lower(email));
+create index on customers (referred_by);
 
 -- Provider 物主（账号层面。一个 Provider 可以持多个人的资源，
 -- 所以资源本身的信息 —— 资源类型、持有人姓名/性别/生日 —— 都在 resources 上）
@@ -125,6 +145,27 @@ create table payments (
   created_at timestamptz not null default now()
 );
 create index on payments (order_id);
+
+-- 返点付款记录（0014）。存的不是「该返多少」——那个是算出来的（订单金额 × 比例，
+-- 见 lib/referral.ts）；这里存的是「钱真付出去了」这个事实。
+-- 跟 matches（意向）vs order_assignments（事实）一个道理。
+-- 不复用 payments：那张表 order_id not null，而且 lib/revenue.ts 的流水口径
+-- 建在它和 orders 上，掺进反向的钱会把流水搅浑。
+create table referral_payouts (
+  id uuid primary key default gen_random_uuid(),
+  referrer_id uuid not null references customers(id) on delete cascade,
+  order_id uuid not null references orders(id) on delete cascade,
+  amount numeric(10, 2) not null,
+  method text check (method in (
+    'zelle', 'venmo', 'cash', 'zhifubao', 'chat', 'payid', 'emt'
+  )),
+  note text,
+  created_at timestamptz not null default now(),
+  -- 一单对一个介绍人只返一次
+  unique (order_id, referrer_id)
+);
+create index on referral_payouts (referrer_id);
+create index on referral_payouts (order_id);
 
 -- Match Provider 对某个 Order 的匹配意向
 -- Match：匹配意向（谁想接这一单）。跟 order_assignments 不同 ——

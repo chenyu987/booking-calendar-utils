@@ -5,16 +5,28 @@ import {
   setOverviewStart,
   getOverviewBandDays,
   setOverviewBandDays,
+  getReferralRate,
+  setReferralRate,
 } from "@/lib/appSettings";
 import { isIsoDate } from "@/lib/timelineStart";
+import { parseRatePercent } from "@/lib/referral";
 
 // 设置的读写。原来是一个页面，现在改成弹框，所以这儿只留数据接口。
 //
 // GET 给弹框打开时拉当前值 —— 不放进 admin layout 预取，那样每开一个 admin
 // 页面都要多跑两条查询，而设置十天半月才点一次。
 export async function GET() {
-  const [start, bandDays] = await Promise.all([getOverviewStart(), getOverviewBandDays()]);
-  return NextResponse.json({ overview_start: start, band_days: bandDays });
+  const [start, bandDays, rate] = await Promise.all([
+    getOverviewStart(),
+    getOverviewBandDays(),
+    getReferralRate(),
+  ]);
+  return NextResponse.json({
+    overview_start: start,
+    band_days: bandDays,
+    // 库里存小数（0.1），界面上填百分数
+    referral_rate: Math.round(rate * 10000) / 100,
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -49,6 +61,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "每行几天不是数字" }, { status: 400 });
     }
     await setOverviewBandDays(n);
+  }
+
+  // 介绍人返点的全局默认比例。校验走 lib/referral.ts 的 parseRatePercent
+  // （唯一出处）—— 页面上那个入口原来自己判断了一遍，现在只剩这一份。
+  // **空着不算「不设限」**：全局默认必须有个值，不然新建关系时无从取值
+  if ("referral_rate" in body) {
+    const parsed = parseRatePercent(body.referral_rate);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.reason }, { status: 400 });
+    }
+    if (parsed.rate === null) {
+      return NextResponse.json({ error: "全局默认比例不能空着" }, { status: 400 });
+    }
+    await setReferralRate(parsed.rate);
+    revalidatePath("/admin/referrals");
   }
 
   revalidatePath("/admin/overview");

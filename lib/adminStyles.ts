@@ -99,3 +99,22 @@ export const dangerLinkStyle: CSSProperties = {
   fontSize: 13,
   cursor: "pointer",
 };
+
+// 段控件（「日历 | 台账」「1周 | 2周 | 4周 | 8周」这种）。
+// **唯一出处** —— 同一个后台不该有两套开关长相，抄第二份就是迟早对不上
+export const segStyle: CSSProperties = {
+  padding: "3px 10px",
+  fontSize: 12,
+  border: "1px solid var(--border-strong)",
+  color: "var(--text-muted)",
+  textDecoration: "none",
+  background: "var(--surface)",
+  cursor: "pointer",
+  lineHeight: 1.6,
+};
+export const segActiveStyle: CSSProperties = {
+  ...segStyle,
+  background: "var(--solid-bg)",
+  color: "var(--on-solid)",
+  borderColor: "var(--solid-bg)",
+};

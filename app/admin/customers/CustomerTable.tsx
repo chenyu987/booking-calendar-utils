@@ -11,6 +11,8 @@ export type CustomerRow = {
   chat: string;
   age: number | null;
   status: string;
+  /** 谁介绍来的。空 = 没有介绍人。只读，改在 /admin/referrals */
+  referrer: string;
   note: string;
   segments: FootprintSegment[];
   orderCount: number;
@@ -50,6 +52,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
   const [ageMin, setAgeMin] = useState("");
   const [ageMax, setAgeMax] = useState("");
   const [status, setStatus] = useState("");
+  const [referrer, setReferrer] = useState("");
   const [footprint, setFootprint] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -66,6 +69,7 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
       if (!matches(r.name, name)) return false;
       if (!matches(r.phone, phone)) return false;
       if (!matches(r.chat, chat)) return false;
+      if (!matches(r.referrer, referrer)) return false;
       if (!matches(r.footprintText, footprint)) return false;
       if (status && r.status !== status) return false;
       // 年龄没填的人：一旦按年龄筛就排除掉，不然「找 25 岁以上」会把没记生日的全捞出来
@@ -76,15 +80,16 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
       }
       return true;
     });
-  }, [rows, name, phone, chat, footprint, status, ageMin, ageMax]);
+  }, [rows, name, phone, chat, referrer, footprint, status, ageMin, ageMax]);
 
   const hasFilter =
-    name || phone || chat || footprint || status || ageMin || ageMax;
+    name || phone || chat || referrer || footprint || status || ageMin || ageMax;
 
   function clearAll() {
     setName("");
     setPhone("");
     setChat("");
+    setReferrer("");
     setFootprint("");
     setStatus("");
     setAgeMin("");
@@ -142,7 +147,8 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
             <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>聊天</th>
             <th style={{ ...thStyle, borderBottom: "none", width: "10%" }}>年龄</th>
             <th style={{ ...thStyle, borderBottom: "none", width: "10%" }}>状态</th>
-            <th style={{ ...thStyle, borderBottom: "none", width: "14%" }}>备注</th>
+            <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>介绍人</th>
+            <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>备注</th>
             <th style={{ ...thStyle, borderBottom: "none" }}>足迹</th>
           </tr>
           <tr>
@@ -203,6 +209,14 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
                 ))}
               </select>
             </th>
+            <th style={filterThStyle}>
+              <input
+                value={referrer}
+                onChange={(e) => setReferrer(e.target.value)}
+                placeholder="筛选介绍人"
+                style={filterInputStyle}
+              />
+            </th>
             {/* 备注不给筛选框：内容太散，真要找人用姓名/电话/足迹更快 */}
             <th style={filterThStyle} />
             <th style={filterThStyle}>
@@ -230,6 +244,9 @@ export default function CustomerTable({ rows }: { rows: CustomerRow[] }) {
                 <td style={tdStyle}>{r.chat}</td>
                 <td style={tdStyle}>{r.age ?? "-"}</td>
                 <td style={tdStyle}>{r.status}</td>
+                <td style={tdStyle}>
+                  {r.referrer || <span style={{ color: "var(--text-faint)" }}>-</span>}
+                </td>
                 <td style={tdStyle}>{r.note}</td>
                 <td style={tdStyle}>
                   {r.segments.length === 0 ? (

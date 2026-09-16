@@ -50,9 +50,20 @@ export function clampBandDays(days: number): number {
 }
 
 /** n 列铺开来占多宽（列之间有 gap，两头没有） */
-export function widthForBandDays(days: number, zoom = 1): number {
+/**
+ * @param col/gap 列宽和列间距。默认是排期总览那套（180/2）；
+ *   **物主/匹配台/返点那三张日历的列窄得多**（PROVIDER_COL_WIDTH 56），
+ *   用默认值算出来的边界会宽出三倍。参数化而不是各写一份 ——
+ *   第二份数字和第二份样式是同一个 bug
+ */
+export function widthForBandDays(
+  days: number,
+  zoom = 1,
+  col = COL_WIDTH,
+  gap = COL_GAP
+): number {
   const n = clampBandDays(days);
-  return (n * COL_WIDTH + (n - 1) * COL_GAP) * zoom;
+  return (n * col + (n - 1) * gap) * zoom;
 }
 
 /**
@@ -76,11 +87,16 @@ export function bandDaysForWidth(availableCssPx: number, zoom = 1): number {
  * 日历比屏幕宽，手柄站的是可见区右边缘而不是最后一天右边，按绝对位置算的话
  * 一按下去天数就先跳一下。
  */
-export function dragDelta(deltaX: number, zoom = 1): number {
+export function dragDelta(
+  deltaX: number,
+  zoom = 1,
+  col = COL_WIDTH,
+  gap = COL_GAP
+): number {
   if (!Number.isFinite(deltaX) || zoom <= 0) return 0;
   // `|| 0` 是为了把 Math.round(-0.4) 的 -0 归一成 0：-0 参与后面的比较会
   // 冒出 Object.is 那种意外
-  return Math.round(deltaX / ((COL_WIDTH + COL_GAP) * zoom)) || 0;
+  return Math.round(deltaX / ((col + gap) * zoom)) || 0;
 }
 
 /** 自动加减的触发区宽度：指针进到这块地的左右两头这么近，就开始连续变 */

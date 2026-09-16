@@ -42,6 +42,8 @@ const dayNote = (body: unknown) =>
   post(() => import("@/app/admin/overview/day-note/route"), "/admin/overview/day-note", body);
 const bandDays = (body: unknown) =>
   post(() => import("@/app/admin/overview/band-days/route"), "/admin/overview/band-days", body);
+const referralBandDays = (body: unknown) =>
+  post(() => import("@/app/admin/referrals/band-days/route"), "/admin/referrals/band-days", body);
 const saveSettings = (body: unknown) =>
   post(() => import("@/app/admin/settings/route"), "/admin/settings", body);
 
@@ -168,7 +170,8 @@ describe("设置弹框那条接口", () => {
     });
     const { GET } = await import("@/app/admin/settings/route");
     const json = await (await GET()).json();
-    expect(json).toEqual({ overview_start: "2026-12-01", band_days: 14 });
+    // referral_rate 没设过 → 回默认 10（百分数，库里存的是 0.1）
+    expect(json).toEqual({ overview_start: "2026-12-01", band_days: 14, referral_rate: 10 });
   });
 
   it("一次存两项", async () => {
@@ -202,5 +205,73 @@ describe("设置弹框那条接口", () => {
 
   it("body 不是 JSON → 400", async () => {
     expect((await saveSettings("nope")).status).toBe(400);
+  });
+});
+
+
+describe("设置：介绍人返点的全局默认比例", () => {
+  it("存进去的是小数，界面填的是百分数", async () => {
+    seed({ app_settings: [] });
+    const r = await saveSettings({ referral_rate: "7.5" });
+    expect(r.status).toBe(200);
+    expect(Object.fromEntries(fake.db.app_settings.map((x: any) => [x.key, x.value]))).toEqual({ referral_rate_default: "0.075" });
+  });
+
+  it("不是数字要拒绝 —— 界面挡不住直接 POST", async () => {
+    seed({ app_settings: [] });
+    const r = await saveSettings({ referral_rate: "一成" });
+    expect(r.status).toBe(400);
+    // 一个字都没写进去
+    expect(Object.fromEntries(fake.db.app_settings.map((x: any) => [x.key, x.value]))).toEqual({});
+  });
+
+  it("超出 0~100 要拒绝", async () => {
+    seed({ app_settings: [] });
+    expect((await saveSettings({ referral_rate: "-1" })).status).toBe(400);
+    expect((await saveSettings({ referral_rate: "101" })).status).toBe(400);
+    expect(Object.fromEntries(fake.db.app_settings.map((x: any) => [x.key, x.value]))).toEqual({});
+  });
+
+  it("空着要拒绝 —— 全局默认必须有个值，不然新建关系时无从取值", async () => {
+    seed({ app_settings: [] });
+    const r = await saveSettings({ referral_rate: "" });
+    expect(r.status).toBe(400);
+    expect(Object.fromEntries(fake.db.app_settings.map((x: any) => [x.key, x.value]))).toEqual({});
+  });
+});
+
+
+describe("返点日历：拖右边那根条改每行几天", () => {
+  const key = () => fake.db.app_settings.find((x: any) => x.key === "referral_band_days");
+
+  it("正常存进去", async () => {
+    const r = await referralBandDays({ days: 14 });
+    expect(r.status).toBe(200);
+    expect(key().value).toBe("14");
+  });
+
+  it("超范围夹住 —— 拖到头本来就是夹住，两条路行为要一样", async () => {
+    await referralBandDays({ days: 999 });
+    expect(key().value).toBe(String(MAX_BAND_DAYS));
+  });
+
+  it("**坏类型要拒掉，不能被 Number() 悄悄变成 0 再夹成最窄**", async () => {
+    // Number(null) / Number([]) / Number("") 都是 0，都能过 isFinite，
+    // 然后被夹成 3 天存进去 —— 一个坏请求把日历压成最窄，还什么都不报
+    for (const days of [null, "", [], {}, true]) {
+      const r = await referralBandDays({ days });
+      expect(r.status).toBe(400);
+    }
+    expect(key()).toBeUndefined();
+  });
+
+  it("body 不是 JSON 也拒掉", async () => {
+    const r = await referralBandDays("不是 json");
+    expect(r.status).toBe(400);
+  });
+
+  it("**跟排期总览各存各的** —— 改一张不该动另一张", async () => {
+    await referralBandDays({ days: 7 });
+    expect(fake.db.app_settings.find((x: any) => x.key === "overview_band_days")).toBeUndefined();
   });
 });

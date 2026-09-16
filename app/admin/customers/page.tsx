@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { calcAge } from "@/lib/age";
 import { buildFootprints } from "@/lib/footprint";
+import { customerName } from "@/lib/referral";
 import CustomerTable, { type CustomerRow } from "./CustomerTable";
 import {
   formStyle,
@@ -47,6 +48,9 @@ export default async function CustomersAdminPage() {
   ]);
 
   const footprints = buildFootprints(orders ?? []);
+  // 介绍人：关系存在**被介绍人**这一行上（customers.referred_by），
+  // 所以这儿不用再查一次，同一批数据里对一下 id 就有了
+  const byId = new Map((customers ?? []).map((r) => [r.id, r]));
 
   const rows: CustomerRow[] = (customers ?? []).map((r) => {
     const fp = footprints.get(r.id);
@@ -57,6 +61,7 @@ export default async function CustomersAdminPage() {
       chat: r.chat ?? "",
       age: calcAge(r.date_of_birth) ?? null,
       status: r.status ?? "",
+      referrer: r.referred_by ? customerName(byId.get(r.referred_by)) : "",
       note: r.note ?? "",
       segments: fp?.segments ?? [],
       orderCount: fp?.orderCount ?? 0,

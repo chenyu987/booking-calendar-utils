@@ -41,13 +41,23 @@ export function isExpired(resource: any): boolean {
 
 // 有效期显示成一句话，**唯一出处** —— 物主页、Resource 管理、匹配台、排期总览的
 // 浮层都用它。散着写的话，加了「不限」这一档就得记得改五个地方。
-export function formatValidity(resource: any): string {
-  const start = resource?.date_range_start;
-  const end = resource?.date_range_end;
+/**
+ * 「一头或两头可空的日期区间」怎么显示 —— **唯一出处**。
+ * 资源的有效期和介绍关系的返点窗口是同一种东西（迁移 0012 / 0015 用了同一套
+ * 「空 = 这一头不设限」的约定），显示当然也该是同一份代码。
+ */
+export function formatDateRange(
+  start?: string | null,
+  end?: string | null
+): string {
   if (start && end) return `${start} ~ ${end}`;
   if (start) return `${start} 起`;
   if (end) return `截至 ${end}`;
   return VALIDITY_OPEN_LABEL;
+}
+
+export function formatValidity(resource: any): string {
+  return formatDateRange(resource?.date_range_start, resource?.date_range_end);
 }
 
 // 这个资源的有效期能不能覆盖这一单的全部日期。

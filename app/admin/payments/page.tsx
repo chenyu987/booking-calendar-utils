@@ -10,18 +10,9 @@ import {
   tdStyle,
   pageTitleStyle,
 } from "@/lib/adminStyles";
+import { PAY_METHODS } from "@/lib/payMethods";
 
 export const dynamic = "force-dynamic";
-
-const PAYMENT_METHODS = [
-  "zelle",
-  "venmo",
-  "cash",
-  "zhifubao",
-  "chat",
-  "payid",
-  "emt",
-];
 
 async function createPayment(formData: FormData) {
   "use server";
@@ -73,8 +64,8 @@ export default async function PaymentsAdminPage() {
           required
           style={inputStyle}
         />
-        <select name="method" style={selectStyle} defaultValue={PAYMENT_METHODS[0]}>
-          {PAYMENT_METHODS.map((m) => (
+        <select name="method" style={selectStyle} defaultValue={PAY_METHODS[0]}>
+          {PAY_METHODS.map((m) => (
             <option key={m} value={m}>
               {m}
             </option>

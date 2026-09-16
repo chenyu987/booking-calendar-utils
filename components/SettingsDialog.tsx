@@ -5,7 +5,12 @@ import { useRouter } from "next/navigation";
 import { MIN_BAND_DAYS, MAX_BAND_DAYS } from "@/lib/bandDays";
 import { THEME_COOKIE, type Theme } from "@/lib/theme";
 
-export type Settings = { overview_start: string | null; band_days: number };
+export type Settings = {
+  overview_start: string | null;
+  band_days: number;
+  /** 介绍人返点的全局默认比例，**百分数**（10 = 10%） */
+  referral_rate: number;
+};
 
 // 设置弹框。原来是 /admin/settings 一个页面，改成弹框：设置是「顺手调一下」，
 // 为它整页跳走再跳回来，手上的位置（滚到哪一周、正在配哪一单）就没了。
@@ -66,6 +71,7 @@ export default function SettingsDialog({
     const next: Settings = {
       overview_start: String(form.get("overview_start") ?? "") || null,
       band_days: Number(form.get("band_days")),
+      referral_rate: Number(form.get("referral_rate")),
     };
     setSaving(true);
     setError("");
@@ -76,6 +82,7 @@ export default function SettingsDialog({
         body: JSON.stringify({
           overview_start: String(form.get("overview_start") ?? ""),
           band_days: String(form.get("band_days") ?? ""),
+          referral_rate: String(form.get("referral_rate") ?? ""),
         }),
       });
       const json = await res.json();
@@ -161,6 +168,27 @@ export default function SettingsDialog({
             defaultValue={data.band_days}
             style={{ ...inputStyle, width: 90 }}
           />
+        </section>
+
+        <section style={sectionStyle}>
+          <div style={labelStyle}>介绍人返点：默认比例</div>
+          <p style={hintStyle}>
+            新建介绍关系时预填这个数。**只影响以后新建的** —— 已经建好的关系
+            各自存着当初谈定的比例，改这儿不会把历史返点金额一起改掉。
+          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input
+              key={`rate-${data.referral_rate}`}
+              type="number"
+              name="referral_rate"
+              min={0}
+              max={100}
+              step="0.01"
+              defaultValue={data.referral_rate}
+              style={{ ...inputStyle, width: 90 }}
+            />
+            <span style={hintStyle}>%</span>
+          </div>
         </section>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 16 }}>

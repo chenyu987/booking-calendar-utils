@@ -16,6 +16,7 @@ const navItems = [
   { href: "/admin/resources", label: "Resource" },
   { href: "/admin/payments", label: "Payment" },
   { href: "/admin/matches", label: "Match" },
+  { href: "/admin/referrals", label: "Referral" },
 ];
 
 export default function AdminLayout({

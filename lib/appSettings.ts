@@ -1,6 +1,8 @@
 import { supabase } from "@/lib/supabase";
 import { isIsoDate } from "@/lib/timelineStart";
 import { clampBandDays, DEFAULT_BAND_DAYS } from "@/lib/bandDays";
+import { DEFAULT_REFERRAL_RATE } from "@/lib/referral";
+import { REFERRAL_BAND_DAYS_DEFAULT } from "@/lib/referralBoard";
 
 // 后台设置项的读写。库里是一张 key/value 表，这里包一层，
 // 让调用方拿到的是「已经验过的值」而不是裸字符串。
@@ -22,6 +24,10 @@ export const SETTING_KEYS = {
   matchesStart: "matches_start",
   /** 匹配台日历每行排几天 */
   matchesBandDays: "matches_band_days",
+  /** 介绍人返点的全局默认比例 */
+  referralRate: "referral_rate_default",
+  /** 返点日历每行排几天 */
+  referralBandDays: "referral_band_days",
 } as const;
 
 async function readSetting(key: string): Promise<string | null> {
@@ -100,4 +106,36 @@ export async function getMatchesBandDays(): Promise<number> {
 
 export async function setMatchesBandDays(value: number) {
   await writeSetting(SETTING_KEYS.matchesBandDays, String(clampBandDays(value)));
+}
+
+// 介绍人返点的**全局默认**比例。真正算返点时优先用被介绍人那一行上的快照
+// （customers.referral_rate），这里只是「新建关系时填什么」和「快照留空时按什么算」。
+//
+// 放 app_settings 而不是写死常量：这个数会调（试运行期 10%，旺季可能改）。
+// 但**改了不影响已经建好的关系** —— 那些行上有自己的快照，见 lib/referral.ts。
+export async function getReferralRate(): Promise<number> {
+  const raw = await readSetting(SETTING_KEYS.referralRate);
+  if (raw === null) return DEFAULT_REFERRAL_RATE;
+  const n = Number(raw);
+  // 库里存了个不合法的值就退回默认。放过去的话整页返点会变成 NaN，
+  // 而且看不出是哪儿来的 —— 跟 getOverviewStart 拦不合法日期同一个道理
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : DEFAULT_REFERRAL_RATE;
+}
+
+export async function setReferralRate(rate: number) {
+  const safe = Number.isFinite(rate) && rate >= 0 && rate <= 1 ? rate : DEFAULT_REFERRAL_RATE;
+  await writeSetting(SETTING_KEYS.referralRate, String(safe));
+}
+
+// 返点日历每行排几天。**跟排期总览、匹配台各存各的** —— 那两张也是各存各的，
+// 理由见上面：在一张表上调了天数，另一张跟着变，那是两张不同的表、不同的用法。
+// key/value 表里多一行的成本，比「改这儿那儿也动」的意外低得多。
+export async function getReferralBandDays(): Promise<number> {
+  const raw = await readSetting(SETTING_KEYS.referralBandDays);
+  // 默认值是返点日历自己的（14），不是总览那个 28 —— 它的列宽了一倍
+  return raw === null ? REFERRAL_BAND_DAYS_DEFAULT : clampBandDays(Number(raw));
+}
+
+export async function setReferralBandDays(value: number) {
+  await writeSetting(SETTING_KEYS.referralBandDays, String(clampBandDays(value)));
 }
