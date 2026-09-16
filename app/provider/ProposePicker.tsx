@@ -1,9 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 import type { ProviderFit } from "@/lib/providerBoard";
+
+// 提意向那颗按钮上写什么。**必须带动词** —— 一个黑底按钮上光写个人名，读起来像
+// 「这是谁」而不是「点了会发生什么」，而这一下是往管理员那边发一条意向，不是选个人。
+// 日历（选资源浮层）和清单（一行一个资源）是同一件事的两条路，所以是同一句话，
+// 只有这一份 —— 两边各写各的，迟早一边改了另一边没跟上。
+const proposeLabel = (holderName: string) => `用 ${holderName} 提意向`;
+const BUSY_LABEL = "提交中…";
 
 /**
  * 日历上一个「我能接」的单子：块本身 + 点开之后贴在它下面的选资源浮层。
@@ -45,6 +52,7 @@ export default function ProposePicker({
   const [error, setError] = useState("");
 
   const left = fits.filter((f) => !f.proposed && !done.includes(f.resourceId));
+
 
   async function propose(resourceId: string) {
     setBusy(resourceId);
@@ -98,38 +106,74 @@ export default function ProposePicker({
             style={{ position: "fixed", inset: 0, zIndex: 3 }}
             aria-hidden
           />
-          {/* 浮层比一格宽是常事（两个资源名 + 取消），所以外面这层只负责「站在哪一格」，
-              里面那层绝对定位、`width: max-content`，想多宽多宽，不被格子勒住 */}
-          <div style={{ ...popoverPlace, position: "relative", zIndex: 4, minWidth: 0 }}>
-            <div style={popoverStyle}>
-              {left.map((f) => (
-                <button
-                  key={f.resourceId}
-                  type="button"
-                  disabled={Boolean(busy)}
-                  onClick={() => propose(f.resourceId)}
-                  style={{ ...buttonStyle, opacity: busy && busy !== f.resourceId ? 0.5 : 1 }}
-                >
-                  {busy === f.resourceId ? "提交中…" : f.holderName}
-                </button>
-              ))}
-              {/* 提过的那张也得说一声，不然「我明明有两个资源怎么只给一个按钮」 */}
-              {fits
-                .filter((f) => f.proposed || done.includes(f.resourceId))
-                .map((f) => (
-                  <span key={f.resourceId} style={{ fontSize: 11, color: "var(--text-faint)" }}>
-                    {f.holderName} 已提
-                  </span>
-                ))}
-              {error && <span style={{ fontSize: 11, color: "var(--danger)" }}>{error}</span>}
-              <button type="button" onClick={() => setOpen(false)} style={cancelStyle}>
-                {left.length === 0 ? "知道了" : "取消"}
+          {/* 浮层一定比一格宽（每颗按钮都是「用 XXX 提意向」，还可能有好几颗 + 取消），
+              宽度和贴哪边的事全在 Popover 里 —— 这儿只管里面放什么 */}
+          <Popover place={popoverPlace}>
+            {left.map((f) => (
+              <button
+                key={f.resourceId}
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => propose(f.resourceId)}
+                style={{ ...buttonStyle, opacity: busy && busy !== f.resourceId ? 0.5 : 1 }}
+              >
+                {busy === f.resourceId ? BUSY_LABEL : proposeLabel(f.holderName)}
               </button>
-            </div>
-          </div>
+            ))}
+            {/* 提过的那张也得说一声，不然「我明明有两个资源怎么只给一个按钮」 */}
+            {fits
+              .filter((f) => f.proposed || done.includes(f.resourceId))
+              .map((f) => (
+                <span key={f.resourceId} style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                  {f.holderName} 已提意向
+                </span>
+              ))}
+            {error && <span style={{ fontSize: 11, color: "var(--danger)" }}>{error}</span>}
+            <button type="button" onClick={() => setOpen(false)} style={cancelStyle}>
+              {left.length === 0 ? "知道了" : "取消"}
+            </button>
+          </Popover>
         </>
       )}
     </>
+  );
+}
+
+/**
+ * 选资源浮层的外壳：站在哪一格由外面给，**贴左还是贴右由它自己量**。
+ *
+ * 浮层贴着块的左边往右长，最后几列的块会把它顶出日历外面 —— 那块地是
+ * `overflowX: auto`，超出去的部分直接被切掉，滚也滚不出来（真出过：点 9/28 那个单，
+ * 「用 allen kuanw 提意向」只剩「用 allen ku」）。
+ *
+ * **不能按列下标猜「靠不靠右」** —— 顶不顶得出去取决于浮层多宽，而浮层的宽度是资源的
+ * 名字撑出来的（一个字的名字和 "allen kuanw" 差一倍），拿下标划条线几列之内就会翻车。
+ * 所以量：wrapper 从块的起始列一直铺到行尾（`… / -1`），它的宽度就是「往右还剩多少
+ * 地方」；浮层比它宽就翻到右边贴着行尾长，往左要多少有多少。量的是 max-content 的
+ * 宽度，翻不翻边都不变 —— 不会翻过去又翻回来。
+ *
+ * **单独一个组件是为了这个 `useLayoutEffect`。** 放在 ProposePicker 顶上的话，每个
+ * 候选块在服务端渲染时都要调一次，React 会报「useLayoutEffect does nothing on the
+ * server」。浮层只在点开之后才挂上来（`open` 初始是 false），服务端根本走不到这儿。
+ *
+ * 不写依赖数组：按钮少一颗、多一行报错，宽度都会变，每次渲染完重新量一遍最省心 ——
+ * 值没变时 `setFlip` 自己会 bail out，不会转起来。
+ */
+function Popover({ place, children }: { place: React.CSSProperties; children: React.ReactNode }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [flip, setFlip] = useState(false);
+
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current;
+    const pop = wrap?.firstElementChild as HTMLElement | null;
+    if (!wrap || !pop) return;
+    setFlip(pop.offsetWidth > wrap.clientWidth);
+  });
+
+  return (
+    <div ref={wrapRef} style={{ ...place, position: "relative", zIndex: 4, minWidth: 0 }}>
+      <div style={flip ? { ...popoverStyle, left: "auto", right: 0 } : popoverStyle}>{children}</div>
+    </div>
   );
 }
 
@@ -235,7 +279,7 @@ export function ProposeOneCard({
     <span style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
       {error && <span style={{ fontSize: 11, color: "var(--danger)" }}>{error}</span>}
       <button type="button" disabled={busy} onClick={submit} style={buttonStyle}>
-        {busy ? "提交中…" : `用 ${holderName} 提`}
+        {busy ? BUSY_LABEL : proposeLabel(holderName)}
       </button>
       <button type="button" onClick={() => setArmed(false)} style={cancelStyle}>
         取消
