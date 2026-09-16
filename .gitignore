@@ -12,3 +12,12 @@ TASKS.md
 /playwright-report/
 /test-results/
 /.next-e2e/
+
+# Supabase CLI 的本地状态
+supabase/.temp/
+
+# test 库的数据快照（npm run db:dump 生成）。**不进版本库**：
+# 里面有客户/物主的邮箱手机聊天和持有人生日，就算大半是编的，
+# 只要有一条是从真实聊天里抄来的，进了 git 就永远删不掉（得重写历史）。
+# 而且它天天过期。要留备份就放仓库外，比如 ~/beta-backups/
+supabase/seed.sql

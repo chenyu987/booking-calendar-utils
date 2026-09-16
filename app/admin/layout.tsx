@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import BackToHome from "@/components/BackToHome";
 import ResizableNav from "./ResizableNav";
+import EnvBanner from "./EnvBanner";
 import PublicRail from "./PublicRail";
 import { clampRailWidth } from "@/lib/bandDays";
 import { parseNavWidth } from "@/lib/navWidth";
@@ -35,6 +36,7 @@ export default function AdminLayout({
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <ResizableNav initialWidth={initialWidth}>
+        <EnvBanner />
         <BackToHome />
         <div
           style={{
