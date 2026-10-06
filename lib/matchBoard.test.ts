@@ -10,7 +10,7 @@ const card = (over: any = {}) => ({
   item_type: "alpha",
   date_range_start: null,
   date_range_end: null,
-  providers: { first_name: "admin1", last_name: null, chat: "lynnyyyy" },
+  providers: { chat_name: "admin1", chat_id: "lynnyyyy" },
   ...over,
 });
 
@@ -20,7 +20,7 @@ const order = (days: string[], over: any = {}) => ({
   male_count: 1,
   female_count: 0,
   status: "created",
-  customers: { first_name: "小明", last_name: null },
+  customers: { chat_name: "小明" },
   ...over,
 });
 

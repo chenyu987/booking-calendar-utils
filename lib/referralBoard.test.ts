@@ -8,7 +8,7 @@ const base: RebateRow & { referrerName: string } = {
   referrerName: "denton",
   refereeId: "b",
   refereeName: "小被",
-  refereeChat: "kukucai",
+  refereeChatId: "kukucai",
   location: "locbl",
   startDay: "2026-09-20",
   days: ["2026-09-20", "2026-09-21"],
@@ -29,7 +29,8 @@ describe("buildReferralCalendar", () => {
     const b = buildReferralCalendar({ today, rows: [base] });
     const block = b.lanes.flat()[0];
     expect(block.length).toBe(2);
-    expect(block.referee).toBe("kukucai");
+    // 块上写的是显示名（昵称，customerName 算好的 refereeName），账号不上块 —— 太挤
+    expect(block.referee).toBe("小被");
     expect(block.referrer).toBe("denton");
     expect(b.totalDue).toBe(50);
   });

@@ -22,10 +22,11 @@ async function submitListing(formData: FormData) {
   // 输入框上有 required，这里再拦一道：那个只挡浏览器。
   const firstName = ((formData.get("first_name") as string) ?? "").trim();
   const phone = ((formData.get("phone_number") as string) ?? "").trim();
-  const chat = ((formData.get("chat") as string) ?? "").trim();
+  // 自己填的是账号（0020）
+  const chat = ((formData.get("chat_id") as string) ?? "").trim();
   if (!chat) redirect("/provider/listing?error=chat");
 
-  const profile: Record<string, string> = { chat };
+  const profile: Record<string, string> = { chat_id: chat };
   if (firstName) profile.first_name = firstName;
   if (phone) profile.phone_number = phone;
   await supabase.from("people").update(profile).eq("id", providerId);
@@ -61,7 +62,7 @@ export default async function ProviderListingPage({
 
   const { data: me } = await supabase
     .from("people")
-    .select("first_name, phone_number, chat, date_of_birth")
+    .select("first_name, phone_number, chat_id, date_of_birth")
     .eq("id", providerId)
     .maybeSingle();
 
@@ -159,10 +160,10 @@ export default async function ProviderListingPage({
               style={inputStyle}
             />
             <input
-              name="chat"
+              name="chat_id"
               placeholder="账号 *"
               required
-              defaultValue={me?.chat ?? ""}
+              defaultValue={me?.chat_id ?? ""}
               style={inputStyle}
             />
             <p style={{ fontSize: 12, color: "var(--warn)", margin: 0, lineHeight: 1.6 }}>

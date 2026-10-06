@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { personSpread } from "@/lib/people";
+import { DISPLAY_COLUMNS } from "@/lib/person";
 import { getReferralBandDays, getReferralRate, setReferralRate } from "@/lib/appSettings";
 import Link from "next/link";
 import { formatDayRanges, todayIso } from "@/lib/dates";
@@ -113,7 +114,7 @@ async function loadCustomersById(): Promise<{
   const { data, error } = await supabase
     .from("customers")
     .select(
-      `id, referred_by, referral_rate, referral_from, referral_until, ${personSpread("first_name, last_name, chat")}`
+      `id, referred_by, referral_rate, referral_from, referral_until, ${personSpread(DISPLAY_COLUMNS)}`
     );
   return {
     byId: new Map((data ?? []).map((r) => [r.id, r as ReferralCustomer])),
@@ -268,11 +269,11 @@ function LedgerRow({ row, back }: { row: RebateRow; back: string }) {
   const dead = isPayoutOnDeadOrder(row);
   return (
     <div style={rowStyle}>
-      {/* 平时认人认的是昵称，名字反倒对不上号，所以两个都列 */}
+      {/* 昵称为主，有账号的在旁边小字带上 */}
       <div style={col(COL.referee)}>
-        {row.refereeChat || row.refereeName}
-        {row.refereeChat && row.refereeName !== row.refereeChat && (
-          <span style={{ color: "var(--text-faint)" }}> {row.refereeName}</span>
+        {row.refereeName}
+        {row.refereeChatId && row.refereeName !== row.refereeChatId && (
+          <span style={{ color: "var(--text-faint)" }}> {row.refereeChatId}</span>
         )}
       </div>
       <div style={col(COL.order)}>
@@ -403,7 +404,7 @@ function PayPanel({
           marginBottom: 6,
         }}
       >
-        <strong style={{ color: "var(--text)" }}>{row.refereeChat || row.refereeName}</strong>
+        <strong style={{ color: "var(--text)" }}>{row.refereeName}</strong>
         {" · "}
         {row.location || "没填地点"} {formatDayRanges(row.days)} {money(row.orderAmount)}
         <span style={{ margin: "0 5px", color: "var(--text-faint)" }}>→</span>
@@ -488,7 +489,7 @@ export default async function ReferralsAdminPage({
       supabase
         .from("customers")
         .select(
-          `id, referred_by, referral_rate, referral_from, referral_until, ${personSpread("first_name, last_name, chat")}`
+          `id, referred_by, referral_rate, referral_from, referral_until, ${personSpread(DISPLAY_COLUMNS)}`
         )
         .order("created_at", { ascending: false }),
       supabase.from("orders").select("id, customer_id, demand_days, location, amount, status"),
@@ -527,7 +528,7 @@ export default async function ReferralsAdminPage({
     today,
     // 日历上一个块 = 一笔返点，所以要的是拍平的行，外加「这笔返给谁」
     rows: groups.flatMap((g) =>
-      g.rows.map((r) => ({ ...r, referrerName: g.referrerChat || g.referrerName }))
+      g.rows.map((r) => ({ ...r, referrerName: g.referrerName }))
     ),
   });
 
@@ -537,7 +538,7 @@ export default async function ReferralsAdminPage({
     for (const r of g.rows) {
       rowByKey.set(`${r.orderId}::${r.referrerId}`, {
         row: r,
-        referrer: g.referrerChat || g.referrerName,
+        referrer: g.referrerName,
       });
     }
   }
@@ -808,9 +809,9 @@ export default async function ReferralsAdminPage({
         // 默认摊开还欠钱的那几组 —— 这一页最常回答的问题是「现在该给谁打钱」
         <details key={g.referrerId} open={g.outstanding > 0} style={{ marginTop: 20 }}>
           <summary style={{ cursor: "pointer", padding: "4px 0" }}>
-            <strong style={{ fontSize: 15 }}>{g.referrerChat || g.referrerName}</strong>
-            {g.referrerChat && g.referrerName !== g.referrerChat && (
-              <span style={{ color: "var(--text-faint)", fontSize: 13 }}> {g.referrerName}</span>
+            <strong style={{ fontSize: 15 }}>{g.referrerName}</strong>
+            {g.referrerChatId && g.referrerName !== g.referrerChatId && (
+              <span style={{ color: "var(--text-faint)", fontSize: 13 }}> {g.referrerChatId}</span>
             )}
             {/* 折叠块的标题上必须带能回答问题的数字，否则折叠只是把东西藏起来 */}
             <span style={{ color: "var(--text-muted)", fontSize: 13 }}>

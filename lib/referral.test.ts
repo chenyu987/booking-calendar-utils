@@ -264,9 +264,9 @@ describe("buildReferralBoard", () => {
 
 describe("resolveCustomer（界面上拿昵称指人）", () => {
   const people: ReferralCustomer[] = [
-    { id: "t", first_name: "Terence", last_name: "Wu", chat: "terence" },
-    { id: "d", first_name: "Denton", chat: "denton_88" },
-    { id: "n", first_name: "没聊天的", chat: null },
+    { id: "t", first_name: "Terence", last_name: "Wu", chat_name: "terence" },
+    { id: "d", first_name: "Denton", chat_name: "denton_88" },
+    { id: "n", first_name: "没聊天的", chat_name: null },
   ];
 
   it("按昵称找得到", () => {
@@ -283,8 +283,8 @@ describe("resolveCustomer（界面上拿昵称指人）", () => {
 
   it("聊天优先于姓名：同一个字既是 A 的聊天又是 B 的名字时不含糊", () => {
     const tricky: ReferralCustomer[] = [
-      { id: "a", first_name: "张三", chat: "denton" },
-      { id: "b", first_name: "denton", chat: "zzz" },
+      { id: "a", first_name: "张三", chat_name: "denton" },
+      { id: "b", first_name: "denton", chat_name: "zzz" },
     ];
     expect(resolveCustomer("denton", tricky)).toEqual({ ok: true, id: "a" });
   });
@@ -298,8 +298,8 @@ describe("resolveCustomer（界面上拿昵称指人）", () => {
 
   it("对上多个也报错", () => {
     const dup: ReferralCustomer[] = [
-      { id: "x", first_name: "小明", chat: "ming" },
-      { id: "y", first_name: "小明", chat: "ming" },
+      { id: "x", first_name: "小明", chat_name: "ming" },
+      { id: "y", first_name: "小明", chat_name: "ming" },
     ];
     const r = resolveCustomer("ming", dup);
     expect(r.ok).toBe(false);
@@ -318,10 +318,10 @@ describe("resolveCustomer（界面上拿昵称指人）", () => {
 
 describe("suggestCustomers（打了字才给候选）", () => {
   const people: ReferralCustomer[] = [
-    { id: "1", first_name: "Denton", chat: "denton" },
-    { id: "2", first_name: "老邓", chat: "xxdenyy" },
-    { id: "3", first_name: "denny", chat: null },
-    { id: "4", first_name: "无关", chat: "zzz" },
+    { id: "1", first_name: "Denton", chat_name: "denton" },
+    { id: "2", first_name: "老邓", chat_name: "xxdenyy" },
+    { id: "3", first_name: "denny", chat_name: null },
+    { id: "4", first_name: "无关", chat_name: "zzz" },
   ];
 
   it("空着不给候选 —— 一聚焦倒出全部几百人那不是补全是干扰", () => {
@@ -345,7 +345,7 @@ describe("suggestCustomers（打了字才给候选）", () => {
     const many = Array.from({ length: 50 }, (_, i) => ({
       id: String(i),
       first_name: `mm${i}`,
-      chat: `mm${i}`,
+      chat_name: `mm${i}`,
     }));
     expect(suggestCustomers("mm", many).length).toBe(8);
     expect(suggestCustomers("mm", many, 3).length).toBe(3);

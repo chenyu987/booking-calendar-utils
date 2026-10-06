@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { personSpread } from "@/lib/people";
+import { DISPLAY_COLUMNS, displayName } from "@/lib/person";
 import LocationInput from "@/components/LocationInput";
 import { isUnknownLocation, locationHintFor } from "@/lib/locations";
 import { formatParty } from "@/lib/party";
@@ -142,7 +143,7 @@ export default async function OrdersAdminPage({
     { data: assignments },
   ] = await Promise.all([
     supabase.from("orders").select("*").order("created_at", { ascending: false }),
-    supabase.from("customers").select(`id, ${personSpread("first_name, last_name")}`),
+    supabase.from("customers").select(`id, ${personSpread(DISPLAY_COLUMNS)}`),
     supabase
       .from("resources")
       .select(
@@ -163,7 +164,7 @@ export default async function OrdersAdminPage({
 
   const customerName = (id: string) => {
     const r = customers?.find((x: any) => x.id === id);
-    return r ? `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() : "-";
+    return r ? displayName(r, "-") : "-";
   };
 
   // 逐列筛选。在内存里筛不写进 SQL：一季 150~250 单，全捞回来才几十 KB；
@@ -204,7 +205,7 @@ export default async function OrdersAdminPage({
           </option>
           {customers?.map((r: any) => (
             <option key={r.id} value={r.id}>
-              {r.first_name} {r.last_name}
+              {displayName(r)}
             </option>
           ))}
         </select>
@@ -390,7 +391,7 @@ export default async function OrdersAdminPage({
               >
                 {customers?.map((r: any) => (
                   <option key={r.id} value={r.id}>
-                    {r.first_name} {r.last_name}
+                    {displayName(r)}
                   </option>
                 ))}
               </select>

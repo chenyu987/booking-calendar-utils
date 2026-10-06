@@ -86,12 +86,12 @@ describe("createPerson", () => {
 describe("查身份表时把人摊平带出来", () => {
   it("顶层：customers 那一行直接带上 first_name，形状跟合表之前一样", async () => {
     seed({
-      people: [{ id: "p1", first_name: "阿明", chat: "aming", created_at: "人的时间" }],
+      people: [{ id: "p1", first_name: "阿明", chat_name: "aming", created_at: "人的时间" }],
       customers: [{ id: "p1", referred_by: null, created_at: "客户的时间" }],
     });
     const { PERSON_SPREAD } = await import("@/lib/people");
     const { data } = await fake.client.from("customers").select(`id, referred_by, ${PERSON_SPREAD}`);
-    expect(data[0]).toMatchObject({ id: "p1", first_name: "阿明", chat: "aming" });
+    expect(data[0]).toMatchObject({ id: "p1", first_name: "阿明", chat_name: "aming" });
     // 人自己的 created_at 不会盖掉身份表的
     expect(data[0].created_at).toBe("客户的时间");
   });

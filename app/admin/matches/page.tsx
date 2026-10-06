@@ -21,7 +21,7 @@ import {
   setMatchesStart,
 } from "@/lib/appSettings";
 import MatchCalendar from "./MatchCalendar";
-import { formatPerson } from "@/lib/person";
+import { DISPLAY_COLUMNS, displayName, formatPerson } from "@/lib/person";
 import { todayIso } from "@/lib/dates";
 import {
   GAP_FILTER_LABELS,
@@ -237,7 +237,7 @@ export default async function MatchesAdminPage({
       supabase
         .from("matches")
         .select(
-          `id, status, created_at, order_id, resource_id, orders(location, demand_days, status, male_count, female_count, customers(${personSpread("first_name, last_name, chat")})), resources(id, status, deleted_at, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(${personSpread("first_name, last_name, chat")}))`
+          `id, status, created_at, order_id, resource_id, orders(location, demand_days, status, male_count, female_count, customers(${personSpread(DISPLAY_COLUMNS)})), resources(id, status, deleted_at, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(${personSpread(DISPLAY_COLUMNS)}))`
         )
         .order("created_at", { ascending: false }),
       supabase
@@ -247,7 +247,7 @@ export default async function MatchesAdminPage({
       supabase
         .from("resources")
         .select(
-          `id, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(${personSpread("first_name, last_name")})`
+          `id, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(${personSpread(DISPLAY_COLUMNS)})`
         )
         .eq("status", "active")
         .is("deleted_at", null),
@@ -309,10 +309,8 @@ export default async function MatchesAdminPage({
         matchStatus: m.status,
         orderStatus: m.orders?.status ?? null,
         location: m.orders?.location ?? null,
-        customerName: m.orders?.customers?.first_name ?? null,
-        providerName: [m.resources?.providers?.first_name, m.resources?.providers?.last_name]
-          .filter(Boolean)
-          .join(" "),
+        customerName: displayName(m.orders?.customers, "") || null,
+        providerName: displayName(m.resources?.providers, ""),
         holderName: m.resources?.holder_name ?? null,
         days: m.orders?.demand_days ?? [],
         isComplete: need ? need.isComplete : null,
@@ -369,7 +367,7 @@ export default async function MatchesAdminPage({
               {s.holder_name ?? "?"}（
               {formatHolder(s.holder_gender, s.holder_date_of_birth)}）·{" "}
               {s.item_type} {formatValidity(s)} ·{" "}
-              {s.providers?.first_name ?? ""}
+              {displayName(s.providers, "")}
             </option>
           ))}
         </select>
@@ -626,10 +624,7 @@ export default async function MatchesAdminPage({
           <div style={{ fontSize: 13, marginBottom: 8 }}>
             <b>
               {formatDayRanges(assignOrderRow?.orders?.demand_days ?? [])} ·{" "}
-              {formatPerson(
-                assignOrderRow?.orders?.customers?.first_name,
-                assignOrderRow?.orders?.customers?.last_name
-              )}
+              {displayName(assignOrderRow?.orders?.customers, "-")}
               {assignOrderRow?.orders?.location ? ` · ${assignOrderRow.orders.location}` : ""}
             </b>
             <span style={{ color: "var(--text-muted)" }}>
@@ -688,7 +683,7 @@ export default async function MatchesAdminPage({
                 <span style={{ color: "var(--text-muted)" }}>
                   {/* 先人后地点：这一单是谁求的，比它去哪儿更该先看到。
                       客户的聊天不放这儿 —— 匹配这一步要联系的是物主，不是客户 */}
-                  {formatPerson(o?.customers?.first_name, o?.customers?.last_name)} ·{" "}
+                  {displayName(o?.customers, "-")} ·{" "}
                   {o?.location || "没填地点"} · {formatParty(o?.male_count, o?.female_count)}
                 </span>
                 <span style={{ color: need?.isComplete ? "var(--ok)" : undefined }}>
@@ -705,11 +700,7 @@ export default async function MatchesAdminPage({
               {g.matches.map((m: any) => (
                 <div key={m.id} style={candidateRowStyle}>
                   <div style={{ ...cellStyle, flex: 1.2, minWidth: COL.providerMin }}>
-                    {formatPerson(
-                      m.resources?.providers?.first_name,
-                      m.resources?.providers?.last_name,
-                      m.resources?.providers?.chat
-                    )}
+                    {formatPerson(m.resources?.providers)}
                   </div>
                   <div style={{ ...cellStyle, flex: 1.6, minWidth: COL.resourceMin }}>
                     {m.resources?.holder_name ?? "-"}{" "}
@@ -753,7 +744,7 @@ export default async function MatchesAdminPage({
             {/* 先人后地点，跟聚合视图的订单头一个顺序。
                 客户的聊天不放这儿 —— 匹配这一步要联系的是物主，不是客户 */}
             <div style={{ ...cellStyle, width: COL.customer }}>
-              {formatPerson(m.orders?.customers?.first_name, m.orders?.customers?.last_name)}
+              {displayName(m.orders?.customers, "-")}
             </div>
             <div style={{ ...cellStyle, width: COL.mtn }}>
               {m.orders?.location || <span style={{ color: "var(--text-faint)" }}>没填</span>}
@@ -775,11 +766,7 @@ export default async function MatchesAdminPage({
               {m.orders?.status ? ORDER_STATUS_LABELS[m.orders.status] ?? m.orders.status : "-"}
             </div>
             <div style={{ ...cellStyle, flex: 1.2, minWidth: COL.providerMin }}>
-              {formatPerson(
-                m.resources?.providers?.first_name,
-                m.resources?.providers?.last_name,
-                m.resources?.providers?.chat
-              )}
+              {formatPerson(m.resources?.providers)}
             </div>
             <div style={{ ...cellStyle, flex: 1.6, minWidth: COL.resourceMin }}>
               {m.resources?.holder_name ?? "-"}{" "}

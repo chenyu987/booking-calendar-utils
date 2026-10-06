@@ -6,13 +6,17 @@ create extension if not exists "pgcrypto";
 -- 同一个人既租又出租的话，两张身份表里各有一行，id 都等于这里的 id。
 create table people (
   id uuid primary key default gen_random_uuid(),
+  -- 昵称（0020）：后台认人、显示用的就是它。排在最前面 —— 这是最常用的那个名字
+  chat_name text,
+  -- 账号（0020）：选填
+  chat_id text,
+  -- 留给以后注册的用户自己填的称呼，不必填，后台不拿它显示（0020）
   first_name text,
   last_name text,
   -- 只存生日，年龄用代码算（lib/age.ts），存死数字明年就错了
   date_of_birth date,
   email text,
   phone_number text,
-  chat text,
   status text not null default 'active',
   note text,
   -- 登录后对应的 Supabase Auth 用户。unique：一个登录账号只对应一个人，

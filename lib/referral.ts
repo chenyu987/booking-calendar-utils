@@ -1,3 +1,4 @@
+import { displayName } from "./person";
 import { countsTowardRevenue, orderStartDay } from "./revenue";
 import { formatDateRange } from "./resourceStatus";
 import { isIsoDate } from "./timelineStart";
@@ -21,9 +22,13 @@ export const DEFAULT_REFERRAL_RATE = 0.1;
 
 export type ReferralCustomer = {
   id: string;
+  /** 昵称：认人、显示都靠它（0020） */
+  chat_name?: string | null;
+  /** 账号，选填 */
+  chat_id?: string | null;
+  /** 注册用户自己填的称呼，大多数人是空的 */
   first_name?: string | null;
   last_name?: string | null;
-  chat?: string | null;
   /** 谁介绍了这个人 */
   referred_by?: string | null;
   /** 这个人的单子按几成返给介绍人。null = 跟随全局默认 */
@@ -59,10 +64,10 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** 显示名走 lib/person.ts 的 displayName（唯一出处）：昵称优先 */
 export function customerName(r: ReferralCustomer | undefined): string {
   if (!r) return "?";
-  const name = [r.first_name, r.last_name].filter(Boolean).join(" ").trim();
-  return name || r.chat || r.id.slice(0, 8);
+  return displayName(r, r.id.slice(0, 8));
 }
 
 /**
@@ -166,7 +171,8 @@ export function referralBlockReason(input: {
  * 为什么不用下拉选 id：一季几百个客户，下拉里翻名字比直接打昵称慢得多，
  * 而且平时在群里、在 Sheet 上认人本来就是认昵称。
  *
- * 先按聊天匹配，没匹配上再退回按姓名 —— 有些老客户库里就没记聊天。
+ * 先按昵称匹配，没匹配上再按账号，再退回按注册时填的称呼（0020 起昵称是主键一样的东西，
+ * 但以后自己注册、还没被管理员加过昵称的人只有称呼）。
  * **对不上或者对上多个都返错误，不猜。** 猜错一个人，返点就长期发给错的人，
  * 而且不会有人发现（台账上看着是对的）。
  */
@@ -177,14 +183,17 @@ export function resolveCustomer(
   const q = (typeof raw === "string" ? raw : "").trim().toLowerCase();
   if (!q) return { ok: false, reason: "昵称没填" };
 
-  const byChat = customers.filter((r) => (r.chat ?? "").trim().toLowerCase() === q);
-  const hits =
-    byChat.length > 0
-      ? byChat
-      : customers.filter((r) => {
-          const full = [r.first_name, r.last_name].filter(Boolean).join(" ").trim().toLowerCase();
-          return full === q || (r.first_name ?? "").trim().toLowerCase() === q;
-        });
+  const norm = (v?: string | null) => (v ?? "").trim().toLowerCase();
+  // 一档一档往下找，**哪一档对上了就只看那一档**：昵称对上一个人，就不管别人的称呼恰好也叫这个
+  const tiers = [
+    (r: ReferralCustomer) => norm(r.chat_name) === q,
+    (r: ReferralCustomer) => norm(r.chat_id) === q,
+    (r: ReferralCustomer) => {
+      const full = [r.first_name, r.last_name].filter(Boolean).join(" ").trim().toLowerCase();
+      return full === q || norm(r.first_name) === q;
+    },
+  ];
+  const hits = tiers.map((t) => customers.filter(t)).find((list) => list.length > 0) ?? [];
 
   if (hits.length === 0) {
     return { ok: false, reason: `找不到「${String(raw).trim()}」这个人，先去 Customer 页建档` };
@@ -198,12 +207,9 @@ export function resolveCustomer(
   return { ok: true, id: hits[0].id };
 }
 
-/** 选人框里的候选项：优先昵称（平时就是拿它认人的），没记聊天的退回姓名 */
+/** 选人框里的候选项：昵称（平时就是拿它认人的）。跟 customerName 是同一个 —— 都走 displayName */
 export function customerHandle(r: ReferralCustomer): string {
-  const w = (r.chat ?? "").trim();
-  if (w) return w;
-  const name = [r.first_name, r.last_name].filter(Boolean).join(" ").trim();
-  return name || r.id.slice(0, 8);
+  return customerName(r);
 }
 
 // —— 返点生效窗口（迁移 0015）——
@@ -293,8 +299,10 @@ export function suggestCustomers(
   const scored: { r: ReferralCustomer; rank: number }[] = [];
   for (const r of customers) {
     const handle = customerHandle(r).toLowerCase();
-    const name = customerName(r).toLowerCase();
-    const chat = (r.chat ?? "").trim().toLowerCase();
+    // 注册时自己填的称呼也能搜 —— 显示名是昵称，但有人记的是他的称呼
+    const name = [r.first_name, r.last_name].filter(Boolean).join(" ").trim().toLowerCase();
+    // 账号也能搜：打的是号的时候也找得到人
+    const chat = (r.chat_id ?? "").trim().toLowerCase();
     let rank = -1;
     if (handle.startsWith(q) || chat.startsWith(q)) rank = 0;
     else if (name.startsWith(q)) rank = 1;
@@ -314,7 +322,8 @@ export type RebateRow = {
   referrerId: string;
   refereeId: string;
   refereeName: string;
-  refereeChat: string;
+  /** 被介绍人的账号（选填），显示在名字旁边 */
+  refereeChatId: string;
   location: string;
   startDay: string | null;
   /** 需求日原样带出来 —— 台账上显示「9/10–9/11」比「2 天」有用 */
@@ -364,7 +373,8 @@ export function isPayoutOnDeadOrder(row: RebateRow): boolean {
 export type ReferrerGroup = {
   referrerId: string;
   referrerName: string;
-  referrerChat: string;
+  /** 介绍人的账号（选填） */
+  referrerChatId: string;
   /** 介绍了几个人（还没下单的也算） */
   refereeCount: number;
   /** 介绍的人都有谁，按姓名排 */
@@ -439,7 +449,7 @@ export function buildReferralBoard(input: {
           referrerId,
           refereeId: referee.id,
           refereeName: customerName(referee),
-          refereeChat: referee.chat ?? "",
+          refereeChatId: referee.chat_id ?? "",
           location: o.location ?? "",
           startDay,
           days: o.demand_days ?? [],
@@ -463,7 +473,7 @@ export function buildReferralBoard(input: {
     groups.push({
       referrerId,
       referrerName: customerName(byId.get(referrerId)),
-      referrerChat: byId.get(referrerId)?.chat ?? "",
+      referrerChatId: byId.get(referrerId)?.chat_id ?? "",
       refereeCount: list.length,
       refereeNames: list.map(customerName).sort((a, b) => a.localeCompare(b)),
       rows,

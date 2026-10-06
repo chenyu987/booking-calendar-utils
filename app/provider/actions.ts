@@ -114,7 +114,8 @@ export async function deleteResource(formData: FormData) {
 export async function saveContact(formData: FormData) {
   const providerId = await requireProvider();
 
-  const chat = text(formData, "chat");
+  // 物主自己填的是账号（0020）—— 管理员拿它加好友。昵称是加了之后在后台填的
+  const chat = text(formData, "chat_id");
   if (!chat) redirect("/provider?edit=contact&error=chat");
 
   // 联系方式是人身上的（people），不在 providers 这张身份表上（0017）
@@ -122,7 +123,7 @@ export async function saveContact(formData: FormData) {
     .from("people")
     .update({
       first_name: text(formData, "first_name") || null,
-      chat,
+      chat_id: chat,
       phone_number: text(formData, "phone_number") || null,
     })
     .eq("id", providerId);

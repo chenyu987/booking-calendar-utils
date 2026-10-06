@@ -27,7 +27,8 @@ async function saveProfile(formData: FormData) {
     .update({
       first_name: text("first_name"),
       phone_number: text("phone_number"),
-      chat: text("chat"),
+      // 自己填的是账号（0020）。昵称是管理员加了好友之后在后台填的
+      chat_id: text("chat_id"),
       // 只存生日，年龄用 calcAge 现算 —— 存死数字明年就错了
       date_of_birth: text("date_of_birth"),
     })
@@ -67,7 +68,7 @@ export default async function CustomerHomePage({
   const [{ data: me }, { data: orders }] = await Promise.all([
     supabase
       .from("people")
-      .select("first_name, phone_number, chat, date_of_birth")
+      .select("first_name, phone_number, chat_id, date_of_birth")
       .eq("id", customerId)
       .maybeSingle(),
     supabase
@@ -80,7 +81,7 @@ export default async function CustomerHomePage({
   // 编辑态用 URL 参数切换，不用 useState —— 跟 admin 那几个列表页一个路子
   const editing = searchParams.edit === "profile";
   const age = calcAge(me?.date_of_birth);
-  const noContact = !me?.phone_number && !me?.chat;
+  const noContact = !me?.phone_number && !me?.chat_id;
 
   return (
     <main style={{ padding: 24, maxWidth: 560, margin: "0 auto" }}>
@@ -138,7 +139,7 @@ export default async function CustomerHomePage({
             </label>
             <label style={labelStyle}>
               账号
-              <input name="chat" defaultValue={me?.chat ?? ""} style={inputStyle} />
+              <input name="chat_id" defaultValue={me?.chat_id ?? ""} style={inputStyle} />
             </label>
             <label style={labelStyle}>
               手机号
@@ -173,7 +174,7 @@ export default async function CustomerHomePage({
         ) : (
           <dl style={{ margin: 0, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.9 }}>
             <Row label="登录邮箱" value={user.email ?? "-"} />
-            <Row label="账号" value={me?.chat} />
+            <Row label="账号" value={me?.chat_id} />
             <Row label="手机号" value={me?.phone_number} />
             <Row
               label="生日"

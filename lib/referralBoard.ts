@@ -100,7 +100,7 @@ export function buildReferralCalendar(input: {
         referrerId: r.referrerId,
         startIndex: indexOf.get(visible[0])!,
         length: visible.length,
-        referee: r.refereeChat || r.refereeName,
+        referee: r.refereeName,
         referrer: r.referrerName,
         location: r.location || "没填地点",
         status: r.orderStatus || "created",
@@ -112,7 +112,7 @@ export function buildReferralCalendar(input: {
         title: [
           formatDayRanges(r.days),
           `${r.days.length}天`,
-          `${r.refereeChat || r.refereeName} 的单`,
+          `${r.refereeName} 的单`,
           r.location || "没填地点",
           `返给 ${r.referrerName}`,
           r.counts

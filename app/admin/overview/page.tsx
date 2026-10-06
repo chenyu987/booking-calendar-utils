@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { createPerson, personSpread } from "@/lib/people";
+import { DISPLAY_COLUMNS, displayName, formatPerson } from "@/lib/person";
 import {
   ADMIN_COOKIE,
   CONTACT_FILTER_NONE,
@@ -259,8 +260,8 @@ async function createQuickOrder(formData: FormData) {
     if (passedCustomerId) return passedCustomerId;
     const { data } = await supabase
       .from("customers")
-      .select("id, people!inner(first_name)")
-      .ilike("people.first_name", customerName)
+      .select("id, people!inner(chat_name)")
+      .ilike("people.chat_name", customerName)
       .limit(1)
       .maybeSingle();
     return (data?.id as string | undefined) ?? null;
@@ -269,7 +270,8 @@ async function createQuickOrder(formData: FormData) {
   // 拦在任何写库之前。界面上没选身份时「创建」是灰的，这里拦的是旧页面和直接 POST
   if (!admin) throw new Error("还没选当前身份（排期总览标题旁边），选了才知道这个客人记在谁名下");
 
-  const customerId = existingCustomerId ?? (await createPerson("customer", { first_name: customerName }));
+  // 建单弹窗里填的「客人」就是昵称（0020）—— 后台认人、显示都靠它
+  const customerId = existingCustomerId ?? (await createPerson("customer", { chat_name: customerName }));
   // 老客人原来是别人加的也照样补上（别人的保留）：能给他建单，说明这个号也联系得上他。
   // 放在建单之前：这步失败就整个停住，不留一个建好了却没记归属的单子
   await addContact(customerId, admin);
@@ -383,7 +385,7 @@ export default async function OverviewPage({
       .from("orders")
       .select(
         // customer_id / 生日是推荐分配要用的：认「这个客人以前用的哪个资源」和年龄
-        `id, customer_id, admin_id, location, amount, status, demand_days, male_count, female_count, customers(${personSpread("first_name, last_name, date_of_birth")})`
+        `id, customer_id, admin_id, location, amount, status, demand_days, male_count, female_count, customers(${personSpread("chat_name, chat_id, first_name, last_name, date_of_birth")})`
       ),
     supabase
       .from("resources")
@@ -398,7 +400,7 @@ export default async function OverviewPage({
     supabase.from("order_assignments").select("order_id, resource_id"),
     // 建新单时用来在客户端直接把姓名换成 customer_id，省掉建单时的那次查询
     // （跟上面几条并行，不额外增加页面加载时间）
-    supabase.from("customers").select(`id, ${personSpread("first_name")}`),
+    supabase.from("customers").select(`id, ${personSpread(DISPLAY_COLUMNS)}`),
     supabase.from("order_notes").select("order_id, internal_note"),
     // 日期条上「这一天的备注」。整张表拉下来：一天一行，一个季撑死两三百行
     supabase.from("day_notes").select("day, note"),
@@ -428,10 +430,11 @@ export default async function OverviewPage({
     if (t) noteByOrder.set(n.order_id, t);
   }
 
-  // 姓名统一转小写当 key：原来服务端用的是 ilike，大小写不敏感，这里保持一致
+  // 昵称统一转小写当 key：服务端找人用的是 ilike，大小写不敏感，这里保持一致。
+  // 只认昵称 —— 跟服务端那条查询（people.chat_name）对得上，不然这边认出来的人那边认不出
   const customerIdByName: Record<string, string> = {};
   for (const r of allCustomers ?? []) {
-    const key = (r.first_name ?? "").trim().toLowerCase();
+    const key = (r.chat_name ?? "").trim().toLowerCase();
     if (key && !customerIdByName[key]) customerIdByName[key] = r.id;
   }
 
@@ -658,7 +661,7 @@ export default async function OverviewPage({
   // 拦得住新的，也得让旧的看得见
   const clashIndex = indexClashes(findClashes(usesByResource));
   const orderNameById = new Map<string, string>(
-    (withDays as any[]).map((o) => [o.id, o.customers?.first_name ?? "另一单"])
+    (withDays as any[]).map((o) => [o.id, displayName(o.customers, "另一单")])
   );
 
   const sorted = [...withDays].sort((a: any, b: any) =>
@@ -1323,7 +1326,7 @@ export default async function OverviewPage({
                     o.male_count,
                     o.female_count,
                     o.location,
-                    o.customers?.first_name,
+                    displayName(o.customers, ""),
                     noteByOrder.get(o.id) ?? "",
                   ].join("|");
                   const allSorted = [...(o.demand_days as string[])].sort();
@@ -1378,7 +1381,7 @@ export default async function OverviewPage({
                       containerType: "inline-size",
                     } as const;
                     const blockTitle = [
-                      `${o.customers?.first_name ?? ""} ${o.customers?.last_name ?? ""}`,
+                      formatPerson(o.customers),
                       `${o.location ?? "?"} · ${formatParty(o.male_count, o.female_count)} · ${o.demand_days.length}天`,
                       `$${o.amount ?? "?"} · ${STATUS_LABELS[o.status] ?? o.status}`,
                       `分配 ${formatNeed(need)}（${formatGap(need)}）`,
@@ -1409,7 +1412,7 @@ export default async function OverviewPage({
                           // 抢画那条假条要照着它决定放不放备注框 —— 真条只在
                           // 「这单还没备注」时才有那个框，不跟着的话接管那一刻整条会横着跳
                           data-order-has-note={note ? "1" : undefined}
-                          data-order-label={[o.customers?.first_name ?? "?", o.location]
+                          data-order-label={[displayName(o.customers), o.location]
                             .filter(Boolean)
                             .join(" · ")}
                           href={qs({ assign: o.id })}
@@ -1443,7 +1446,7 @@ export default async function OverviewPage({
                                     minWidth: 0,
                                   }}
                                 >
-                                  {o.customers?.first_name ?? "?"}
+                                  {displayName(o.customers)}
                                   {o.location ? (
                                     <span
                                       title={locationHint || undefined}
@@ -1653,9 +1656,9 @@ export default async function OverviewPage({
                                   className="assign-fit"
                                   // 有 placeholder 才能用 :placeholder-shown 区分「空着」和
                                   // 「填了但很短」—— minWidth 只该管前者，见下面那条注释
-                                  placeholder="姓名"
-                                  defaultValue={o.customers?.first_name ?? ""}
-                                  data-original={o.customers?.first_name ?? ""}
+                                  placeholder="昵称"
+                                  defaultValue={displayName(o.customers, "")}
+                                  data-original={displayName(o.customers, "")}
                                   style={{
                                     ...FIELD_SIZING_CONTENT,
                                     // minWidth **不写在这儿**：写死 28 的话，名字短的
@@ -2124,7 +2127,7 @@ export default async function OverviewPage({
           note={noteByOrder.get((assigningOrder as any).id) ?? ""}
           candidates={assignableByName}
           label={[
-            (assigningOrder as any).customers?.first_name ?? "?",
+            displayName((assigningOrder as any).customers),
             (assigningOrder as any).location,
           ]
             .filter(Boolean)

@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { createPerson, PERSON_SPREAD } from "@/lib/people";
 import { calcAge } from "@/lib/age";
+import { displayName } from "@/lib/person";
 import { todayIso } from "@/lib/dates";
 import { buildFootprints } from "@/lib/footprint";
 import { customerName } from "@/lib/referral";
@@ -21,21 +22,21 @@ export const dynamic = "force-dynamic";
 
 async function createCustomer(formData: FormData) {
   "use server";
-  const firstName = (formData.get("first_name") as string)?.trim();
+  // 昵称必填（认人、显示都靠它）；称呼（first_name）是留给以后注册用户自己填的，
+  // 后台新增时不填（0020）
+  const chatName = (formData.get("chat_name") as string)?.trim();
   const phone = (formData.get("phone_number") as string)?.trim();
-  const chat = (formData.get("chat") as string)?.trim();
-  if (!firstName || !chat) {
-    throw new Error("姓名和聊天必填");
+  if (!chatName) {
+    throw new Error("昵称必填");
   }
   // 「谁的客人」先验再写：认不出来的管理员在建人之前就拦住，不留一个建了一半的人
   const contacts = parseAdminIds(formData.getAll("contact"), await loadAdmins());
   if (!contacts.ok) throw new Error(contacts.reason);
 
   const id = await createPerson("customer", {
-    first_name: firstName,
-    last_name: (formData.get("last_name") as string)?.trim() || null,
+    chat_name: chatName,
+    chat_id: (formData.get("chat_id") as string)?.trim() || null,
     phone_number: phone || null,
-    chat,
     date_of_birth: (formData.get("date_of_birth") as string) || null,
     note: (formData.get("note") as string)?.trim() || null,
     status: "active",
@@ -103,20 +104,22 @@ export default async function CustomersAdminPage({
     const fp = footprints.get(r.id);
     return {
       id: r.id,
-      name: [r.first_name, r.last_name].filter(Boolean).join(" "),
+      // 显示名走唯一出处：昵称优先（lib/person.ts）
+      name: displayName(r, ""),
       // 编辑表单的初始值（原样，不拼不算）
       edit: {
+        chat_name: r.chat_name ?? "",
+        chat_id: r.chat_id ?? "",
         first_name: r.first_name ?? "",
         last_name: r.last_name ?? "",
         phone_number: r.phone_number ?? "",
-        chat: r.chat ?? "",
         email: r.email ?? "",
         date_of_birth: r.date_of_birth ?? "",
         status: r.status ?? "active",
         note: r.note ?? "",
       },
       phone: r.phone_number ?? "",
-      chat: r.chat ?? "",
+      chatId: r.chat_id ?? "",
       age: calcAge(r.date_of_birth) ?? null,
       status: r.status ?? "",
       referrer: r.referred_by ? customerName(byId.get(r.referred_by)) : "",
@@ -134,19 +137,14 @@ export default async function CustomersAdminPage({
       <h1 style={pageTitleStyle}>Customer 管理</h1>
 
       <form action={createCustomer} style={formStyle}>
-        <input
-          name="first_name"
-          placeholder="First name *"
-          required
-          style={inputStyle}
-        />
-        <input name="last_name" placeholder="Last name" style={inputStyle} />
+        {/* 昵称排第一：认人、显示都靠它。称呼（First/Last name）留给以后注册用户自己填，这里不放 */}
+        <input name="chat_name" placeholder="昵称 *" required style={inputStyle} />
+        <input name="chat_id" placeholder="账号" style={inputStyle} />
         <input
           name="phone_number"
           placeholder="Phone"
           style={inputStyle}
         />
-        <input name="chat" placeholder="Chat *" required style={inputStyle} />
         <input
           name="date_of_birth"
           type="date"

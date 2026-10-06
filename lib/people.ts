@@ -20,11 +20,11 @@ const ROLE_TABLE: Record<Role, "customers" | "providers"> = {
 
 /** people 上共有的列。**不含 id / created_at** —— 摊平进身份表那一行时会跟身份表自己的撞名 */
 export const PERSON_COLUMNS =
-  "first_name, last_name, date_of_birth, email, phone_number, chat, status, note, auth_user_id" as const;
+  "chat_name, chat_id, first_name, last_name, date_of_birth, email, phone_number, status, note, auth_user_id" as const;
 
 /**
  * 查身份表时把人的字段**摊平**带出来：
- *   from("customers").select(`id, referred_by, ${PERSON_SPREAD}`) → { id, referred_by, first_name, chat, … }
+ *   from("customers").select(`id, referred_by, ${PERSON_SPREAD}`) → { id, referred_by, chat_name, … }
  *   from("orders").select(`…, customers(${PERSON_SPREAD})`)      → { customers: { first_name, … } }
  * 用的是 PostgREST 的 spread（`...people(…)`），返回的形状跟合表之前一模一样，
  * 所以读 `r.first_name`、`o.customers?.first_name` 的地方都不用改。
@@ -41,12 +41,13 @@ export function personSpread<C extends string>(columns: C): `...people(${C})` {
 }
 
 export type PersonFields = {
+  chat_name?: string | null;
+  chat_id?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   date_of_birth?: string | null;
   email?: string | null;
   phone_number?: string | null;
-  chat?: string | null;
   status?: string;
   note?: string | null;
   auth_user_id?: string | null;

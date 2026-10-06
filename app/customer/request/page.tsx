@@ -70,10 +70,10 @@ export default async function CustomerRequestPage({
   // 这里不放输入框，免得同一份信息两个地方能改
   const { data: me } = await supabase
     .from("people")
-    .select("phone_number, chat")
+    .select("phone_number, chat_id")
     .eq("id", customerId)
     .maybeSingle();
-  const noContact = !me?.phone_number && !me?.chat;
+  const noContact = !me?.phone_number && !me?.chat_id;
 
   const errorText: Record<string, string> = {
     party: "至少要有一个人，男女人数不能都填 0",

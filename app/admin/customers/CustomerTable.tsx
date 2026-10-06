@@ -27,17 +27,19 @@ export type CustomerRow = {
   name: string;
   /** 编辑表单的初始值，库里的原样 */
   edit: {
+    chat_name: string;
+    chat_id: string;
     first_name: string;
     last_name: string;
     phone_number: string;
-    chat: string;
     email: string;
     date_of_birth: string;
     status: string;
     note: string;
   };
   phone: string;
-  chat: string;
+  /** 账号（选填）。name 是显示名（昵称优先，lib/person.ts） */
+  chatId: string;
   age: number | null;
   status: string;
   /** 谁介绍来的。空 = 没有介绍人。只读，改在 /admin/referrals */
@@ -227,9 +229,9 @@ function EditRow({
         {error && <p style={{ color: "var(--danger)", fontSize: 13, margin: "0 0 6px" }}>没存上：{error}</p>}
         <form action={action} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
           <input type="hidden" name="id" value={row.id} />
-          {field("First name *", <input name="first_name" defaultValue={e.first_name} required style={inputStyle} />)}
-          {field("Last name", <input name="last_name" defaultValue={e.last_name} style={inputStyle} />)}
-          {field("聊天 *", <input name="chat" defaultValue={e.chat} required style={inputStyle} />)}
+          {/* 昵称排第一、必填：认人、显示都靠它。称呼是注册用户自己填的，选填，放后面 */}
+          {field("昵称 *", <input name="chat_name" defaultValue={e.chat_name} required style={inputStyle} />)}
+          {field("账号", <input name="chat_id" defaultValue={e.chat_id} style={inputStyle} />)}
           {field("电话", <input name="phone_number" defaultValue={e.phone_number} style={inputStyle} />)}
           {field("邮箱", <input name="email" type="email" defaultValue={e.email} style={inputStyle} />)}
           {field("生日", <input name="date_of_birth" type="date" defaultValue={e.date_of_birth} style={inputStyle} />)}
@@ -244,6 +246,8 @@ function EditRow({
             </select>
           )}
           {field("备注", <input name="note" defaultValue={e.note} style={{ ...inputStyle, minWidth: 200 }} />)}
+          {field("称呼 First（注册用）", <input name="first_name" defaultValue={e.first_name} style={inputStyle} />)}
+          {field("Last", <input name="last_name" defaultValue={e.last_name} style={inputStyle} />)}
           {field("谁的客人", <ContactCheckboxes admins={admins} checked={row.contactIds} />)}
           <button type="submit" style={buttonStyle}>
             保存
@@ -325,7 +329,7 @@ export default function CustomerTable({
       if (r.id === editingId) return true;
       if (!matches(r.name, name)) return false;
       if (!matches(r.phone, phone)) return false;
-      if (!matches(r.chat, chat)) return false;
+      if (!matches(r.chatId, chat)) return false;
       if (!matches(r.referrer, referrer)) return false;
       if (!matches(r.footprintText, footprint)) return false;
       if (status && r.status !== status) return false;
@@ -408,9 +412,9 @@ export default function CustomerTable({
       <table style={{ ...tableStyle, marginTop: 8 }}>
         <thead>
           <tr>
-            <th style={{ ...thStyle, borderBottom: "none", width: "14%" }}>姓名</th>
+            <th style={{ ...thStyle, borderBottom: "none", width: "14%" }}>昵称</th>
+            <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>账号</th>
             <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>电话</th>
-            <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>聊天</th>
             <th style={{ ...thStyle, borderBottom: "none", width: "9%" }}>谁的客人</th>
             <th style={{ ...thStyle, borderBottom: "none", width: "10%" }}>年龄</th>
             <th style={{ ...thStyle, borderBottom: "none", width: "10%" }}>状态</th>
@@ -424,7 +428,15 @@ export default function CustomerTable({
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="筛选姓名"
+                placeholder="筛选昵称"
+                style={filterInputStyle}
+              />
+            </th>
+            <th style={filterThStyle}>
+              <input
+                value={chat}
+                onChange={(e) => setChat(e.target.value)}
+                placeholder="筛选账号"
                 style={filterInputStyle}
               />
             </th>
@@ -433,14 +445,6 @@ export default function CustomerTable({
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="筛选电话"
-                style={filterInputStyle}
-              />
-            </th>
-            <th style={filterThStyle}>
-              <input
-                value={chat}
-                onChange={(e) => setChat(e.target.value)}
-                placeholder="筛选聊天"
                 style={filterInputStyle}
               />
             </th>
@@ -531,8 +535,8 @@ export default function CustomerTable({
                 }}
               >
                 <td style={tdStyle}>{r.name}</td>
+                <td style={tdStyle}>{r.chatId}</td>
                 <td style={tdStyle}>{r.phone}</td>
-                <td style={tdStyle}>{r.chat}</td>
                 <td style={tdStyle}>
                   <ContactTags ids={r.contactIds} admins={admins} />
                 </td>

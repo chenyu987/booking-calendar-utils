@@ -16,10 +16,14 @@ export const CUSTOMER_STATUS_LABELS: Record<CustomerStatus, string> = {
 };
 
 export type CustomerEdit = {
-  first_name: string;
+  /** 昵称：必填，后台认人、显示都靠它（0020） */
+  chat_name: string;
+  /** 账号：选填 */
+  chat_id: string | null;
+  /** 注册用户自己填的称呼：选填（0020 起后台不拿它显示） */
+  first_name: string | null;
   last_name: string | null;
   phone_number: string | null;
-  chat: string;
   email: string | null;
   date_of_birth: string | null;
   status: CustomerStatus;
@@ -38,11 +42,10 @@ export function parseCustomerEdit(
   get: (field: string) => string | null | undefined,
   today: string
 ): { values: CustomerEdit } | { error: string } {
-  const first_name = clean(get("first_name"));
-  const chat = clean(get("chat"));
-  // 跟新增一样：姓名和聊天必填。聊天是认人的主要依据（返点、导入都按它找人）
-  if (!first_name) return { error: "姓名必填" };
-  if (!chat) return { error: "聊天必填" };
+  const chat_name = clean(get("chat_name"));
+  // 昵称必填：认人的主要依据（排期总览上显示的、返点按它找人的都是它）。
+  // 称呼（first_name）不再必填 —— 那是留给以后注册用户自己填的（0020）
+  if (!chat_name) return { error: "昵称必填" };
 
   const status = clean(get("status")) as CustomerStatus;
   if (!CUSTOMER_STATUSES.includes(status)) return { error: `状态只能是：${CUSTOMER_STATUSES.join(" / ")}` };
@@ -56,10 +59,11 @@ export function parseCustomerEdit(
 
   return {
     values: {
-      first_name,
+      chat_name,
+      chat_id: orNull(clean(get("chat_id"))),
+      first_name: orNull(clean(get("first_name"))),
       last_name: orNull(clean(get("last_name"))),
       phone_number: orNull(clean(get("phone_number"))),
-      chat,
       email: orNull(email),
       date_of_birth: orNull(dob),
       status,

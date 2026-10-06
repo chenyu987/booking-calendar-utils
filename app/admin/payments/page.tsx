@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { personSpread } from "@/lib/people";
+import { DISPLAY_COLUMNS, displayName } from "@/lib/person";
 import {
   formStyle,
   inputStyle,
@@ -32,7 +33,7 @@ export default async function PaymentsAdminPage() {
     supabase
       .from("payments")
       .select(
-        `id, amount, method, status, created_at, orders(location, customers(${personSpread("first_name")}))`
+        `id, amount, method, status, created_at, orders(location, customers(${personSpread(DISPLAY_COLUMNS)}))`
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -97,7 +98,7 @@ export default async function PaymentsAdminPage() {
           {payments?.map((p: any) => (
             <tr key={p.id}>
               <td style={tdStyle}>
-                {p.orders?.location} / {p.orders?.customers?.first_name}
+                {p.orders?.location} / {displayName(p.orders?.customers, "")}
               </td>
               <td style={tdStyle}>{p.amount}</td>
               <td style={tdStyle}>{p.method}</td>

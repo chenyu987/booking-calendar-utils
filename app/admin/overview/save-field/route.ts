@@ -35,7 +35,8 @@ export async function POST(req: NextRequest) {
         const { error } = await supabase
           // 名字在人身上（people）；customer_id 就是 people.id（0017）
           .from("people")
-          .update({ first_name: body.customer_name.trim() })
+          // 色块上那个名字就是昵称（0020），改的也是它
+          .update({ chat_name: body.customer_name.trim() })
           .eq("id", ord.customer_id);
         if (error) throw new Error(error.message);
       }

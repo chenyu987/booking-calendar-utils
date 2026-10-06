@@ -321,7 +321,7 @@ export default function NewOrderSelector({
   if (timeline.length === 0) return null;
 
   // 「创建」为什么是灰的，得写出来。人数那个框出问题的时候，第一反应是
-  // 「我填了数字还建不了」，其实拦住的多半是没填姓名 —— 一个不说理由的灰按钮，
+  // 「我填了数字还建不了」，其实拦住的多半是没填昵称 —— 一个不说理由的灰按钮，
   // 会让人把上一个动作当成原因
   const blockedBy = !adminName
     ? "先在标题旁边选当前身份"
@@ -330,7 +330,7 @@ export default function NewOrderSelector({
     : dateEnd < dateStart
       ? "结束日期比开始日期早"
       : !name.trim()
-        ? "填一下客人姓名"
+        ? "填一下客人的昵称"
         : "";
   const formInvalid = submitting || blockedBy !== "";
 
@@ -511,7 +511,7 @@ export default function NewOrderSelector({
           <input
             autoFocus
             required
-            placeholder="客人姓名"
+            placeholder="客人昵称"
             value={name}
             onChange={(e) => setName(e.target.value)}
             style={{ fontSize: 13, padding: "6px 8px", color: "var(--text)" }}

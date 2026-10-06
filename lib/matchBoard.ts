@@ -3,7 +3,7 @@ import { computeNeed, formatNeed } from "./assignment";
 import { contiguousRuns, formatDayRanges } from "./dates";
 import { isStaleMatch } from "./matchStatus";
 import { buildDayWindow, packLanes } from "./providerBoard";
-import { formatPerson } from "./person";
+import { displayName, formatPerson, type Nameable } from "./person";
 import { formatValidity } from "./resourceStatus";
 
 // 匹配台的日历视图：**照搬排期总览那张** —— 一张日历，色块是订单，横轴日期，
@@ -62,7 +62,7 @@ type Resource = {
   item_type?: string | null;
   date_range_start?: string | null;
   date_range_end?: string | null;
-  providers?: { first_name?: string | null; last_name?: string | null; chat?: string | null } | null;
+  providers?: Nameable;
 };
 
 type MatchRow = {
@@ -80,7 +80,7 @@ type Order = {
   male_count?: number | null;
   female_count?: number | null;
   status?: string | null;
-  customers?: { first_name?: string | null; last_name?: string | null } | null;
+  customers?: Nameable;
 };
 
 /**
@@ -112,7 +112,7 @@ export function candidateOf(
     holderName: s.holder_name ?? "?",
     // 有效期显示走唯一出处，别自己拼 —— 留空要显示「不限」，规则在那儿
     holderLine: `${s.item_type ?? "-"} ${formatValidity(s)}`,
-    providerLine: formatPerson(s.providers?.first_name, s.providers?.last_name, s.providers?.chat),
+    providerLine: formatPerson(s.providers),
     chosen,
     stale,
     blocked,
@@ -162,7 +162,8 @@ export function buildMatchBoard(input: {
     const actionable = cands.filter((c) => !c.chosen && !c.stale && !c.blocked).length;
     actionableCount += actionable;
 
-    const who = formatPerson(o.customers?.first_name, o.customers?.last_name);
+    // 色块上只写名字（昵称），不带账号 —— 一天的块就那么宽
+    const who = displayName(o.customers, "-");
     const need = computeNeed(o, assignedByOrder.get(orderId) ?? []);
     blocks.push(
       ...runsToBlocks(demand, indexOf, () => ({

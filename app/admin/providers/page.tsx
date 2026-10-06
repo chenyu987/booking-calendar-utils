@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { createPerson, PERSON_SPREAD } from "@/lib/people";
 import { calcAge } from "@/lib/age";
+import { displayName } from "@/lib/person";
 import {
   formStyle,
   inputStyle,
@@ -22,15 +23,15 @@ export const dynamic = "force-dynamic";
 
 async function createProvider(formData: FormData) {
   "use server";
-  const firstName = (formData.get("first_name") as string)?.trim();
+  // 昵称必填（认人、显示都靠它）；称呼（first_name）留给以后注册的用户自己填（0020）
+  const chatName = (formData.get("chat_name") as string)?.trim();
   const phone = (formData.get("phone_number") as string)?.trim();
-  if (!firstName || !phone) throw new Error("姓名和电话必填");
+  if (!chatName || !phone) throw new Error("昵称和电话必填");
 
   await createPerson("provider", {
-    first_name: firstName,
-    last_name: (formData.get("last_name") as string)?.trim() || null,
+    chat_name: chatName,
+    chat_id: (formData.get("chat_id") as string)?.trim() || null,
     phone_number: phone,
-    chat: (formData.get("chat") as string)?.trim() || null,
     date_of_birth: (formData.get("date_of_birth") as string) || null,
     note: (formData.get("note") as string)?.trim() || null,
     status: "active",
@@ -41,14 +42,16 @@ async function createProvider(formData: FormData) {
 
 async function updateProvider(formData: FormData) {
   "use server";
-  // 编辑的全是人身上的字段（people，0017）—— 这个人要是也是客户，Customer 管理那边跟着变
+  // 编辑的全是人身上的字段（people，0017）—— 这个人要是也是客户，Customer 管理那边跟着变。
+  // 不碰称呼（first/last name）：那是注册用户自己填的，后台不改（0020）
+  const chatName = (formData.get("chat_name") as string)?.trim();
+  if (!chatName) throw new Error("昵称必填");
   const { error } = await supabase
     .from("people")
     .update({
-      first_name: (formData.get("first_name") as string)?.trim() || null,
-      last_name: (formData.get("last_name") as string)?.trim() || null,
+      chat_name: chatName,
+      chat_id: (formData.get("chat_id") as string)?.trim() || null,
       phone_number: (formData.get("phone_number") as string)?.trim() || null,
-      chat: (formData.get("chat") as string)?.trim() || null,
       date_of_birth: (formData.get("date_of_birth") as string) || null,
       status: formData.get("status") as string,
       note: (formData.get("note") as string)?.trim() || null,
@@ -106,10 +109,9 @@ export default async function ProvidersAdminPage({
       </p>
 
       <form action={createProvider} style={formStyle}>
-        <input name="first_name" placeholder="First name *" required style={inputStyle} />
-        <input name="last_name" placeholder="Last name" style={inputStyle} />
+        <input name="chat_name" placeholder="昵称 *" required style={inputStyle} />
+        <input name="chat_id" placeholder="账号" style={inputStyle} />
         <input name="phone_number" placeholder="Phone *" required style={inputStyle} />
-        <input name="chat" placeholder="Chat" style={inputStyle} />
         <input name="date_of_birth" type="date" title="生日" style={inputStyle} />
         <input name="note" placeholder="Note" style={inputStyle} />
         <button type="submit" style={buttonStyle}>
@@ -120,9 +122,9 @@ export default async function ProvidersAdminPage({
       {error && <p style={{ color: "crimson" }}>{error.message}</p>}
 
       <div style={headerRowStyle}>
-        <div style={{ ...cellStyle, flex: 1.4 }}>姓名</div>
+        <div style={{ ...cellStyle, flex: 1.4 }}>昵称</div>
         <div style={{ ...cellStyle, flex: 1.2 }}>电话</div>
-        <div style={{ ...cellStyle, flex: 1 }}>聊天</div>
+        <div style={{ ...cellStyle, flex: 1 }}>账号</div>
         <div style={{ ...cellStyle, width: 120 }}>生日</div>
         <div style={{ ...cellStyle, width: 50 }}>年龄</div>
         <div style={{ ...cellStyle, width: 100 }}>状态</div>
@@ -134,18 +136,13 @@ export default async function ProvidersAdminPage({
         o.id === editingId ? (
           <form key={o.id} action={updateProvider} style={rowStyle}>
             <input type="hidden" name="id" value={o.id} />
-            <div style={{ ...cellStyle, flex: 1.4, display: "flex", gap: 4 }}>
+            <div style={{ ...cellStyle, flex: 1.4 }}>
               <input
-                name="first_name"
-                defaultValue={o.first_name ?? ""}
-                placeholder="First"
-                style={{ ...inputStyle, width: "50%" }}
-              />
-              <input
-                name="last_name"
-                defaultValue={o.last_name ?? ""}
-                placeholder="Last"
-                style={{ ...inputStyle, width: "50%" }}
+                name="chat_name"
+                defaultValue={o.chat_name ?? ""}
+                placeholder="昵称 *"
+                required
+                style={{ ...inputStyle, width: "100%" }}
               />
             </div>
             <div style={{ ...cellStyle, flex: 1.2 }}>
@@ -157,8 +154,9 @@ export default async function ProvidersAdminPage({
             </div>
             <div style={{ ...cellStyle, flex: 1 }}>
               <input
-                name="chat"
-                defaultValue={o.chat ?? ""}
+                name="chat_id"
+                defaultValue={o.chat_id ?? ""}
+                placeholder="账号"
                 style={{ ...inputStyle, width: "100%" }}
               />
             </div>
@@ -200,11 +198,9 @@ export default async function ProvidersAdminPage({
           </form>
         ) : (
           <div key={o.id} style={rowStyle}>
-            <div style={{ ...cellStyle, flex: 1.4 }}>
-              {o.first_name} {o.last_name}
-            </div>
+            <div style={{ ...cellStyle, flex: 1.4 }}>{displayName(o, "-")}</div>
             <div style={{ ...cellStyle, flex: 1.2 }}>{o.phone_number ?? "-"}</div>
-            <div style={{ ...cellStyle, flex: 1 }}>{o.chat ?? "-"}</div>
+            <div style={{ ...cellStyle, flex: 1 }}>{o.chat_id ?? "-"}</div>
             <div style={{ ...cellStyle, width: 120 }}>{o.date_of_birth ?? "-"}</div>
             <div style={{ ...cellStyle, width: 50 }}>
               {calcAge(o.date_of_birth) ?? "-"}

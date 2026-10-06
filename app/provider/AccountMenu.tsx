@@ -47,7 +47,7 @@ export default function AccountMenu({
   editing: boolean;
   errorText: string | null;
 }) {
-  const noChat = !me?.chat;
+  const noChat = !me?.chat_id;
 
   return (
     <details className="disc acct" open={editing || noChat} style={{ position: "relative" }}>
@@ -75,7 +75,7 @@ export default function AccountMenu({
             </label>
             <label style={labelStyle}>
               账号 *
-              <input name="chat" required defaultValue={me?.chat ?? ""} style={inputStyle} />
+              <input name="chat_id" required defaultValue={me?.chat_id ?? ""} style={inputStyle} />
             </label>
             <p style={{ fontSize: 11, color: "var(--warn)", margin: 0, lineHeight: 1.6 }}>
               重要：有人要租你的资源，我们是通过聊天联系你的。
@@ -101,7 +101,7 @@ export default function AccountMenu({
         ) : (
           <>
             <dl style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.9 }}>
-              <Row label="账号" value={me?.chat} warn={noChat} />
+              <Row label="账号" value={me?.chat_id} warn={noChat} />
               <Row label="手机号" value={me?.phone_number} />
             </dl>
             {/* 「改联系方式」挨着它要改的那两行 —— 原来在最底下跟「退出」并排，

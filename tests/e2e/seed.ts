@@ -17,13 +17,14 @@ function day(offset: number): string {
 }
 
 export const SEED = {
-  // 人和身份分开（0017）：姓名生日在 people，customers / providers 只是身份，id 跟人同一个
+  // 人和身份分开（0017）：昵称、生日在 people，customers / providers 只是身份，id 跟人同一个。
+  // 显示用的是昵称（0020）
   people: [
-    { id: "r-long", first_name: "laura kim", last_name: "", date_of_birth: null },
+    { id: "r-long", chat_name: "laura kim", date_of_birth: null },
     // 三个字母，比输入框的 min-width 还窄 —— 专门用来盯「短名字把后面顶开」
-    { id: "r-short", first_name: "xhs", last_name: "", date_of_birth: null },
-    { id: "r-aged", first_name: "小明", last_name: "", date_of_birth: "1998-06-20" },
-    { id: "o-1", first_name: "测试物主", last_name: "" },
+    { id: "r-short", chat_name: "xhs", date_of_birth: null },
+    { id: "r-aged", chat_name: "小明", date_of_birth: "1998-06-20" },
+    { id: "o-1", chat_name: "测试物主" },
   ],
   customers: [{ id: "r-long" }, { id: "r-short" }, { id: "r-aged" }],
   // 排期总览标题旁边「当前身份」那个下拉的名单（0018）

@@ -431,10 +431,10 @@ test.describe("建单弹窗的人数框", () => {
     const create = page.getByRole("button", { name: "创建" });
     await expect(create).toBeDisabled();
     // 不说理由的灰按钮，会让人把上一个动作（刚在人数框里打的字）当成原因
-    await expect(page.getByText("填一下客人姓名")).toBeVisible();
+    await expect(page.getByText("填一下客人的昵称")).toBeVisible();
 
-    await page.getByPlaceholder("客人姓名").fill("测试客户");
-    await expect(page.getByText("填一下客人姓名")).toHaveCount(0);
+    await page.getByPlaceholder("客人昵称").fill("测试客户");
+    await expect(page.getByText("填一下客人的昵称")).toHaveCount(0);
     await expect(create).toBeEnabled();
     // 能建的时候那个位置说「记到谁名下」—— 切错了身份，点「创建」之前还看得见
     await expect(page.getByText("客人记到 Admin1 名下")).toBeVisible();
@@ -443,7 +443,7 @@ test.describe("建单弹窗的人数框", () => {
   test("**没选身份就不让建**，并且说出来", async ({ page }) => {
     // 一台还没选过身份的电脑：不知道这个客人该记在谁名下
     await openPopup(page, null);
-    await page.getByPlaceholder("客人姓名").fill("测试客户");
+    await page.getByPlaceholder("客人昵称").fill("测试客户");
     await expect(page.getByRole("button", { name: "创建" })).toBeDisabled();
     await expect(page.getByText("先在标题旁边选当前身份")).toBeVisible();
   });
@@ -461,7 +461,7 @@ test.describe("建单弹窗的人数框", () => {
     const vw = page.viewportSize()!.width;
     await page.mouse.dblclick((Math.max(box.x, 0) + Math.min(box.x + box.width, vw)) / 2, box.y + box.height - 20);
     await page.locator('[data-new-order-popup="true"]').waitFor();
-    await page.getByPlaceholder("客人姓名").fill("测试客户");
+    await page.getByPlaceholder("客人昵称").fill("测试客户");
     await expect(page.getByText("客人记到 admin2 名下")).toBeVisible();
   });
 });

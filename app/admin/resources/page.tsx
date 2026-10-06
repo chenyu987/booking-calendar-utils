@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { personSpread } from "@/lib/people";
+import { DISPLAY_COLUMNS, displayName } from "@/lib/person";
 import { calcAge } from "@/lib/age";
 import { formatDayRanges } from "@/lib/dates";
 import { summarizeBookings } from "@/lib/booking";
@@ -169,11 +170,11 @@ export default async function ResourcesAdminPage({
   const [{ data: resources, error }, { data: providers }, { data: assignments }] =
     await Promise.all([
       supabase.from("resources").select("*").order("created_at", { ascending: false }),
-      supabase.from("providers").select(`id, ${personSpread("first_name, last_name")}`),
+      supabase.from("providers").select(`id, ${personSpread(DISPLAY_COLUMNS)}`),
       supabase
         .from("order_assignments")
         .select(
-          `resource_id, orders(id, location, demand_days, status, customers(${personSpread("first_name, last_name")}))`
+          `resource_id, orders(id, location, demand_days, status, customers(${personSpread(DISPLAY_COLUMNS)}))`
         ),
     ]);
 
@@ -191,7 +192,7 @@ export default async function ResourcesAdminPage({
   const editingId = searchParams.edit;
   const providerName = (id: string) => {
     const o = providers?.find((x: any) => x.id === id);
-    return o ? `${o.first_name ?? ""} ${o.last_name ?? ""}`.trim() : "-";
+    return o ? displayName(o, "-") : "-";
   };
 
   // 逐列筛选。年龄是从生日现算的，所以在内存里筛——写进 SQL 就得在两处
@@ -233,7 +234,7 @@ export default async function ResourcesAdminPage({
           </option>
           {providers?.map((o: any) => (
             <option key={o.id} value={o.id}>
-              {o.first_name} {o.last_name}
+              {displayName(o)}
             </option>
           ))}
         </select>
@@ -399,7 +400,7 @@ export default async function ResourcesAdminPage({
               >
                 {providers?.map((o: any) => (
                   <option key={o.id} value={o.id}>
-                    {o.first_name} {o.last_name}
+                    {displayName(o)}
                   </option>
                 ))}
               </select>
@@ -550,7 +551,7 @@ export default async function ResourcesAdminPage({
                             {formatDayRanges(o.demand_days ?? [])}
                           </span>
                           <span>{o.location ?? "?"}</span>
-                          <span>{o.customers?.first_name ?? "?"}</span>
+                          <span>{displayName(o.customers)}</span>
                           <span style={{ color: "var(--text-faint)" }}>
                             {ORDER_STATUS_LABELS[o.status] ?? o.status}
                           </span>
