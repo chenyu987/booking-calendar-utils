@@ -76,3 +76,27 @@ export function matchesContactFilter(adminIds: string[], filter: string): boolea
   if (filter === CONTACT_FILTER_NONE) return adminIds.length === 0;
   return adminIds.includes(filter);
 }
+
+/**
+ * 排期总览按「这一单是哪个管理员的」筛（URL 参数 oadmin）。
+ * 值：空 = 不筛，CONTACT_FILTER_NONE = 没标的，其余是管理员 id。
+ * 比的是**算出来的归属**（lib/orderFrame.ts 的 effectiveAdminId：没写是谁的算主要管理员的），
+ * 所以设了主要管理员之后「没标」就筛不出东西了 —— 页面上那时也不给这个选项
+ * **认不出来的值一律当没筛**（URL 是人能随手改的；管理员改了名 id 不变，不受影响）
+ */
+export function parseOrderAdminFilter(raw: string | undefined, admins: Admin[]): string {
+  const v = (raw ?? "").trim();
+  if (v === CONTACT_FILTER_NONE) return v;
+  return admins.some((a) => a.id === v) ? v : "";
+}
+
+export function matchesOrderAdmin(adminId: string | null | undefined, filter: string): boolean {
+  if (!filter) return true;
+  if (filter === CONTACT_FILTER_NONE) return !adminId;
+  return adminId === filter;
+}
+
+/** 库里存的主要管理员 id 对不对得上名单里的人。对不上（手工改坏了、那个人没了）就当没设 */
+export function resolvePrimaryAdmin(raw: string | null | undefined, admins: Admin[]): string | null {
+  return raw && admins.some((a) => a.id === raw) ? raw : null;
+}

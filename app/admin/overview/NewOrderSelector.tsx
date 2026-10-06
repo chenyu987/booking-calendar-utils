@@ -25,6 +25,7 @@ export default function NewOrderSelector({
   createOrderAction,
   customerIdByName,
   adminName,
+  adminId,
 }: {
   timeline: string[];
   colWidth: number;
@@ -35,6 +36,8 @@ export default function NewOrderSelector({
   customerIdByName: Record<string, string>;
   /** 当前身份（标题旁边那个下拉）。null = 还没选，不让建 —— 不知道这个客人该记在谁名下 */
   adminName: string | null;
+  /** 当前身份的 id。新单记到他名下（orders.admin_id），建完要看它跟管理员筛选对不对得上 */
+  adminId: string | null;
 }) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -298,6 +301,10 @@ export default function NewOrderSelector({
         params.delete("region");
         params.delete("mtn");
       }
+      // 管理员筛选同理：筛着 admin2 却用 Admin1 身份建了单，新单是 Admin1 的，
+      // 不清掉的话它一建出来就被筛没了
+      const oadmin = params.get("oadmin");
+      if (oadmin && oadmin !== adminId) params.delete("oadmin");
       router.push(`/admin/overview?${params.toString()}`);
     } catch {
       // 弹窗已经关了，错误得单独提示一下，不然建单失败会悄无声息

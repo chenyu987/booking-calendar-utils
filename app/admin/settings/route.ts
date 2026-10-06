@@ -9,7 +9,10 @@ import {
   setOverviewBandDays,
   getReferralRate,
   setReferralRate,
+  getPrimaryAdminId,
+  setPrimaryAdminId,
 } from "@/lib/appSettings";
+import { resolvePrimaryAdmin } from "@/lib/admins";
 import { isIsoDate } from "@/lib/timelineStart";
 import { parseRatePercent } from "@/lib/referral";
 import { loadAdmins } from "@/lib/personContacts";
@@ -19,12 +22,13 @@ import { loadAdmins } from "@/lib/personContacts";
 // GET 给弹框打开时拉当前值 —— 不放进 admin layout 预取，那样每开一个 admin
 // 页面都要多跑两条查询，而设置十天半月才点一次。
 export async function GET() {
-  const [start, end, bandDays, rate, admins] = await Promise.all([
+  const [start, end, bandDays, rate, admins, primaryRaw] = await Promise.all([
     getOverviewStart(),
     getOverviewEnd(),
     getOverviewBandDays(),
     getReferralRate(),
     loadAdmins(),
+    getPrimaryAdminId(),
   ]);
   return NextResponse.json({
     overview_start: start,
@@ -34,6 +38,7 @@ export async function GET() {
     referral_rate: Math.round(rate * 10000) / 100,
     // 只读带出来给弹框画列表；增和改名走 /admin/admins
     admins,
+    primary_admin_id: resolvePrimaryAdmin(primaryRaw, admins),
   });
 }
 
@@ -97,6 +102,16 @@ export async function POST(req: NextRequest) {
     }
     await setReferralRate(parsed.rate);
     revalidatePath("/admin/referrals");
+  }
+
+  // 主要管理员：必须是名单里真有的人。存一个不存在的 id 的话，排期总览上
+  // 「没写是谁的单」就没了归属，全变成「没标」，而且看不出是哪儿来的
+  if ("primary_admin_id" in body) {
+    const id = typeof body.primary_admin_id === "string" ? body.primary_admin_id : "";
+    if (!resolvePrimaryAdmin(id, await loadAdmins())) {
+      return NextResponse.json({ error: "主要管理员得是名单里的人，刷新页面再试" }, { status: 400 });
+    }
+    await setPrimaryAdminId(id);
   }
 
   revalidatePath("/admin/overview");

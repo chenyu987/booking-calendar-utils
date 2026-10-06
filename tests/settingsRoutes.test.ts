@@ -177,6 +177,7 @@ describe("设置弹框那条接口", () => {
       band_days: 14,
       referral_rate: 10,
       admins: [],
+      primary_admin_id: null,
     });
   });
 
@@ -304,5 +305,32 @@ describe("返点日历：拖右边那根条改每行几天", () => {
   it("**跟排期总览各存各的** —— 改一张不该动另一张", async () => {
     await referralBandDays({ days: 7 });
     expect(fake.db.app_settings.find((x: any) => x.key === "overview_band_days")).toBeUndefined();
+  });
+});
+
+describe("主要管理员", () => {
+  const ADMINS = [
+    { id: "a-admin1", name: "Admin1", created_at: "1" },
+    { id: "a-admin2", name: "admin2", created_at: "2" },
+  ];
+
+  it("设成名单里的人", async () => {
+    seed({ admins: ADMINS });
+    const r = await saveSettings({ primary_admin_id: "a-admin2" });
+    expect(r.status).toBe(200);
+    expect(fake.db.app_settings.find((x: any) => x.key === "primary_admin_id")?.value).toBe("a-admin2");
+  });
+
+  it("**不在名单里的 id 拒掉**，一个字都不写", async () => {
+    seed({ admins: ADMINS });
+    expect((await saveSettings({ primary_admin_id: "a-gone" })).status).toBe(400);
+    expect((await saveSettings({ primary_admin_id: "" })).status).toBe(400);
+    expect(fake.db.app_settings).toHaveLength(0);
+  });
+
+  it("读出来时库里那个 id 对不上任何人（手工改坏了）就当没设", async () => {
+    seed({ admins: ADMINS, app_settings: [{ key: "primary_admin_id", value: "a-gone" }] });
+    const { GET } = await import("@/app/admin/settings/route");
+    expect((await (await GET()).json()).primary_admin_id).toBeNull();
   });
 });

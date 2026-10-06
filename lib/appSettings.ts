@@ -30,6 +30,8 @@ export const SETTING_KEYS = {
   referralRate: "referral_rate_default",
   /** 返点日历每行排几天 */
   referralBandDays: "referral_band_days",
+  /** 主要管理员（0019）：没写是谁的单子都算他的，他的单色块不上色 */
+  primaryAdmin: "primary_admin_id",
 } as const;
 
 async function readSetting(key: string): Promise<string | null> {
@@ -153,4 +155,17 @@ export async function getReferralBandDays(): Promise<number> {
 
 export async function setReferralBandDays(value: number) {
   await writeSetting(SETTING_KEYS.referralBandDays, String(clampBandDays(value)));
+}
+
+// 主要管理员（0019）。大多数单子都是他做的：没写是谁的单子算他的（lib/orderFrame.ts 的
+// effectiveAdminId），他的单在排期总览上保持原样不上色，只有别的管理员的单带颜色。
+//
+// 这里只存 id、不验 —— 验要拿管理员名单，调用方手上本来就有（排期总览、设置弹框都会查 admins），
+// 用 resolvePrimaryAdmin 对一下。库里存的 id 对不上任何人（被手工改坏了）就当没设
+export async function getPrimaryAdminId(): Promise<string | null> {
+  return readSetting(SETTING_KEYS.primaryAdmin);
+}
+
+export async function setPrimaryAdminId(id: string | null) {
+  await writeSetting(SETTING_KEYS.primaryAdmin, id);
 }

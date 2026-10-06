@@ -2,7 +2,14 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { createPerson, personSpread } from "@/lib/people";
-import { ADMIN_COOKIE, resolveAdmin } from "@/lib/admins";
+import {
+  ADMIN_COOKIE,
+  CONTACT_FILTER_NONE,
+  matchesOrderAdmin,
+  parseOrderAdminFilter,
+  resolveAdmin,
+  resolvePrimaryAdmin,
+} from "@/lib/admins";
 import { addContact, loadAdmins } from "@/lib/personContacts";
 import AdminSwitcher from "./AdminSwitcher";
 import ClickOutsideDeselect from "./ClickOutsideDeselect";
@@ -50,7 +57,8 @@ import {
 } from "@/lib/timelineStart";
 import { previousOrdersFor, type ResourceUse } from "@/lib/previousUse";
 import { findClashes, indexClashes, clashKey } from "@/lib/doubleBooking";
-import { getOverviewStart, getOverviewEnd, getOverviewBandDays } from "@/lib/appSettings";
+import { getOverviewStart, getOverviewEnd, getOverviewBandDays, getPrimaryAdminId } from "@/lib/appSettings";
+import { adminColor, effectiveAdminId, orderFrame } from "@/lib/orderFrame";
 import DayNote from "./DayNote";
 import { readNoteText } from "@/lib/orderNote";
 import {
@@ -270,6 +278,8 @@ async function createQuickOrder(formData: FormData) {
     .from("orders")
     .insert({
       customer_id: customerId,
+      // 这一单是谁的（0019）：当前身份。排期总览按它筛
+      admin_id: admin,
       location,
       male_count: maleCount,
       female_count: femaleCount,
@@ -349,6 +359,8 @@ export default async function OverviewPage({
     region?: string;
     mtn?: string;
     ostatus?: string;
+    /** 按「这一单是哪个管理员的」筛：管理员 id，或 none = 没标的 */
+    oadmin?: string;
     sregion?: string;
     smtn?: string;
     ssort?: string;
@@ -365,12 +377,13 @@ export default async function OverviewPage({
     overviewEnd,
     bandDaysSetting,
     admins,
+    primaryAdminRaw,
   ] = await Promise.all([
     supabase
       .from("orders")
       .select(
         // customer_id / 生日是推荐分配要用的：认「这个客人以前用的哪个资源」和年龄
-        `id, customer_id, location, amount, status, demand_days, male_count, female_count, customers(${personSpread("first_name, last_name, date_of_birth")})`
+        `id, customer_id, admin_id, location, amount, status, demand_days, male_count, female_count, customers(${personSpread("first_name, last_name, date_of_birth")})`
       ),
     supabase
       .from("resources")
@@ -396,7 +409,10 @@ export default async function OverviewPage({
     getOverviewBandDays(),
     // 标题旁边「当前身份」那个下拉的名单（一共几行，跟着并排跑不多等）
     loadAdmins(),
+    getPrimaryAdminId(),
   ]);
+  // 主要管理员：没写是谁的单子算他的，他的单不上色（lib/orderFrame.ts）
+  const primaryAdminId = resolvePrimaryAdmin(primaryAdminRaw, admins);
   const currentAdmin = resolveAdmin(cookies().get(ADMIN_COOKIE)?.value, admins);
 
   const noteByDay = new Map<string, string>(
@@ -542,12 +558,17 @@ export default async function OverviewPage({
     region: (searchParams.region ?? "") as Region | "",
     mtn: searchParams.mtn ?? "",
     status: STATUS_LABELS[searchParams.ostatus ?? ""] ? searchParams.ostatus! : "",
+    // 这一单是哪个管理员的（orders.admin_id，0019）。跟状态一样，日历和统计一起筛 ——
+    // 「只看我的单」就该看到我的单的钱
+    admin: parseOrderAdminFilter(searchParams.oadmin, admins),
   };
   const hasOrderFilter = Boolean(
-    orderFilter.region || orderFilter.mtn || orderFilter.status
+    orderFilter.region || orderFilter.mtn || orderFilter.status || orderFilter.admin
   );
   const matchesOrderFilter = (o: any) => {
     if (orderFilter.status && o.status !== orderFilter.status) return false;
+    // 比的是算出来的归属：没写是谁的算主要管理员的
+    if (!matchesOrderAdmin(effectiveAdminId(o.admin_id, primaryAdminId), orderFilter.admin)) return false;
     // 地点 / 区域那两条走 lib/locations.ts 那一份 —— 物主那边用的是同一个
     return matchesLocationFilter(o.location, orderFilter);
   };
@@ -799,6 +820,7 @@ export default async function OverviewPage({
     if (searchParams.region) p.set("region", searchParams.region);
     if (searchParams.mtn) p.set("mtn", searchParams.mtn);
     if (searchParams.ostatus) p.set("ostatus", searchParams.ostatus);
+    if (searchParams.oadmin) p.set("oadmin", searchParams.oadmin);
     for (const [k, v] of Object.entries(extra)) {
       if (v) p.set(k, v);
       else p.delete(k);
@@ -1057,9 +1079,26 @@ export default async function OverviewPage({
               </option>
             ))}
           </select>
+          {/* 这一单是哪个管理员的。名单跟标题旁边「当前身份」是同一份（admins 表），
+              以后加了员工这里自动多一项。「没标」= 以前的单、客户自己发的需求 */}
+          <select
+            key={`oadmin-${orderFilter.admin}`}
+            name="oadmin"
+            defaultValue={orderFilter.admin}
+            style={filterSelectStyle}
+          >
+            <option value="">全部管理员</option>
+            {admins.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+            {/* 设了主要管理员之后，没写是谁的单都算他的，就不存在「没标」了 */}
+            {!primaryAdminId && <option value={CONTACT_FILTER_NONE}>没标</option>}
+          </select>
           {hasOrderFilter && (
             <Link
-              href={qs({ region: "", mtn: "", ostatus: "" })}
+              href={qs({ region: "", mtn: "", ostatus: "", oadmin: "" })}
               style={{ fontSize: 12, color: "var(--text-faint)" }}
             >
               清除
@@ -1106,6 +1145,34 @@ export default async function OverviewPage({
               </span>
             );
           })}
+          {/* 管理员的边框颜色图例：只列**非主要管理员**（只有他们的单上色），
+              再说一句「其余是谁的」—— 不然满屏没颜色的单子，看不出那代表主要管理员 */}
+          {admins
+            .filter((a) => a.id !== primaryAdminId)
+            .map((a) => {
+              const color = adminColor(a.id, admins, primaryAdminId);
+              return (
+                <span
+                  key={a.id}
+                  data-admin-legend={a.name}
+                  style={{
+                    fontSize: 12,
+                    padding: "3px 8px",
+                    borderRadius: 4,
+                    border: `1px solid ${color}`,
+                    boxShadow: `inset 0 0 0 1px ${color}`,
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  {a.name} 的单
+                </span>
+              );
+            })}
+          {primaryAdminId && (
+            <span style={{ fontSize: 11, color: "var(--text-faint)", alignSelf: "center", whiteSpace: "nowrap" }}>
+              其余是 {admins.find((a) => a.id === primaryAdminId)?.name} 的
+            </span>
+          )}
           {/* 「按住 ⌘ 点多个单子可以一起改状态」这件事原来没有任何提示 ——
               手势藏着，用的人自然以为功能没了。挨着状态图例放，因为这一排
               讲的正是状态 */}
@@ -1154,6 +1221,7 @@ export default async function OverviewPage({
                   createOrderAction={createQuickOrder}
                   customerIdByName={customerIdByName}
                   adminName={currentAdmin?.name ?? null}
+                  adminId={currentAdmin?.id ?? null}
                 />
                 {/* peak date 的整列底色。单独铺一层是因为日期条只有表头那一格，
                     往下滚就看不出这一列是不是 peak 了。gridRow 1/-1 铺满整段，
@@ -1274,21 +1342,28 @@ export default async function OverviewPage({
                     const showDetail = seg[0] === firstDayInBand;
                     const showEdit = seg[0] === firstDayOverall;
                     const c = statusColor(o.status);
+                    // 边框和光圈：状态 / 是哪个管理员的 / 选中 / 上一单，四件事一处算（lib/orderFrame.ts）。
+                    // 分配态那份（ResizableOrderBlock）也从这里取，不另写
+                    const providerColor = adminColor(
+                      effectiveAdminId(o.admin_id, primaryAdminId),
+                      admins,
+                      primaryAdminId
+                    );
+                    const frame = orderFrame({
+                      statusBorder: c.border,
+                      adminColor: providerColor,
+                      assigning: isAssigning,
+                      previousUse: isPreviousUse,
+                    });
                     const blockStyle = {
                       gridRow: bandLane + 2,
                       gridColumn: `${start + 1} / span ${seg.length}`,
                       background: c.bg,
                       // 编辑态**不能**用更粗的边框：2px vs 1px 会把整块内容往下推 1px，
-                      // 进出编辑时所有字都跳一下。改成同样的 1px，加粗的观感交给
-                      // box-shadow——阴影不参与布局，几何一模一样。
-                      border: `1px solid ${isAssigning ? "var(--link)" : c.border}`,
-                      // 点亮「这几个资源上一单在哪儿」：用外发光，不动边框和底色 ——
-                      // 状态颜色本身是有信息的（待付款 / 已完成…），盖掉就少了一层
-                      boxShadow: isAssigning
-                        ? "0 0 0 1px var(--link)"
-                        : isPreviousUse
-                          ? "0 0 0 2px var(--prev-use)"
-                          : undefined,
+                      // 进出编辑时所有字都跳一下。永远 1px，加粗的观感交给 box-shadow
+                      // （阴影不参与布局，几何一模一样）—— 都在 orderFrame 里
+                      border: frame.border,
+                      boxShadow: frame.boxShadow,
                       color: c.text,
                       borderRadius: 4,
                       padding: "2px 6px",
@@ -2026,8 +2101,11 @@ export default async function OverviewPage({
                         // 它在 spread 之后再写，覆盖得掉
                         style={{
                           ...blockStyle,
-                          border: "1px solid var(--link)",
-                          boxShadow: "0 0 0 1px var(--link)",
+                          ...orderFrame({
+                            statusBorder: c.border,
+                            adminColor: providerColor,
+                            assigning: true,
+                          }),
                         }}
                       >
                         {editInner}

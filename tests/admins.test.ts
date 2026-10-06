@@ -176,3 +176,26 @@ describe("当前身份（cookie）认谁", () => {
     expect(resolveAdmin("a-gone", ADMINS)).toBeNull();
   });
 });
+
+describe("排期总览按「这一单是哪个管理员的」筛", () => {
+  it("URL 里的值：认得的管理员 id、none 照收，别的一律当没筛", async () => {
+    const { parseOrderAdminFilter } = await import("@/lib/admins");
+    expect(parseOrderAdminFilter("a-admin1", ADMINS)).toBe("a-admin1");
+    expect(parseOrderAdminFilter(CONTACT_FILTER_NONE, ADMINS)).toBe(CONTACT_FILTER_NONE);
+    // URL 是人能随手改的：乱写的、已经不存在的管理员，都当没筛，不报错
+    expect(parseOrderAdminFilter("a-gone", ADMINS)).toBe("");
+    expect(parseOrderAdminFilter(undefined, ADMINS)).toBe("");
+  });
+
+  it("筛某个人只留他的单；筛「没标」只留没有归属的（以前的单、客户自己发的）", async () => {
+    const { matchesOrderAdmin } = await import("@/lib/admins");
+    expect(matchesOrderAdmin("a-admin1", "")).toBe(true);
+    expect(matchesOrderAdmin(null, "")).toBe(true);
+    expect(matchesOrderAdmin("a-admin1", "a-admin1")).toBe(true);
+    expect(matchesOrderAdmin("a-admin2", "a-admin1")).toBe(false);
+    expect(matchesOrderAdmin(null, "a-admin1")).toBe(false);
+    expect(matchesOrderAdmin(null, CONTACT_FILTER_NONE)).toBe(true);
+    expect(matchesOrderAdmin(undefined, CONTACT_FILTER_NONE)).toBe(true);
+    expect(matchesOrderAdmin("a-admin1", CONTACT_FILTER_NONE)).toBe(false);
+  });
+});

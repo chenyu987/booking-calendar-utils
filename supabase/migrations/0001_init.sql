@@ -123,9 +123,13 @@ create table orders (
       'created', 'itemAssigned', 'pendingPickUp', 'pendingPayment',
       'complete', 'unconfirmed', 'cancelled', 'needRefund'
     )),
+  -- 这一单是哪个管理员的（0019）。不从「客人是谁的」算：一个客人可以同时是两个人的，
+  -- 某一单是谁接的推不出来。建单时填当前身份；以前的单、客户自己发的需求可以为空
+  admin_id uuid references admins(id) on delete restrict,
   created_at timestamptz not null default now()
 );
 create index on orders (customer_id);
+create index on orders (admin_id);
 create index on orders (status);
 
 -- 订单分配：一个订单可以配多个资源（1男1女 = 一张男资源 + 一张女资源，一人一张）
@@ -217,3 +221,6 @@ create table app_settings (
   value text not null,
   updated_at timestamptz not null default now()
 );
+-- 主要管理员（0019）：没写是谁的单子都算他的，他的单在排期总览上不上色。现在是 admin2
+insert into app_settings (key, value)
+select 'primary_admin_id', id::text from admins where name = 'admin2';

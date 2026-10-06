@@ -72,6 +72,8 @@ export const SEED = {
     // 主角：三行都满（姓名·地点·备注 / 两个资源 / 男女进度·金额）
     {
       id: "ord-main",
+      // 只有这一单标了管理员（0019），别的都是「没标」—— 管理员筛选那条测试靠它
+      admin_id: "admin-admin1",
       customer_id: "r-long",
       location: "locbl",
       amount: 140,
@@ -127,5 +129,6 @@ export const SEED = {
   payments: [],
   matches: [],
   day_notes: [],
-  app_settings: [],
+  // 主要管理员 = admin2：没写是谁的单都算她的，她的单不上色；只有 Admin1 的（ord-main）带颜色
+  app_settings: [{ key: "primary_admin_id", value: "admin-admin2" }],
 };

@@ -14,6 +14,8 @@ export type Settings = {
   referral_rate: number;
   /** 管理员（0018）。只在这儿列出来；增和改名各自当场存，不跟着下面的「保存」 */
   admins: Admin[];
+  /** 主要管理员：没写是谁的单子算他的，他的单在排期总览上不上色。点了当场存 */
+  primary_admin_id: string | null;
 };
 
 // 设置弹框。原来是 /admin/settings 一个页面，改成弹框：设置是「顺手调一下」，
@@ -78,6 +80,7 @@ export default function SettingsDialog({
       band_days: Number(form.get("band_days")),
       referral_rate: Number(form.get("referral_rate")),
       admins: data.admins,
+      primary_admin_id: data.primary_admin_id,
     };
     setSaving(true);
     setError("");
@@ -212,8 +215,13 @@ export default function SettingsDialog({
 
         <AdminsSection
           admins={data.admins}
+          primaryId={data.primary_admin_id}
           onChange={(admins) => {
             onSaved({ ...data, admins });
+            router.refresh();
+          }}
+          onPrimaryChange={(primary_admin_id) => {
+            onSaved({ ...data, primary_admin_id });
             router.refresh();
           }}
         />
@@ -244,10 +252,14 @@ export default function SettingsDialog({
  */
 function AdminsSection({
   admins,
+  primaryId,
   onChange,
+  onPrimaryChange,
 }: {
   admins: Admin[];
+  primaryId: string | null;
   onChange: (next: Admin[]) => void;
+  onPrimaryChange: (id: string) => void;
 }) {
   const [names, setNames] = useState<Record<string, string>>({});
   const [newName, setNewName] = useState("");
@@ -275,6 +287,26 @@ function AdminsSection({
     }
   }
 
+  // 主要管理员：点了当场存（跟改名、新加一样，不等底下的「保存」）
+  async function setPrimary(id: string) {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ primary_admin_id: id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "没存上");
+      onPrimaryChange(id);
+    } catch (e: any) {
+      setError(e.message ?? "没存上");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const onEnter = (run: () => void) => (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -286,8 +318,9 @@ function AdminsSection({
     <section style={sectionStyle}>
       <div style={labelStyle}>管理员</div>
       <p style={hintStyle}>
-        每人对应一个加客人用的账号。排期总览上切到谁，新建的单子就记成谁的客人；
-        Customer 管理里也能手动勾。改名、新加都是当场存。
+        每人对应一个加客人用的账号。排期总览上切到谁，新建的单子就记成谁的。
+        勾了「主要」的那位：没写是谁的单都算他的，他的单在排期总览上不加颜色，
+        别人的单边框带颜色。改名、新加、换主要都是当场存。
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {admins.map((a) => {
@@ -295,6 +328,16 @@ function AdminsSection({
           const changed = draft.trim() !== a.name;
           return (
             <div key={a.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {/* 不带 name：外面整个弹框是一个大 form，带了 name 会混进大保存 */}
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, color: "var(--text-muted)" }}>
+                <input
+                  type="radio"
+                  checked={a.id === primaryId}
+                  disabled={busy}
+                  onChange={() => setPrimary(a.id)}
+                />
+                主要
+              </label>
               <input
                 value={draft}
                 maxLength={ADMIN_NAME_MAX}

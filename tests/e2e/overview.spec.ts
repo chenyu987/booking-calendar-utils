@@ -252,6 +252,11 @@ test.describe("多选改状态", () => {
 
   test("按 Esc 清空选中，不留任何残余的边框", async ({ page }) => {
     await gotoOverview(page);
+    // 点之前每个色块的内联阴影。**有的色块本来就有**（非主要管理员的单，边框里叠一层他的颜色，
+    // lib/orderFrame.ts），所以判据是「跟点之前一样」，不是「没有」
+    const shadowsBefore = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("[data-order-id]")).map((e) => (e as HTMLElement).style.boxShadow)
+    );
     await page
       .locator(`a[data-order-id="${MAIN}"]`)
       .first()
@@ -272,15 +277,16 @@ test.describe("多选改状态", () => {
     //   3. **浏览器自己的焦点圈**：点色块让那个 <a> 拿了焦点，一按 Esc，Chrome 的
     //      :focus-visible 判定翻转，给它画一圈默认焦点圈 —— 计算出来是
     //      `outline-style: auto`，不是 solid，所以从这儿溜过去了
-    const leftovers = await page.evaluate(() =>
+    const leftovers = await page.evaluate((before) =>
       Array.from(document.querySelectorAll("[data-order-id]"))
-        .filter((e) => {
+        .filter((e, i) => {
           const cs = getComputedStyle(e);
           return (
-            cs.outlineStyle !== "none" || (e as HTMLElement).style.boxShadow !== ""
+            cs.outlineStyle !== "none" || (e as HTMLElement).style.boxShadow !== before[i]
           );
         })
-        .map((e) => (e as HTMLElement).dataset.orderId)
+        .map((e) => (e as HTMLElement).dataset.orderId),
+      shadowsBefore
     );
     expect(leftovers, "Esc 之后还有色块留着选中/抢画/焦点的痕迹").toEqual([]);
 
@@ -457,6 +463,75 @@ test.describe("建单弹窗的人数框", () => {
     await page.locator('[data-new-order-popup="true"]').waitFor();
     await page.getByPlaceholder("客人姓名").fill("测试客户");
     await expect(page.getByText("客人记到 admin2 名下")).toBeVisible();
+  });
+});
+
+test.describe("按管理员筛 / 管理员的边框颜色", () => {
+  // 种子：主要管理员是 admin2；只有 ord-main 写了是 Admin1 的，别的单都没写（= 算 admin2 的）
+  const ids = (page: Page) =>
+    page
+      .locator("[data-order-id]")
+      .evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute("data-order-id")))]);
+
+  test("筛 Admin1 只剩他的单；筛 admin2 是其余的（没写是谁的也算她的）", async ({ page }) => {
+    await gotoOverview(page);
+    const all = await ids(page);
+    expect(all.length).toBeGreaterThan(1);
+
+    await gotoOverview(page, "?oadmin=admin-admin1");
+    expect(await ids(page)).toEqual([MAIN]);
+
+    await gotoOverview(page, "?oadmin=admin-admin2");
+    const admin2 = await ids(page);
+    expect(admin2).not.toContain(MAIN);
+    expect(admin2.length).toBe(all.length - 1);
+  });
+
+  test("设了主要管理员就没有「没标」这个选项", async ({ page }) => {
+    await gotoOverview(page);
+    const labels = await page.locator('select[name="oadmin"] option').allTextContents();
+    expect(labels).toEqual(["全部管理员", "Admin1", "admin2"]);
+  });
+
+  test("下拉里选了，地址栏跟着变（刷新、收藏都还在）", async ({ page }) => {
+    await gotoOverview(page);
+    await page.locator('select[name="oadmin"]').selectOption({ label: "Admin1" });
+    await expect(page).toHaveURL(/oadmin=admin-admin1/);
+    await expect(page.locator('select[name="oadmin"]')).toHaveValue("admin-admin1");
+  });
+
+  test("**只有非主要管理员的单带颜色边框**，选中时加重", async ({ page }) => {
+    await gotoOverview(page);
+    const frame = (id: string) =>
+      page.locator(`[data-order-id="${id}"]`).first().evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { border: cs.borderTopColor, shadow: cs.boxShadow };
+      });
+    const admin1Color = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--admin-1").trim()
+    );
+    const toRgb = (hex: string) =>
+      `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
+
+    // Admin1 的单：边框是他的颜色，里面叠了一层
+    const admin1 = await frame(MAIN);
+    expect(admin1.border).toBe(toRgb(admin1Color));
+    expect(admin1.shadow).toContain("inset");
+
+    // 没写是谁的（= admin2 的）：保持原样，没有那层
+    const plain = await frame(SHORT_NAME);
+    expect(plain.border).not.toBe(toRgb(admin1Color));
+    expect(plain.shadow).not.toContain("inset");
+
+    // 图例只列 Admin1，再说一句其余是谁的
+    await expect(page.locator("[data-admin-legend]")).toHaveText(["Admin1 的单"]);
+    await expect(page.getByText("其余是 admin2 的")).toBeVisible();
+
+    // 选中 Admin1 的单：颜色还在，而且加重了（里面那层变 2px）
+    await gotoOverview(page, `?assign=${MAIN}`);
+    const selected = await frame(MAIN);
+    expect(selected.border).toBe(toRgb(admin1Color));
+    expect(selected.shadow).toMatch(/2px inset|inset 0px 0px 0px 2px/);
   });
 });
 
