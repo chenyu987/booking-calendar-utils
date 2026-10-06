@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
 import { claimCustomer } from "@/lib/accountClaim";
+import { selfDisplayName } from "@/lib/person";
 import { formatDayRanges } from "@/lib/dates";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
@@ -68,7 +69,7 @@ export default async function CustomerHomePage({
   const [{ data: me }, { data: orders }] = await Promise.all([
     supabase
       .from("people")
-      .select("first_name, phone_number, chat_id, date_of_birth")
+      .select("first_name, last_name, chat_name, phone_number, chat_id, date_of_birth")
       .eq("id", customerId)
       .maybeSingle(),
     supabase
@@ -93,7 +94,8 @@ export default async function CustomerHomePage({
           gap: 8,
         }}
       >
-        <h1 style={{ fontSize: 20, margin: 0 }}>{me?.first_name || "我的账号"}</h1>
+        <h1 style={{ fontSize: 20, margin: 0 }}>{/* 自己的页面：称呼优先，没填才用昵称（lib/person.ts 的 selfDisplayName） */}
+          {selfDisplayName(me, "我的账号")}</h1>
         <form action="/auth/signout" method="post">
           <button type="submit" style={signOutStyle}>
             退出

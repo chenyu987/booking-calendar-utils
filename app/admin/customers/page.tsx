@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { createPerson, PERSON_SPREAD } from "@/lib/people";
 import { calcAge } from "@/lib/age";
-import { displayName } from "@/lib/person";
+import { selfName } from "@/lib/person";
 import { todayIso } from "@/lib/dates";
 import { buildFootprints } from "@/lib/footprint";
 import { customerName } from "@/lib/referral";
@@ -104,14 +104,13 @@ export default async function CustomersAdminPage({
     const fp = footprints.get(r.id);
     return {
       id: r.id,
-      // 显示名走唯一出处：昵称优先（lib/person.ts）
-      name: displayName(r, ""),
+      // 「昵称」那一列只放昵称；用户自己注册时填的称呼单独带上（lib/person.ts）
+      name: r.chat_name ?? "",
+      selfName: selfName(r),
       // 编辑表单的初始值（原样，不拼不算）
       edit: {
         chat_name: r.chat_name ?? "",
         chat_id: r.chat_id ?? "",
-        first_name: r.first_name ?? "",
-        last_name: r.last_name ?? "",
         phone_number: r.phone_number ?? "",
         email: r.email ?? "",
         date_of_birth: r.date_of_birth ?? "",

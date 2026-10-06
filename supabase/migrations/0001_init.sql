@@ -10,7 +10,8 @@ create table people (
   chat_name text,
   -- 账号（0020）：选填
   chat_id text,
-  -- 留给以后注册的用户自己填的称呼，不必填，后台不拿它显示（0020）
+  -- 客户 / 物主自己页面上填的「称呼」。导入的数据里已经清空（0022）—— 那时跟 chat_name
+  -- 是同一个名字存了两份。后台显示用 chat_name，没有昵称的才退回称呼
   first_name text,
   last_name text,
   -- 只存生日，年龄用代码算（lib/age.ts），存死数字明年就错了

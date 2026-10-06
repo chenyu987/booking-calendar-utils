@@ -108,7 +108,9 @@ export default async function ProviderListingPage({
           <input
             name="holder_name"
             placeholder="资源上的名字，比如 David Chang"
-            defaultValue={me?.first_name ?? ""}
+            // 不预填：持有人姓名得跟资源上、照片上的真名对得上（物品登记了使用人）。
+            // 原来拿物主的称呼预填，可称呼不一定是真名，也不一定是这个资源的持有人 ——
+            // 预填了多半就被原样提交上去
             required
             style={inputStyle}
           />

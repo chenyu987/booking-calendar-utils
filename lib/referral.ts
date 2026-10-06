@@ -1,4 +1,4 @@
-import { displayName } from "./person";
+import { displayName, selfName } from "./person";
 import { countsTowardRevenue, orderStartDay } from "./revenue";
 import { formatDateRange } from "./resourceStatus";
 import { isIsoDate } from "./timelineStart";
@@ -207,9 +207,13 @@ export function resolveCustomer(
   return { ok: true, id: hits[0].id };
 }
 
-/** 选人框里的候选项：昵称（平时就是拿它认人的）。跟 customerName 是同一个 —— 都走 displayName */
+/**
+ * 选人框里的候选项、打字认人用的那个名字：**昵称优先**（平时就是拿它认人的，
+ * resolveCustomer 也是先按它匹配）。跟显示用的 customerName 不是一回事 ——
+ * 显示是称呼优先（用户自己起的名字），认人是昵称优先（管理员在聊天里找得到的那个）
+ */
 export function customerHandle(r: ReferralCustomer): string {
-  return customerName(r);
+  return (r.chat_name ?? "").trim() || selfName(r) || (r.chat_id ?? "").trim() || r.id.slice(0, 8);
 }
 
 // —— 返点生效窗口（迁移 0015）——

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import { personSpread } from "@/lib/people";
+import { displayNameField } from "@/lib/person";
 import { STATUS_LABELS } from "@/lib/orderStatus";
 
 // 分配模式里那几个字段（客人姓名/地点/男女人数/总价/状态）退出编辑时用
@@ -28,15 +30,22 @@ export async function POST(req: NextRequest) {
     if (typeof body.customer_name === "string" && body.customer_name.trim()) {
       const { data: ord } = await supabase
         .from("orders")
-        .select("customer_id")
+        .select(`customer_id, customers(${personSpread("first_name, last_name")})`)
         .eq("id", orderId)
         .single();
       if (ord) {
+        // 改的是**色块上显示的那个**：有昵称改昵称；没有昵称、显示的是称呼的才改称呼
+        // （lib/person.ts 的 displayNameField）。改错一列的话，存完色块上的名字纹丝不动。
+        // 称呼显示的是「名 + 姓」，改完整串放进 first_name、姓清掉 —— 不然姓会再拼一遍
+        const name = body.customer_name.trim();
+        const patch =
+          displayNameField((ord as any).customers) === "first_name"
+            ? { first_name: name, last_name: null }
+            : { chat_name: name };
         const { error } = await supabase
           // 名字在人身上（people）；customer_id 就是 people.id（0017）
           .from("people")
-          // 色块上那个名字就是昵称（0020），改的也是它
-          .update({ chat_name: body.customer_name.trim() })
+          .update(patch)
           .eq("id", ord.customer_id);
         if (error) throw new Error(error.message);
       }

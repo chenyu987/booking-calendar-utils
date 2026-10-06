@@ -84,7 +84,7 @@ export default async function ProviderHomePage({
   const [{ data: me }, { data: resources }] = await Promise.all([
     supabase
       .from("people")
-      .select("first_name, phone_number, chat_id")
+      .select("first_name, last_name, chat_name, phone_number, chat_id")
       .eq("id", providerId)
       .maybeSingle(),
     supabase

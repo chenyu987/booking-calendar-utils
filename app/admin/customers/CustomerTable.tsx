@@ -24,13 +24,14 @@ import {
 
 export type CustomerRow = {
   id: string;
+  /** 昵称 */
   name: string;
+  /** 用户自己注册时填的称呼（名 + 姓），没有是空串。显示在昵称旁边 */
+  selfName: string;
   /** 编辑表单的初始值，库里的原样 */
   edit: {
     chat_name: string;
     chat_id: string;
-    first_name: string;
-    last_name: string;
     phone_number: string;
     email: string;
     date_of_birth: string;
@@ -229,7 +230,7 @@ function EditRow({
         {error && <p style={{ color: "var(--danger)", fontSize: 13, margin: "0 0 6px" }}>没存上：{error}</p>}
         <form action={action} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
           <input type="hidden" name="id" value={row.id} />
-          {/* 昵称排第一、必填：认人、显示都靠它。称呼是注册用户自己填的，选填，放后面 */}
+          {/* 昵称排第一、必填：认人、显示都靠它 */}
           {field("昵称 *", <input name="chat_name" defaultValue={e.chat_name} required style={inputStyle} />)}
           {field("账号", <input name="chat_id" defaultValue={e.chat_id} style={inputStyle} />)}
           {field("电话", <input name="phone_number" defaultValue={e.phone_number} style={inputStyle} />)}
@@ -246,8 +247,6 @@ function EditRow({
             </select>
           )}
           {field("备注", <input name="note" defaultValue={e.note} style={{ ...inputStyle, minWidth: 200 }} />)}
-          {field("称呼 First（注册用）", <input name="first_name" defaultValue={e.first_name} style={inputStyle} />)}
-          {field("Last", <input name="last_name" defaultValue={e.last_name} style={inputStyle} />)}
           {field("谁的客人", <ContactCheckboxes admins={admins} checked={row.contactIds} />)}
           <button type="submit" style={buttonStyle}>
             保存
@@ -327,7 +326,8 @@ export default function CustomerTable({
     const kept = rows.filter((r) => {
       // 正在编辑的那一行不受筛选影响，不然改着改着被筛掉了
       if (r.id === editingId) return true;
-      if (!matches(r.name, name)) return false;
+      // 昵称、称呼都能搜
+      if (!matches(`${r.name} ${r.selfName}`, name)) return false;
       if (!matches(r.phone, phone)) return false;
       if (!matches(r.chatId, chat)) return false;
       if (!matches(r.referrer, referrer)) return false;
@@ -534,7 +534,13 @@ export default function CustomerTable({
                   transition: "background 0.6s",
                 }}
               >
-                <td style={tdStyle}>{r.name}</td>
+                <td style={tdStyle}>
+                  {r.name || <span style={{ color: "var(--text-faint)" }}>-</span>}
+                  {/* 自己注册时填的称呼：排期总览上显示的是它（称呼优先），这里也得看得到 */}
+                  {r.selfName && r.selfName !== r.name && (
+                    <span style={{ color: "var(--text-faint)", fontSize: 12 }}> · 称呼 {r.selfName}</span>
+                  )}
+                </td>
                 <td style={tdStyle}>{r.chatId}</td>
                 <td style={tdStyle}>{r.phone}</td>
                 <td style={tdStyle}>

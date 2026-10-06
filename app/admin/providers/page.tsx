@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { createPerson, PERSON_SPREAD } from "@/lib/people";
 import { calcAge } from "@/lib/age";
-import { displayName } from "@/lib/person";
+import { selfName } from "@/lib/person";
 import {
   formStyle,
   inputStyle,
@@ -198,7 +198,13 @@ export default async function ProvidersAdminPage({
           </form>
         ) : (
           <div key={o.id} style={rowStyle}>
-            <div style={{ ...cellStyle, flex: 1.4 }}>{displayName(o, "-")}</div>
+            <div style={{ ...cellStyle, flex: 1.4 }}>
+              {o.chat_name || "-"}
+              {/* 自己注册时填的称呼：别处显示的是它（称呼优先），这里也得看得到 */}
+              {selfName(o) && selfName(o) !== o.chat_name && (
+                <span style={{ color: "var(--text-faint)", fontSize: 12 }}> · 称呼 {selfName(o)}</span>
+              )}
+            </div>
             <div style={{ ...cellStyle, flex: 1.2 }}>{o.phone_number ?? "-"}</div>
             <div style={{ ...cellStyle, flex: 1 }}>{o.chat_id ?? "-"}</div>
             <div style={{ ...cellStyle, width: 120 }}>{o.date_of_birth ?? "-"}</div>

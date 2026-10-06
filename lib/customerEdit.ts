@@ -20,9 +20,6 @@ export type CustomerEdit = {
   chat_name: string;
   /** 账号：选填 */
   chat_id: string | null;
-  /** 注册用户自己填的称呼：选填（0020 起后台不拿它显示） */
-  first_name: string | null;
-  last_name: string | null;
   phone_number: string | null;
   email: string | null;
   date_of_birth: string | null;
@@ -44,7 +41,7 @@ export function parseCustomerEdit(
 ): { values: CustomerEdit } | { error: string } {
   const chat_name = clean(get("chat_name"));
   // 昵称必填：认人的主要依据（排期总览上显示的、返点按它找人的都是它）。
-  // 称呼（first_name）不再必填 —— 那是留给以后注册用户自己填的（0020）
+  // first_name / last_name 不经手：这两列现在是空的、留着备用（0022），后台编辑不写它们
   if (!chat_name) return { error: "昵称必填" };
 
   const status = clean(get("status")) as CustomerStatus;
@@ -61,8 +58,6 @@ export function parseCustomerEdit(
     values: {
       chat_name,
       chat_id: orNull(clean(get("chat_id"))),
-      first_name: orNull(clean(get("first_name"))),
-      last_name: orNull(clean(get("last_name"))),
       phone_number: orNull(clean(get("phone_number"))),
       email: orNull(email),
       date_of_birth: orNull(dob),

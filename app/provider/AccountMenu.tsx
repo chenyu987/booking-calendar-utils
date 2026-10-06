@@ -3,6 +3,7 @@ import { saveContact } from "./actions";
 import ThemeToggle from "./ThemeToggle";
 import ViewSettings from "./ViewSettings";
 import type { Theme } from "@/lib/theme";
+import { selfDisplayName } from "@/lib/person";
 
 // 右上角的账号菜单。**联系方式从主体挪进来了** —— 它是账号设置，不是物主每次
 // 进来要看的东西，跟「有哪些需求」抢同一层视觉重量纯属浪费。
@@ -52,7 +53,7 @@ export default function AccountMenu({
   return (
     <details className="disc acct" open={editing || noChat} style={{ position: "relative" }}>
       <summary style={summaryInline}>
-        <span style={{ fontSize: 13 }}>{me?.first_name || "账号"}</span>
+        <span style={{ fontSize: 13 }}>{selfDisplayName(me, "账号")}</span>
         {noChat && <span style={{ color: "var(--warn)", fontSize: 13 }}>●</span>}
       </summary>
 

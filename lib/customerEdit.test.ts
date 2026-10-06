@@ -7,8 +7,6 @@ const form = (fields: Record<string, string>) => (k: string) => fields[k] ?? nul
 const ok = {
   chat_name: " 凯文 ",
   chat_id: " kevin_w ",
-  first_name: " Kevin ",
-  last_name: "",
   phone_number: " 123 ",
   email: " Kevin@Example.com ",
   date_of_birth: "1998-01-28",
@@ -22,8 +20,6 @@ describe("parseCustomerEdit：Customer 编辑的服务端校验", () => {
       values: {
         chat_name: "凯文",
         chat_id: "kevin_w",
-        first_name: "Kevin",
-        last_name: null,
         phone_number: "123",
         email: "kevin@example.com",
         date_of_birth: "1998-01-28",
@@ -44,9 +40,15 @@ describe("parseCustomerEdit：Customer 编辑的服务端校验", () => {
     expect("error" in r && r.error).toContain(msg);
   });
 
-  it("**称呼和账号都可以留空**（0020：称呼是留给注册用户的，账号想加再加）", () => {
-    const r = parseCustomerEdit(form({ ...ok, first_name: "", chat_id: "" }), TODAY);
-    expect(r).toMatchObject({ values: { chat_name: "凯文", first_name: null, chat_id: null } });
+  it("账号可以留空，想加再加", () => {
+    const r = parseCustomerEdit(form({ ...ok, chat_id: "" }), TODAY);
+    expect(r).toMatchObject({ values: { chat_name: "凯文", chat_id: null } });
+  });
+
+  it("**不碰 first_name / last_name**：那两列清空了留着备用（0022），后台编辑不往里写", () => {
+    const r = parseCustomerEdit(form({ ...ok, first_name: "Kevin", last_name: "W" }), TODAY);
+    expect("values" in r && Object.keys(r.values)).not.toContain("first_name");
+    expect("values" in r && Object.keys(r.values)).not.toContain("last_name");
   });
 
   it("生日、邮箱、电话都可以留空", () => {
