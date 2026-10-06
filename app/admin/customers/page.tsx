@@ -7,7 +7,9 @@ import { todayIso } from "@/lib/dates";
 import { buildFootprints } from "@/lib/footprint";
 import { customerName } from "@/lib/referral";
 import { parseCustomerEdit } from "@/lib/customerEdit";
-import CustomerTable, { type CustomerRow } from "./CustomerTable";
+import { parseAdminIds } from "@/lib/admins";
+import { loadAdmins, loadPersonContacts, saveContacts } from "@/lib/personContacts";
+import CustomerTable, { ContactCheckboxes, type CustomerRow } from "./CustomerTable";
 import {
   formStyle,
   inputStyle,
@@ -25,8 +27,11 @@ async function createCustomer(formData: FormData) {
   if (!firstName || !chat) {
     throw new Error("姓名和聊天必填");
   }
+  // 「谁的客人」先验再写：认不出来的管理员在建人之前就拦住，不留一个建了一半的人
+  const contacts = parseAdminIds(formData.getAll("contact"), await loadAdmins());
+  if (!contacts.ok) throw new Error(contacts.reason);
 
-  await createPerson("customer", {
+  const id = await createPerson("customer", {
     first_name: firstName,
     last_name: (formData.get("last_name") as string)?.trim() || null,
     phone_number: phone || null,
@@ -35,6 +40,7 @@ async function createCustomer(formData: FormData) {
     note: (formData.get("note") as string)?.trim() || null,
     status: "active",
   });
+  await saveContacts(id, contacts.ids);
   revalidatePath("/admin/customers");
 }
 
@@ -48,9 +54,17 @@ async function updateCustomer(formData: FormData) {
     // 原因带回页面显示，停在编辑态
     redirect(`/admin/customers?edit=${id}&error=${encodeURIComponent(parsed.error)}`);
   }
+  // 「谁的客人」也先验完再动库：拦住时一个字都不写
+  const contacts = parseAdminIds(formData.getAll("contact"), await loadAdmins());
+  if (!contacts.ok) redirect(`/admin/customers?edit=${id}&error=${encodeURIComponent(contacts.reason)}`);
   // 编辑的全是人身上的字段（people，0017）—— 这个人要是也是物主，Provider 管理那边跟着变
   const { error } = await supabase.from("people").update(parsed.values).eq("id", id);
   if (error) redirect(`/admin/customers?edit=${id}&error=${encodeURIComponent(error.message)}`);
+  try {
+    await saveContacts(id, contacts.ids);
+  } catch (e: any) {
+    redirect(`/admin/customers?edit=${id}&error=${encodeURIComponent(`「谁的客人」没存上：${e.message}`)}`);
+  }
 
   // 客户名字显示在这些页面上
   for (const p of ["/admin/customers", "/admin/providers", "/admin/overview", "/admin/orders", "/admin/matches", "/admin/referrals", "/admin/payments"]) {
@@ -67,7 +81,8 @@ export default async function CustomersAdminPage({
 }) {
   // 足迹要拉一遍 orders。跟 customers 并行发，页面加载时间取两者里慢的那个，不叠加。
   // 一季 150~250 单，全量拉回来几十 KB，比排期总览拉的还少，不用分页也不用按需加载。
-  const [{ data: customers, error }, { data: orders }] = await Promise.all([
+  // 管理员 / 归属两条查询出错会直接抛 —— 当成「都没标」的话，编辑一下就会把原来的全删掉
+  const [{ data: customers, error }, { data: orders }, admins, contactsByPerson] = await Promise.all([
     supabase
       .from("customers")
       .select(`*, ${PERSON_SPREAD}`)
@@ -75,6 +90,8 @@ export default async function CustomersAdminPage({
     supabase
       .from("orders")
       .select("customer_id, demand_days, location, status"),
+    loadAdmins(),
+    loadPersonContacts(),
   ]);
 
   const footprints = buildFootprints(orders ?? []);
@@ -108,6 +125,7 @@ export default async function CustomersAdminPage({
       orderCount: fp?.orderCount ?? 0,
       activeOrderCount: fp?.activeOrderCount ?? 0,
       footprintText: fp?.searchText ?? "",
+      contactIds: contactsByPerson.get(r.id) ?? [],
     };
   });
 
@@ -136,6 +154,7 @@ export default async function CustomersAdminPage({
           style={inputStyle}
         />
         <input name="note" placeholder="Note" style={inputStyle} />
+        <ContactCheckboxes admins={admins} checked={[]} />
         <button type="submit" style={buttonStyle}>
           新增 Customer
         </button>
@@ -149,6 +168,7 @@ export default async function CustomersAdminPage({
         editError={searchParams.error ?? null}
         savedId={searchParams.saved ?? null}
         updateAction={updateCustomer}
+        admins={admins}
       />
     </main>
   );

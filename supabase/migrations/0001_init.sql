@@ -22,6 +22,28 @@ create table people (
 );
 create index people_email_lower_idx on people (lower(email));
 
+-- 管理员（0018）。每个管理员对应一个加客人用的账号（Admin1 = 私人号，admin2 = 工作号）。
+-- 是一张表 —— 加员工在设置里点一下，不是改代码。以后接 admin 登录就在这上面加 auth_user_id
+create table admins (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+-- 列表按 created_at 排，同一条语句插的两行时间戳一样 —— admin2 晚一秒，Admin1 固定在前
+insert into admins (name, created_at) values
+  ('Admin1', now()),
+  ('admin2', now() + interval '1 second');
+
+-- 这个客人是哪个管理员加的。两个都加了 = 两行，不存 both
+create table person_contacts (
+  person_id uuid not null references people(id) on delete cascade,
+  -- restrict：还有客人挂在这个管理员名下就不让删
+  admin_id uuid not null references admins(id) on delete restrict,
+  created_at timestamptz not null default now(),
+  primary key (person_id, admin_id)
+);
+create index on person_contacts (admin_id);
+
 -- Customer 求物品人（身份表）。id 就是 people.id —— 主键同时是外键，
 -- 所以 orders.customer_id 指向这里，也就等于指向了那个人
 create table customers (

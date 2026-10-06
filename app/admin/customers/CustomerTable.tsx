@@ -11,6 +11,7 @@ import {
   type FootprintSort,
 } from "@/lib/footprint";
 import { CUSTOMER_STATUSES, CUSTOMER_STATUS_LABELS } from "@/lib/customerEdit";
+import { CONTACT_FILTER_NONE, matchesContactFilter, type Admin } from "@/lib/admins";
 import {
   tableStyle,
   thStyle,
@@ -47,7 +48,55 @@ export type CustomerRow = {
   /** 真用了的单数（不算取消/未确认），按「来得最多」排序用 */
   activeOrderCount: number;
   footprintText: string;
+  /** 他是哪几个管理员的客人（person_contacts，0018）。空 = 还没标 */
+  contactIds: string[];
 };
+
+/**
+ * 勾「他是谁的客人」。新增表单和编辑那一行共用一份。
+ * 两个都勾 = 两行记录，不是一个「都有」的值（见 0018 迁移）
+ */
+export function ContactCheckboxes({ admins, checked }: { admins: Admin[]; checked: string[] }) {
+  return (
+    <span style={{ display: "inline-flex", gap: 10, alignItems: "center", fontSize: 13 }}>
+      {admins.map((a) => (
+        <label key={a.id} style={{ display: "inline-flex", gap: 4, alignItems: "center", whiteSpace: "nowrap" }}>
+          <input type="checkbox" name="contact" value={a.id} defaultChecked={checked.includes(a.id)} />
+          {a.name}
+        </label>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * 列表里那一格：每个管理员一个小标签，没标的显示「-」。
+ * 按管理员列表的顺序画（Admin1 在前），不按库里的行序 —— 不然同样两个人，
+ * 这一行「Admin1 admin2」下一行「admin2 Admin1」，扫一眼对不齐
+ */
+function ContactTags({ ids, admins }: { ids: string[]; admins: Admin[] }) {
+  const shown = admins.filter((a) => ids.includes(a.id));
+  if (shown.length === 0) return <span style={{ color: "var(--text-faint)" }}>-</span>;
+  return (
+    <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 4 }}>
+      {shown.map((a) => (
+        <span
+          key={a.id}
+          style={{
+            padding: "0 6px",
+            borderRadius: 3,
+            fontSize: 12,
+            whiteSpace: "nowrap",
+            background: "var(--row-tint)",
+            color: "var(--link)",
+          }}
+        >
+          {a.name}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /**
  * 足迹那一格：「最早一段 … 最近一段　N 单」一行，点「N 单」浮出全部足迹。
@@ -153,11 +202,13 @@ function EditRow({
   error,
   action,
   colSpan,
+  admins,
 }: {
   row: CustomerRow;
   error: string | null;
   action: (formData: FormData) => Promise<void>;
   colSpan: number;
+  admins: Admin[];
 }) {
   const e = row.edit;
   // 库里要是有不在列表里的老状态值，也放进下拉框，别存的时候被悄悄改掉
@@ -193,6 +244,7 @@ function EditRow({
             </select>
           )}
           {field("备注", <input name="note" defaultValue={e.note} style={{ ...inputStyle, minWidth: 200 }} />)}
+          {field("谁的客人", <ContactCheckboxes admins={admins} checked={row.contactIds} />)}
           <button type="submit" style={buttonStyle}>
             保存
           </button>
@@ -221,6 +273,7 @@ export default function CustomerTable({
   editError,
   savedId,
   updateAction,
+  admins,
 }: {
   rows: CustomerRow[];
   /** `?edit=<id>`：这一行显示成编辑表单 */
@@ -229,6 +282,7 @@ export default function CustomerTable({
   /** `?saved=<id>`：刚存完的那一行，滚回去并闪一下 */
   savedId: string | null;
   updateAction: (formData: FormData) => Promise<void>;
+  admins: Admin[];
 }) {
   // 保存 / 保存出错都是服务端 redirect 回来的，Next 会把页面滚回顶上（点「编辑」「取消」的
   // 链接可以 scroll={false}，服务端跳转没这个选项）。所以落地后自己滚回那一行
@@ -252,6 +306,8 @@ export default function CustomerTable({
   const [status, setStatus] = useState("");
   const [referrer, setReferrer] = useState("");
   const [footprint, setFootprint] = useState("");
+  // 空 = 不筛；CONTACT_FILTER_NONE = 还没标的；其余是某个管理员的 id
+  const [contact, setContact] = useState("");
   // 排序跟筛选一样在客户端做：数据一次全拿回来了，切一下当场重排，不回服务端
   const [sort, setSort] = useState<FootprintSort>("default");
 
@@ -273,6 +329,7 @@ export default function CustomerTable({
       if (!matches(r.referrer, referrer)) return false;
       if (!matches(r.footprintText, footprint)) return false;
       if (status && r.status !== status) return false;
+      if (!matchesContactFilter(r.contactIds, contact)) return false;
       // 年龄没填的人：一旦按年龄筛就排除掉，不然「找 25 岁以上」会把没记生日的全捞出来
       if (min !== null || max !== null) {
         if (r.age === null) return false;
@@ -282,10 +339,10 @@ export default function CustomerTable({
       return true;
     });
     return sortByFootprint(kept, sort);
-  }, [rows, editingId, name, phone, chat, referrer, footprint, status, ageMin, ageMax, sort]);
+  }, [rows, editingId, name, phone, chat, referrer, footprint, status, contact, ageMin, ageMax, sort]);
 
   const hasFilter =
-    name || phone || chat || referrer || footprint || status || ageMin || ageMax;
+    name || phone || chat || referrer || footprint || status || contact || ageMin || ageMax;
 
   function clearAll() {
     setName("");
@@ -294,6 +351,7 @@ export default function CustomerTable({
     setReferrer("");
     setFootprint("");
     setStatus("");
+    setContact("");
     setAgeMin("");
     setAgeMax("");
   }
@@ -353,6 +411,7 @@ export default function CustomerTable({
             <th style={{ ...thStyle, borderBottom: "none", width: "14%" }}>姓名</th>
             <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>电话</th>
             <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>聊天</th>
+            <th style={{ ...thStyle, borderBottom: "none", width: "9%" }}>谁的客人</th>
             <th style={{ ...thStyle, borderBottom: "none", width: "10%" }}>年龄</th>
             <th style={{ ...thStyle, borderBottom: "none", width: "10%" }}>状态</th>
             <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>介绍人</th>
@@ -384,6 +443,17 @@ export default function CustomerTable({
                 placeholder="筛选聊天"
                 style={filterInputStyle}
               />
+            </th>
+            <th style={filterThStyle}>
+              <select value={contact} onChange={(e) => setContact(e.target.value)} style={filterInputStyle}>
+                <option value="">全部</option>
+                {admins.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+                <option value={CONTACT_FILTER_NONE}>还没标</option>
+              </select>
             </th>
             <th style={filterThStyle}>
               <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -442,7 +512,14 @@ export default function CustomerTable({
         <tbody>
           {filtered.map((r) => {
             if (r.id === editingId) {
-              return <EditRow key={r.id} row={r} error={editError} action={updateAction} colSpan={9} />;
+              return <EditRow
+                  key={r.id}
+                  row={r}
+                  error={editError}
+                  action={updateAction}
+                  colSpan={10}
+                  admins={admins}
+                />;
             }
             return (
               <tr
@@ -456,6 +533,9 @@ export default function CustomerTable({
                 <td style={tdStyle}>{r.name}</td>
                 <td style={tdStyle}>{r.phone}</td>
                 <td style={tdStyle}>{r.chat}</td>
+                <td style={tdStyle}>
+                  <ContactTags ids={r.contactIds} admins={admins} />
+                </td>
                 <td style={tdStyle}>{r.age ?? "-"}</td>
                 <td style={tdStyle}>{statusLabel(r.status)}</td>
                 <td style={tdStyle}>

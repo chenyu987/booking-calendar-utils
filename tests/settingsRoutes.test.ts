@@ -176,6 +176,7 @@ describe("设置弹框那条接口", () => {
       overview_end: null,
       band_days: 14,
       referral_rate: 10,
+      admins: [],
     });
   });
 

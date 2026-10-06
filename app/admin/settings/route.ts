@@ -12,17 +12,19 @@ import {
 } from "@/lib/appSettings";
 import { isIsoDate } from "@/lib/timelineStart";
 import { parseRatePercent } from "@/lib/referral";
+import { loadAdmins } from "@/lib/personContacts";
 
 // 设置的读写。原来是一个页面，现在改成弹框，所以这儿只留数据接口。
 //
 // GET 给弹框打开时拉当前值 —— 不放进 admin layout 预取，那样每开一个 admin
 // 页面都要多跑两条查询，而设置十天半月才点一次。
 export async function GET() {
-  const [start, end, bandDays, rate] = await Promise.all([
+  const [start, end, bandDays, rate, admins] = await Promise.all([
     getOverviewStart(),
     getOverviewEnd(),
     getOverviewBandDays(),
     getReferralRate(),
+    loadAdmins(),
   ]);
   return NextResponse.json({
     overview_start: start,
@@ -30,6 +32,8 @@ export async function GET() {
     band_days: bandDays,
     // 库里存小数（0.1），界面上填百分数
     referral_rate: Math.round(rate * 10000) / 100,
+    // 只读带出来给弹框画列表；增和改名走 /admin/admins
+    admins,
   });
 }
 

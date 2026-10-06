@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MIN_BAND_DAYS, MAX_BAND_DAYS } from "@/lib/bandDays";
 import { THEME_COOKIE, type Theme } from "@/lib/theme";
+import { ADMIN_NAME_MAX, type Admin } from "@/lib/admins";
 
 export type Settings = {
   overview_start: string | null;
@@ -11,6 +12,8 @@ export type Settings = {
   band_days: number;
   /** 介绍人返点的全局默认比例，**百分数**（10 = 10%） */
   referral_rate: number;
+  /** 管理员（0018）。只在这儿列出来；增和改名各自当场存，不跟着下面的「保存」 */
+  admins: Admin[];
 };
 
 // 设置弹框。原来是 /admin/settings 一个页面，改成弹框：设置是「顺手调一下」，
@@ -74,6 +77,7 @@ export default function SettingsDialog({
       overview_end: String(form.get("overview_end") ?? "") || null,
       band_days: Number(form.get("band_days")),
       referral_rate: Number(form.get("referral_rate")),
+      admins: data.admins,
     };
     setSaving(true);
     setError("");
@@ -206,6 +210,14 @@ export default function SettingsDialog({
           </div>
         </section>
 
+        <AdminsSection
+          admins={data.admins}
+          onChange={(admins) => {
+            onSaved({ ...data, admins });
+            router.refresh();
+          }}
+        />
+
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 16 }}>
           <button type="submit" disabled={saving} style={saveStyle}>
             {saving ? "存中…" : "保存"}
@@ -218,6 +230,125 @@ export default function SettingsDialog({
   );
 }
 
+/**
+ * 管理员：每人对应一个加客人用的账号（Admin1 = 私人号，admin2 = 工作号，以后别的员工）。
+ * 排期总览上切身份、Customer 管理里标「谁的客人」用的都是这张名单。
+ *
+ * 跟上面几项不一样，**加和改名都是当场存**，不等底下那个「保存」：
+ * 这块存的是一张表里的行，不是一个设置值，跟着大保存一起走的话，
+ * 下面比例填错了一拦，这边加的人也跟着没存上，看不出来。
+ *
+ * 外面整个弹框是一个 <form>，这里不能再套 form —— 所以输入框不带 name（不进大表单），
+ * 按钮都是 type="button"，回车也拦下来，免得一回车把整个设置提交了。
+ * 没有删除：见 app/admin/admins/route.ts
+ */
+function AdminsSection({
+  admins,
+  onChange,
+}: {
+  admins: Admin[];
+  onChange: (next: Admin[]) => void;
+}) {
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(body: { id?: string; name: string }) {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/admin/admins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "没存上");
+      onChange(json.admins);
+      if (body.id) setNames(({ [body.id!]: _, ...rest }) => rest);
+      else setNewName("");
+    } catch (e: any) {
+      setError(e.message ?? "没存上");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const onEnter = (run: () => void) => (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      run();
+    }
+  };
+
+  return (
+    <section style={sectionStyle}>
+      <div style={labelStyle}>管理员</div>
+      <p style={hintStyle}>
+        每人对应一个加客人用的账号。排期总览上切到谁，新建的单子就记成谁的客人；
+        Customer 管理里也能手动勾。改名、新加都是当场存。
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {admins.map((a) => {
+          const draft = names[a.id] ?? a.name;
+          const changed = draft.trim() !== a.name;
+          return (
+            <div key={a.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                value={draft}
+                maxLength={ADMIN_NAME_MAX}
+                onChange={(e) => setNames((n) => ({ ...n, [a.id]: e.target.value }))}
+                onKeyDown={onEnter(() => changed && submit({ id: a.id, name: draft }))}
+                aria-label={`管理员：${a.name}`}
+                style={{ ...inputStyle, width: 180 }}
+              />
+              {changed && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => submit({ id: a.id, name: draft })}
+                  style={smallBtnStyle}
+                >
+                  改名
+                </button>
+              )}
+            </div>
+          );
+        })}
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input
+            value={newName}
+            maxLength={ADMIN_NAME_MAX}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={onEnter(() => newName.trim() && submit({ name: newName }))}
+            placeholder="新加一个员工，如：小王"
+            style={{ ...inputStyle, width: 180 }}
+          />
+          <button
+            type="button"
+            disabled={busy || !newName.trim()}
+            onClick={() => submit({ name: newName })}
+            style={smallBtnStyle}
+          >
+            添加
+          </button>
+        </div>
+      </div>
+      {error && <p style={{ fontSize: 13, color: "var(--danger)", margin: "6px 0 0" }}>{error}</p>}
+    </section>
+  );
+}
+
+const smallBtnStyle: React.CSSProperties = {
+  padding: "5px 10px",
+  border: "1px solid var(--border)",
+  borderRadius: 4,
+  background: "var(--surface-2)",
+  color: "var(--text-muted)",
+  fontSize: 13,
+  cursor: "pointer",
+};
 const sectionStyle: React.CSSProperties = {
   border: "1px solid var(--border)",
   borderRadius: 6,

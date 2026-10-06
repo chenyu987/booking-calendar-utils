@@ -2,6 +2,9 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { createPerson, personSpread } from "@/lib/people";
+import { ADMIN_COOKIE, resolveAdmin } from "@/lib/admins";
+import { addContact, loadAdmins } from "@/lib/personContacts";
+import AdminSwitcher from "./AdminSwitcher";
 import ClickOutsideDeselect from "./ClickOutsideDeselect";
 import ZoomableCalendar from "./ZoomableCalendar";
 import ResizableOrderBlock from "./ResizableOrderBlock";
@@ -232,23 +235,36 @@ async function createQuickOrder(formData: FormData) {
   // customer_id（页面加载时把 customers 一起查出来了），就直接带过来，跳过这次查询。
   const passedCustomerId = ((formData.get("customer_id") as string) ?? "").trim();
 
-  let customerId = passedCustomerId || undefined;
-  if (!customerId) {
-    // 同名客人复用，找不到就现建一个 —— 快速建单不打断流程去 Customer 页面
-    // 名字在 people 上，但只在**客户**里找（!inner = 没有 customers 这一行的人不算）——
-    // 同名的物主不该被顺手拉来下单
-    const { data: existingCustomer } = await supabase
+  // 当前身份（标题旁边那个下拉，存在 cookie 里）：这单的客人记成这个管理员的
+  // （= 哪个账号加的，以后找人知道用谁的号）。cookie 里的 id 得在库里真有这个人，
+  // 不然记下的归属指向一个不存在的管理员。**跟找客人那条查询并排跑**，不多等一个来回
+  const adminId = cookies().get(ADMIN_COOKIE)?.value ?? "";
+  const findAdmin = async () => {
+    if (!adminId) return null;
+    const { data } = await supabase.from("admins").select("id").eq("id", adminId).maybeSingle();
+    return (data?.id as string | undefined) ?? null;
+  };
+  // 同名客人复用，找不到就现建一个 —— 快速建单不打断流程去 Customer 页面
+  // 名字在 people 上，但只在**客户**里找（!inner = 没有 customers 这一行的人不算）——
+  // 同名的物主不该被顺手拉来下单
+  const findCustomer = async () => {
+    if (passedCustomerId) return passedCustomerId;
+    const { data } = await supabase
       .from("customers")
       .select("id, people!inner(first_name)")
       .ilike("people.first_name", customerName)
       .limit(1)
       .maybeSingle();
-    customerId = existingCustomer?.id as string | undefined;
-  }
+    return (data?.id as string | undefined) ?? null;
+  };
+  const [admin, existingCustomerId] = await Promise.all([findAdmin(), findCustomer()]);
+  // 拦在任何写库之前。界面上没选身份时「创建」是灰的，这里拦的是旧页面和直接 POST
+  if (!admin) throw new Error("还没选当前身份（排期总览标题旁边），选了才知道这个客人记在谁名下");
 
-  if (!customerId) {
-    customerId = await createPerson("customer", { first_name: customerName });
-  }
+  const customerId = existingCustomerId ?? (await createPerson("customer", { first_name: customerName }));
+  // 老客人原来是别人加的也照样补上（别人的保留）：能给他建单，说明这个号也联系得上他。
+  // 放在建单之前：这步失败就整个停住，不留一个建好了却没记归属的单子
+  await addContact(customerId, admin);
 
   const { data: order, error } = await supabase
     .from("orders")
@@ -348,6 +364,7 @@ export default async function OverviewPage({
     overviewStart,
     overviewEnd,
     bandDaysSetting,
+    admins,
   ] = await Promise.all([
     supabase
       .from("orders")
@@ -377,7 +394,10 @@ export default async function OverviewPage({
     getOverviewStart(),
     getOverviewEnd(),
     getOverviewBandDays(),
+    // 标题旁边「当前身份」那个下拉的名单（一共几行，跟着并排跑不多等）
+    loadAdmins(),
   ]);
+  const currentAdmin = resolveAdmin(cookies().get(ADMIN_COOKIE)?.value, admins);
 
   const noteByDay = new Map<string, string>(
     (dayNotes ?? []).map((n: any) => [n.day, n.note])
@@ -789,7 +809,10 @@ export default async function OverviewPage({
 
   return (
     <main>
-      <h1 style={pageTitleStyle}>排期总览</h1>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" }}>
+        <h1 style={pageTitleStyle}>排期总览</h1>
+        <AdminSwitcher admins={admins} currentId={currentAdmin?.id ?? null} />
+      </div>
 
       {error && <p style={{ color: "crimson" }}>{error.message}</p>}
 
@@ -1130,6 +1153,7 @@ export default async function OverviewPage({
                   assigningOrderId={assigningOrder ? (assigningOrder as any).id : null}
                   createOrderAction={createQuickOrder}
                   customerIdByName={customerIdByName}
+                  adminName={currentAdmin?.name ?? null}
                 />
                 {/* peak date 的整列底色。单独铺一层是因为日期条只有表头那一格，
                     往下滚就看不出这一列是不是 peak 了。gridRow 1/-1 铺满整段，

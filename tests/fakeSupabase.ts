@@ -199,15 +199,18 @@ export function createFakeSupabase(seed: Tables = {}) {
         };
         return chain;
       },
-      upsert(payload: any, opts?: { onConflict?: string }) {
+      // onConflict 可以是多列（"person_id,admin_id"），每一列都相等才算撞上。
+      // ignoreDuplicates：撞上了就什么都不做（PostgREST 的 on conflict do nothing）
+      upsert(payload: any, opts?: { onConflict?: string; ignoreDuplicates?: boolean }) {
         const failure = takeFailure(t);
         if (failure) {
           return Promise.resolve({ data: null, error: { message: failure } });
         }
-        const key = opts?.onConflict ?? "id";
-        const existing = table(t).find((r) => r[key] === payload[key]);
-        if (existing) Object.assign(existing, payload);
-        else table(t).push({ ...payload });
+        const keys = (opts?.onConflict ?? "id").split(",").map((k) => k.trim());
+        const existing = table(t).find((r) => keys.every((k) => r[k] === payload[k]));
+        if (existing) {
+          if (!opts?.ignoreDuplicates) Object.assign(existing, payload);
+        } else table(t).push({ ...payload });
         writes.push({ op: "upsert", table: t, payload });
         return Promise.resolve({ data: null, error: null });
       },

@@ -24,6 +24,7 @@ export default function NewOrderSelector({
   assigningOrderId,
   createOrderAction,
   customerIdByName,
+  adminName,
 }: {
   timeline: string[];
   colWidth: number;
@@ -32,6 +33,8 @@ export default function NewOrderSelector({
   assigningOrderId: string | null;
   createOrderAction: (formData: FormData) => Promise<string>;
   customerIdByName: Record<string, string>;
+  /** 当前身份（标题旁边那个下拉）。null = 还没选，不让建 —— 不知道这个客人该记在谁名下 */
+  adminName: string | null;
 }) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -313,7 +316,9 @@ export default function NewOrderSelector({
   // 「创建」为什么是灰的，得写出来。人数那个框出问题的时候，第一反应是
   // 「我填了数字还建不了」，其实拦住的多半是没填姓名 —— 一个不说理由的灰按钮，
   // 会让人把上一个动作当成原因
-  const blockedBy = !dateStart || !dateEnd
+  const blockedBy = !adminName
+    ? "先在标题旁边选当前身份"
+    : !dateStart || !dateEnd
     ? "先在日历上选一段日子"
     : dateEnd < dateStart
       ? "结束日期比开始日期早"
@@ -574,9 +579,11 @@ export default function NewOrderSelector({
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
             {/* marginRight:auto 把提示顶到左边：它出现/消失的时候，右边这两个按钮
                 一动不动。放进 flex 流里靠 gap 撑的话，按钮会横着跳一下 */}
-            {blockedBy && !submitting && (
+            {/* 没被拦的时候这个位置说「记到谁名下」：建完这个客人就挂到当前身份上了，
+                得让人在点「创建」之前看得见，切错了身份还来得及改 */}
+            {!submitting && (
               <span style={{ marginRight: "auto", fontSize: 12, opacity: 0.7 }}>
-                {blockedBy}
+                {blockedBy || `客人记到 ${adminName} 名下`}
               </span>
             )}
             <button

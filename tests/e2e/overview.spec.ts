@@ -15,7 +15,14 @@ const THIRD = "ord-earlier";
 
 const overview = (qs = "") => `/admin/overview${qs}`;
 
-async function gotoOverview(page: Page, qs = "") {
+/**
+ * 「当前身份」存在 cookie 里（lib/admins.ts 的 ADMIN_COOKIE）。没选身份时建单是灰的，
+ * 所以默认带上 Admin1 —— 别的测试要验的不是这个。传 null = 模拟一台还没选过的电脑
+ */
+async function gotoOverview(page: Page, qs = "", admin: string | null = "admin-admin1") {
+  if (admin) {
+    await page.context().addCookies([{ name: "admin_id", value: admin, url: "http://127.0.0.1:3100" }]);
+  }
   await page.goto(overview(qs));
   await page.locator("[data-order-id]").first().waitFor();
 }
@@ -374,8 +381,8 @@ test.describe("建单弹窗的人数框", () => {
   // 这两个框原来是数字 state（value={male} + Number(e.target.value)），
   // 踩到了 React 对受控 <input type="number"> 的两个特殊处理，见 lib/party.ts 的
   // parseCount 注释。表现是：清不空、而且「01」擦不掉。
-  async function openPopup(page: import("@playwright/test").Page) {
-    await gotoOverview(page);
+  async function openPopup(page: import("@playwright/test").Page, admin: string | null = "admin-admin1") {
+    await gotoOverview(page, "", admin);
     const grid = page.locator('[title="拖动选日期，双击建新单"]').first();
     const box = (await grid.boundingBox())!;
     const vw = page.viewportSize()!.width;
@@ -423,6 +430,33 @@ test.describe("建单弹窗的人数框", () => {
     await page.getByPlaceholder("客人姓名").fill("测试客户");
     await expect(page.getByText("填一下客人姓名")).toHaveCount(0);
     await expect(create).toBeEnabled();
+    // 能建的时候那个位置说「记到谁名下」—— 切错了身份，点「创建」之前还看得见
+    await expect(page.getByText("客人记到 Admin1 名下")).toBeVisible();
+  });
+
+  test("**没选身份就不让建**，并且说出来", async ({ page }) => {
+    // 一台还没选过身份的电脑：不知道这个客人该记在谁名下
+    await openPopup(page, null);
+    await page.getByPlaceholder("客人姓名").fill("测试客户");
+    await expect(page.getByRole("button", { name: "创建" })).toBeDisabled();
+    await expect(page.getByText("先在标题旁边选当前身份")).toBeVisible();
+  });
+
+  test("标题旁边切身份，建单弹窗跟着变", async ({ page }) => {
+    await gotoOverview(page, "", null);
+    await page.getByLabel("当前身份").selectOption({ label: "admin2" });
+    // 切完是 router.refresh()，等下拉显示成 admin2 再往下走
+    await expect(page.getByLabel("当前身份")).toHaveValue("admin-admin2");
+    const cookies = await page.context().cookies();
+    expect(cookies.find((c) => c.name === "admin_id")?.value).toBe("admin-admin2");
+
+    const grid = page.locator('[title="拖动选日期，双击建新单"]').first();
+    const box = (await grid.boundingBox())!;
+    const vw = page.viewportSize()!.width;
+    await page.mouse.dblclick((Math.max(box.x, 0) + Math.min(box.x + box.width, vw)) / 2, box.y + box.height - 20);
+    await page.locator('[data-new-order-popup="true"]').waitFor();
+    await page.getByPlaceholder("客人姓名").fill("测试客户");
+    await expect(page.getByText("客人记到 admin2 名下")).toBeVisible();
   });
 });
 

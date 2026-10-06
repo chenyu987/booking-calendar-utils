@@ -26,6 +26,12 @@ export const SEED = {
     { id: "o-1", first_name: "测试物主", last_name: "" },
   ],
   customers: [{ id: "r-long" }, { id: "r-short" }, { id: "r-aged" }],
+  // 排期总览标题旁边「当前身份」那个下拉的名单（0018）
+  admins: [
+    { id: "admin-admin1", name: "Admin1", created_at: "2026-01-01T00:00:00Z" },
+    { id: "admin-admin2", name: "admin2", created_at: "2026-01-01T00:00:01Z" },
+  ],
+  person_contacts: [],
   providers: [{ id: "o-1" }],
   resources: [
     {
