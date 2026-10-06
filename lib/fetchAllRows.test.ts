@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { PAGE_SIZE, paginatingFetch } from "./fetchAllRows";
+import { readFileSync } from "node:fs";
+import { PAGE_SIZE, STABLE_KEY, paginatingFetch, withStableOrder } from "./fetchAllRows";
 
 const BASE = "https://x.supabase.co/rest/v1";
 
@@ -72,5 +73,37 @@ describe("paginatingFetch：超过 1000 行自动分页拉全", () => {
     const s = fakeServer(2500, { failAtOffset: 1000 });
     const res = await paginatingFetch(s.fetchImpl)(`${BASE}/orders?select=*`);
     expect(res.ok).toBe(false);
+  });
+});
+
+describe("主键不叫 id 的表", () => {
+  it("**person_contacts 按 person_id, admin_id 排，不加 id** —— 加了 PostgREST 直接报错", () => {
+    expect(withStableOrder(null, "person_contacts")).toBe("person_id.asc,admin_id.asc");
+    expect(withStableOrder(null, "app_settings")).toBe("key.asc");
+    expect(withStableOrder(null, "day_notes")).toBe("day.asc");
+  });
+
+  it("已经排了序的：保留原来的，只补上缺的唯一键", () => {
+    expect(withStableOrder("admin_id.desc", "person_contacts")).toBe("admin_id.desc,person_id.asc");
+    expect(withStableOrder("created_at.desc", "orders")).toBe("created_at.desc,id.asc");
+    expect(withStableOrder("id.desc", "orders")).toBe("id.desc");
+  });
+
+  it("分页时真的按这张表的唯一键去拉", async () => {
+    const s = fakeServer(1500);
+    await paginatingFetch(s.fetchImpl)(`${BASE}/person_contacts?select=person_id,admin_id`);
+    expect(decodeURIComponent(s.calls[1])).toContain("order=person_id.asc,admin_id.asc");
+    expect(decodeURIComponent(s.calls[1])).not.toMatch(/order=[^&]*(^|,)id\.asc/);
+  });
+
+  it("**0001_init.sql 里每张主键不叫 id 的表都登记了** —— 新建这种表漏登记，一过 1000 行整页报错", () => {
+    const sql = readFileSync("supabase/migrations/0001_init.sql", "utf8");
+    const tables = [...sql.matchAll(/create table (\w+) \(([\s\S]*?)\n\);/g)];
+    const noId = tables
+      .filter(([, , body]) => !/^\s*id\s+\w+.*primary key/m.test(body))
+      .map(([, name]) => name)
+      .sort();
+    expect(noId.length).toBeGreaterThan(0);
+    expect(Object.keys(STABLE_KEY).sort()).toEqual(noId);
   });
 });

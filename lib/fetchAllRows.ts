@@ -17,13 +17,36 @@ function urlOf(input: RequestInfo | URL): URL {
 }
 
 /**
- * 分页时必须有稳定的顺序，不然页与页之间会重复或漏行。
- * 已经排了序的，在后面补一个 id 兜底；没排的就按 id 排
+ * **主键不是 `id` 的表**，分页时按什么兜底排序（能唯一确定一行的那几列）。
+ *
+ * 默认按 id —— 绝大多数表都有。但这几张没有，照默认加 `order=id.asc` 的话
+ * PostgREST 直接报「column … id does not exist」，整条查询失败。平时碰不到，
+ * 一过 1000 行就炸：2026-10-06 导入数据后 person_contacts 涨到 1915 行，
+ * Customer 管理整页 500。
+ *
+ * **新建一张主键不叫 id 的表，记得在这儿登记一行。** lib/fetchAllRows.test.ts 里
+ * 有一条拿 0001_init.sql 对这张表的测试，漏登记会红。
  */
-function withStableOrder(order: string | null): string {
-  if (!order) return "id.asc";
-  const cols = order.split(",").map((p) => p.split(".")[0]);
-  return cols.includes("id") ? order : `${order},id.asc`;
+export const STABLE_KEY: Record<string, string[]> = {
+  person_contacts: ["person_id", "admin_id"],
+  day_notes: ["day"],
+  app_settings: ["key"],
+};
+
+/** URL 里是哪张表：/rest/v1/<table> */
+function tableOf(url: URL): string {
+  return url.pathname.split("/rest/v1/")[1]?.split("/")[0] ?? "";
+}
+
+/**
+ * 分页时必须有稳定的顺序，不然页与页之间会重复或漏行。
+ * 已经排了序的，在后面补上这张表的唯一键兜底（默认 id）；没排的就按唯一键排
+ */
+export function withStableOrder(order: string | null, table = ""): string {
+  const key = STABLE_KEY[table] ?? ["id"];
+  const cols = (order ?? "").split(",").filter(Boolean).map((p) => p.split(".")[0]);
+  const missing = key.filter((k) => !cols.includes(k)).map((k) => `${k}.asc`);
+  return [...(order ? [order] : []), ...missing].join(",");
 }
 
 export function paginatingFetch(base: FetchLike): FetchLike {
@@ -47,7 +70,7 @@ export function paginatingFetch(base: FetchLike): FetchLike {
     if (!Array.isArray(rows) || rows.length < PAGE_SIZE) return first;
 
     // 拿满了：从头按稳定顺序一页一页拉。第一页不复用 —— 它没排序，跟后面的页对不上
-    url.searchParams.set("order", withStableOrder(url.searchParams.get("order")));
+    url.searchParams.set("order", withStableOrder(url.searchParams.get("order"), tableOf(url)));
     const all: unknown[] = [];
     for (let offset = 0; ; offset += PAGE_SIZE) {
       url.searchParams.set("limit", String(PAGE_SIZE));
