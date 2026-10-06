@@ -33,7 +33,8 @@ export async function POST(req: NextRequest) {
         .single();
       if (ord) {
         const { error } = await supabase
-          .from("customers")
+          // 名字在人身上（people）；customer_id 就是 people.id（0017）
+          .from("people")
           .update({ first_name: body.customer_name.trim() })
           .eq("id", ord.customer_id);
         if (error) throw new Error(error.message);

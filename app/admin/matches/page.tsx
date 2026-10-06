@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { personSpread } from "@/lib/people";
 import { formatParty } from "@/lib/party";
 import { formatHolder } from "@/lib/age";
 import Link from "next/link";
@@ -236,7 +237,7 @@ export default async function MatchesAdminPage({
       supabase
         .from("matches")
         .select(
-          "id, status, created_at, order_id, resource_id, orders(location, demand_days, status, male_count, female_count, customers(first_name, last_name, chat)), resources(id, status, deleted_at, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(first_name, last_name, chat))"
+          `id, status, created_at, order_id, resource_id, orders(location, demand_days, status, male_count, female_count, customers(${personSpread("first_name, last_name, chat")})), resources(id, status, deleted_at, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(${personSpread("first_name, last_name, chat")}))`
         )
         .order("created_at", { ascending: false }),
       supabase
@@ -246,7 +247,7 @@ export default async function MatchesAdminPage({
       supabase
         .from("resources")
         .select(
-          "id, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(first_name, last_name)"
+          `id, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(${personSpread("first_name, last_name")})`
         )
         .eq("status", "active")
         .is("deleted_at", null),

@@ -1,8 +1,10 @@
 
 create extension if not exists "pgcrypto";
 
--- Customer 求物品人
-create table customers (
+-- 人（0017）。共有的信息 —— 姓名、联系方式、生日、登录账号、状态、备注 —— 只存一份。
+-- 「这个人是客户 / 物主」不存字段，看 customers / providers 里有没有他这一行。
+-- 同一个人既租又出租的话，两张身份表里各有一行，id 都等于这里的 id。
+create table people (
   id uuid primary key default gen_random_uuid(),
   first_name text,
   last_name text,
@@ -13,9 +15,17 @@ create table customers (
   chat text,
   status text not null default 'active',
   note text,
-  -- 客户登录后对应的 Supabase Auth 用户。unique：一个 auth 用户只认领一行，
-  -- 免得同一个人在库里裂成两条（0007）
+  -- 登录后对应的 Supabase Auth 用户。unique：一个登录账号只对应一个人，
+  -- 从客户入口、物主入口登录落到的是同一行（0007/0008，0017 起挪到这儿）
   auth_user_id uuid unique references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index people_email_lower_idx on people (lower(email));
+
+-- Customer 求物品人（身份表）。id 就是 people.id —— 主键同时是外键，
+-- 所以 orders.customer_id 指向这里，也就等于指向了那个人
+create table customers (
+  id uuid primary key references people(id) on delete cascade,
   -- 介绍人返点（0014）：关系存在**被介绍人**这一行上，不在介绍人那行存一个 list。
   -- 「A 介绍了哪些人」= where referred_by = A，算出来的。数组存法要回答反方向的
   -- 「B 这一单该返给谁」得扫全表，而那才是高频的那个方向。
@@ -28,6 +38,7 @@ create table customers (
   -- 两头各自可空，空 = 这一头不设限，跟 resources 的有效期同一套约定
   referral_from date,
   referral_until date,
+  -- 成为客户的时间（人可能更早就以物主身份在库里了）
   created_at timestamptz not null default now(),
   -- 自己介绍自己拦在库层面。更长的环（A→B→A）check 表达不了，
   -- 写入时走 lib/referral.ts 的 referralBlockReason()
@@ -37,28 +48,15 @@ create table customers (
   constraint customers_referral_window_order
     check (referral_from is null or referral_until is null or referral_from <= referral_until)
 );
-create index on customers (auth_user_id);
-create index on customers (lower(email));
 create index on customers (referred_by);
 
--- Provider 物主（账号层面。一个 Provider 可以持多个人的资源，
--- 所以资源本身的信息 —— 资源类型、持有人姓名/性别/生日 —— 都在 resources 上）
+-- Provider 物主（身份表，id 就是 people.id）。一个 Provider 可以持多个人的资源，
+-- 所以资源本身的信息 —— 资源类型、持有人姓名/性别/生日 —— 都在 resources 上
 create table providers (
-  id uuid primary key default gen_random_uuid(),
-  first_name text,
-  last_name text,
-  date_of_birth date,
-  email text,
-  phone_number text,
-  chat text,
-  status text not null default 'active',
-  note text,
-  -- 物主登录后对应的 Supabase Auth 用户。unique：一个 auth 用户只认领一行（0008）
-  auth_user_id uuid unique references auth.users(id) on delete set null,
+  id uuid primary key references people(id) on delete cascade,
+  -- 成为物主的时间
   created_at timestamptz not null default now()
 );
-create index on providers (auth_user_id);
-create index on providers (lower(email));
 
 -- Resource Provider 挂出的可用资源
 create table resources (

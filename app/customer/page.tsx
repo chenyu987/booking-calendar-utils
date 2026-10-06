@@ -21,8 +21,9 @@ async function saveProfile(formData: FormData) {
 
   const text = (k: string) => ((formData.get(k) as string) ?? "").trim() || null;
 
+  // 资料是人身上的（people），不在 customers 这张身份表上（0017）
   const { error } = await supabase
-    .from("customers")
+    .from("people")
     .update({
       first_name: text("first_name"),
       phone_number: text("phone_number"),
@@ -65,7 +66,7 @@ export default async function CustomerHomePage({
 
   const [{ data: me }, { data: orders }] = await Promise.all([
     supabase
-      .from("customers")
+      .from("people")
       .select("first_name, phone_number, chat, date_of_birth")
       .eq("id", customerId)
       .maybeSingle(),

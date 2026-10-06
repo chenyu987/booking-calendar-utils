@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import { personSpread } from "@/lib/people";
 import LocationInput from "@/components/LocationInput";
 import { isUnknownLocation, locationHintFor } from "@/lib/locations";
 import { formatParty } from "@/lib/party";
@@ -141,7 +142,7 @@ export default async function OrdersAdminPage({
     { data: assignments },
   ] = await Promise.all([
     supabase.from("orders").select("*").order("created_at", { ascending: false }),
-    supabase.from("customers").select("id, first_name, last_name"),
+    supabase.from("customers").select(`id, ${personSpread("first_name, last_name")}`),
     supabase
       .from("resources")
       .select(

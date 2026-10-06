@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import { createPerson, PERSON_SPREAD } from "@/lib/people";
 import { calcAge } from "@/lib/age";
 import { todayIso } from "@/lib/dates";
 import { buildFootprints } from "@/lib/footprint";
@@ -25,7 +26,7 @@ async function createCustomer(formData: FormData) {
     throw new Error("姓名和聊天必填");
   }
 
-  const { error } = await supabase.from("customers").insert({
+  await createPerson("customer", {
     first_name: firstName,
     last_name: (formData.get("last_name") as string)?.trim() || null,
     phone_number: phone || null,
@@ -34,7 +35,6 @@ async function createCustomer(formData: FormData) {
     note: (formData.get("note") as string)?.trim() || null,
     status: "active",
   });
-  if (error) throw new Error(error.message);
   revalidatePath("/admin/customers");
 }
 
@@ -48,11 +48,12 @@ async function updateCustomer(formData: FormData) {
     // 原因带回页面显示，停在编辑态
     redirect(`/admin/customers?edit=${id}&error=${encodeURIComponent(parsed.error)}`);
   }
-  const { error } = await supabase.from("customers").update(parsed.values).eq("id", id);
+  // 编辑的全是人身上的字段（people，0017）—— 这个人要是也是物主，Provider 管理那边跟着变
+  const { error } = await supabase.from("people").update(parsed.values).eq("id", id);
   if (error) redirect(`/admin/customers?edit=${id}&error=${encodeURIComponent(error.message)}`);
 
   // 客户名字显示在这些页面上
-  for (const p of ["/admin/customers", "/admin/overview", "/admin/orders", "/admin/matches", "/admin/referrals", "/admin/payments"]) {
+  for (const p of ["/admin/customers", "/admin/providers", "/admin/overview", "/admin/orders", "/admin/matches", "/admin/referrals", "/admin/payments"]) {
     revalidatePath(p);
   }
   // 带上刚存的是谁：服务端发起的跳转会把页面滚回顶上，表格那边看到 saved 就滚回这一行
@@ -69,7 +70,7 @@ export default async function CustomersAdminPage({
   const [{ data: customers, error }, { data: orders }] = await Promise.all([
     supabase
       .from("customers")
-      .select("*")
+      .select(`*, ${PERSON_SPREAD}`)
       .order("created_at", { ascending: false }),
     supabase
       .from("orders")

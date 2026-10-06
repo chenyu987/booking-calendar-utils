@@ -117,8 +117,9 @@ export async function saveContact(formData: FormData) {
   const chat = text(formData, "chat");
   if (!chat) redirect("/provider?edit=contact&error=chat");
 
+  // 联系方式是人身上的（people），不在 providers 这张身份表上（0017）
   const { error } = await supabase
-    .from("providers")
+    .from("people")
     .update({
       first_name: text(formData, "first_name") || null,
       chat,

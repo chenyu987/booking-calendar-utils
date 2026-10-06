@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import { createPerson, PERSON_SPREAD } from "@/lib/people";
 import { calcAge } from "@/lib/age";
 import {
   formStyle,
@@ -25,7 +26,7 @@ async function createProvider(formData: FormData) {
   const phone = (formData.get("phone_number") as string)?.trim();
   if (!firstName || !phone) throw new Error("姓名和电话必填");
 
-  const { error } = await supabase.from("providers").insert({
+  await createPerson("provider", {
     first_name: firstName,
     last_name: (formData.get("last_name") as string)?.trim() || null,
     phone_number: phone,
@@ -34,15 +35,15 @@ async function createProvider(formData: FormData) {
     note: (formData.get("note") as string)?.trim() || null,
     status: "active",
   });
-  if (error) throw new Error(error.message);
   revalidatePath("/admin/providers");
   revalidatePath("/admin/overview");
 }
 
 async function updateProvider(formData: FormData) {
   "use server";
+  // 编辑的全是人身上的字段（people，0017）—— 这个人要是也是客户，Customer 管理那边跟着变
   const { error } = await supabase
-    .from("providers")
+    .from("people")
     .update({
       first_name: (formData.get("first_name") as string)?.trim() || null,
       last_name: (formData.get("last_name") as string)?.trim() || null,
@@ -56,17 +57,31 @@ async function updateProvider(formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/providers");
+  revalidatePath("/admin/customers");
   revalidatePath("/admin/overview");
   redirect("/admin/providers"); // 存完退出编辑状态
 }
 
+// 删的是**物主这个身份**（providers 那一行，连带他名下的资源），不是这个人。
+// 他要是也是客户，人和客户那边的订单都留着；不是的话，人也一起删掉 ——
+// 留一个什么身份都没有的人，哪张列表上都看不见，只会在下次按邮箱认领时冒出来
 async function deleteProvider(formData: FormData) {
   "use server";
-  const { error } = await supabase
-    .from("providers")
-    .delete()
-    .eq("id", formData.get("id") as string);
+  const id = formData.get("id") as string;
+  const { error } = await supabase.from("providers").delete().eq("id", id);
   if (error) throw new Error(error.message);
+  // 查不到 ≠ 不是客户。查询出错时当成「不是」的话，下面删人会顺着外键把他的
+  // 客户身份和订单一起 cascade 掉 —— 出错就停，宁可留一个空身份的人
+  const { data: asCustomer, error: lookupError } = await supabase
+    .from("customers")
+    .select("id")
+    .eq("id", id)
+    .maybeSingle();
+  if (lookupError) throw new Error(lookupError.message);
+  if (!asCustomer) {
+    const { error: personError } = await supabase.from("people").delete().eq("id", id);
+    if (personError) throw new Error(personError.message);
+  }
   revalidatePath("/admin/providers");
   revalidatePath("/admin/overview");
 }
@@ -78,7 +93,7 @@ export default async function ProvidersAdminPage({
 }) {
   const { data: providers, error } = await supabase
     .from("providers")
-    .select("*")
+    .select(`*, ${PERSON_SPREAD}`)
     .order("created_at", { ascending: false });
 
   const editingId = searchParams.edit;
@@ -87,7 +102,7 @@ export default async function ProvidersAdminPage({
     <main>
       <h1 style={pageTitleStyle}>Provider 管理</h1>
       <p style={helpTextStyle}>
-        删除会连带删掉这个 Provider 名下的所有 Resource。
+        删除会连带删掉这个 Provider 名下的所有 Resource。这个人如果也是客户，他的资料和订单都还在。
       </p>
 
       <form action={createProvider} style={formStyle}>

@@ -15,7 +15,7 @@ async function submitListing(formData: FormData) {
   if (!user) redirect("/login?as=provider");
   const providerId = await claimProvider(user.id, user.email ?? null);
 
-  // 称呼和联系方式顺手存回 providers：认领出来的那行只有邮箱，
+  // 称呼和联系方式顺手存回这个人身上（people）：认领出来的那行只有邮箱，
   // 有人要租的时候得能联系到物主。
   //
   // **聊天是必填的** —— 通知物主全走聊天，没有聊天这个资源等于挂了也联系不上。
@@ -28,7 +28,7 @@ async function submitListing(formData: FormData) {
   const profile: Record<string, string> = { chat };
   if (firstName) profile.first_name = firstName;
   if (phone) profile.phone_number = phone;
-  await supabase.from("providers").update(profile).eq("id", providerId);
+  await supabase.from("people").update(profile).eq("id", providerId);
 
   const { error: resourceError } = await supabase.from("resources").insert({
     provider_id: providerId,
@@ -60,7 +60,7 @@ export default async function ProviderListingPage({
   const providerId = await claimProvider(user.id, user.email ?? null);
 
   const { data: me } = await supabase
-    .from("providers")
+    .from("people")
     .select("first_name, phone_number, chat, date_of_birth")
     .eq("id", providerId)
     .maybeSingle();

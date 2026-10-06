@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import { personSpread } from "@/lib/people";
 import { calcAge } from "@/lib/age";
 import { formatDayRanges } from "@/lib/dates";
 import { summarizeBookings } from "@/lib/booking";
@@ -168,11 +169,11 @@ export default async function ResourcesAdminPage({
   const [{ data: resources, error }, { data: providers }, { data: assignments }] =
     await Promise.all([
       supabase.from("resources").select("*").order("created_at", { ascending: false }),
-      supabase.from("providers").select("id, first_name, last_name"),
+      supabase.from("providers").select(`id, ${personSpread("first_name, last_name")}`),
       supabase
         .from("order_assignments")
         .select(
-          "resource_id, orders(id, location, demand_days, status, customers(first_name, last_name))"
+          `resource_id, orders(id, location, demand_days, status, customers(${personSpread("first_name, last_name")}))`
         ),
     ]);
 

@@ -69,7 +69,7 @@ export default async function CustomerRequestPage({
   // 只读地看一眼联系方式填没填 —— 改还是只能在个人资料里改，
   // 这里不放输入框，免得同一份信息两个地方能改
   const { data: me } = await supabase
-    .from("customers")
+    .from("people")
     .select("phone_number, chat")
     .eq("id", customerId)
     .maybeSingle();

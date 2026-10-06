@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { personSpread } from "@/lib/people";
 import { getReferralBandDays, getReferralRate, setReferralRate } from "@/lib/appSettings";
 import Link from "next/link";
 import { formatDayRanges, todayIso } from "@/lib/dates";
@@ -112,7 +113,7 @@ async function loadCustomersById(): Promise<{
   const { data, error } = await supabase
     .from("customers")
     .select(
-      "id, first_name, last_name, chat, referred_by, referral_rate, referral_from, referral_until"
+      `id, referred_by, referral_rate, referral_from, referral_until, ${personSpread("first_name, last_name, chat")}`
     );
   return {
     byId: new Map((data ?? []).map((r) => [r.id, r as ReferralCustomer])),
@@ -487,7 +488,7 @@ export default async function ReferralsAdminPage({
       supabase
         .from("customers")
         .select(
-          "id, first_name, last_name, chat, referred_by, referral_rate, referral_from, referral_until"
+          `id, referred_by, referral_rate, referral_from, referral_until, ${personSpread("first_name, last_name, chat")}`
         )
         .order("created_at", { ascending: false }),
       supabase.from("orders").select("id, customer_id, demand_days, location, amount, status"),

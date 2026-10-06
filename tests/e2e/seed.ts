@@ -17,13 +17,16 @@ function day(offset: number): string {
 }
 
 export const SEED = {
-  customers: [
+  // 人和身份分开（0017）：姓名生日在 people，customers / providers 只是身份，id 跟人同一个
+  people: [
     { id: "r-long", first_name: "laura kim", last_name: "", date_of_birth: null },
     // 三个字母，比输入框的 min-width 还窄 —— 专门用来盯「短名字把后面顶开」
     { id: "r-short", first_name: "xhs", last_name: "", date_of_birth: null },
     { id: "r-aged", first_name: "小明", last_name: "", date_of_birth: "1998-06-20" },
+    { id: "o-1", first_name: "测试物主", last_name: "" },
   ],
-  providers: [{ id: "o-1", name: "测试物主" }],
+  customers: [{ id: "r-long" }, { id: "r-short" }, { id: "r-aged" }],
+  providers: [{ id: "o-1" }],
   resources: [
     {
       id: "s-male",

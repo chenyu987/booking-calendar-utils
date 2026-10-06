@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import { createPerson, personSpread } from "@/lib/people";
 import ClickOutsideDeselect from "./ClickOutsideDeselect";
 import ZoomableCalendar from "./ZoomableCalendar";
 import ResizableOrderBlock from "./ResizableOrderBlock";
@@ -234,23 +235,19 @@ async function createQuickOrder(formData: FormData) {
   let customerId = passedCustomerId || undefined;
   if (!customerId) {
     // 同名客人复用，找不到就现建一个 —— 快速建单不打断流程去 Customer 页面
+    // 名字在 people 上，但只在**客户**里找（!inner = 没有 customers 这一行的人不算）——
+    // 同名的物主不该被顺手拉来下单
     const { data: existingCustomer } = await supabase
       .from("customers")
-      .select("id")
-      .ilike("first_name", customerName)
+      .select("id, people!inner(first_name)")
+      .ilike("people.first_name", customerName)
       .limit(1)
       .maybeSingle();
     customerId = existingCustomer?.id as string | undefined;
   }
 
   if (!customerId) {
-    const { data: created, error: customerError } = await supabase
-      .from("customers")
-      .insert({ first_name: customerName })
-      .select("id")
-      .single();
-    if (customerError) throw new Error(customerError.message);
-    customerId = created.id;
+    customerId = await createPerson("customer", { first_name: customerName });
   }
 
   const { data: order, error } = await supabase
@@ -356,7 +353,7 @@ export default async function OverviewPage({
       .from("orders")
       .select(
         // customer_id / 生日是推荐分配要用的：认「这个客人以前用的哪个资源」和年龄
-        "id, customer_id, location, amount, status, demand_days, male_count, female_count, customers(first_name, last_name, date_of_birth)"
+        `id, customer_id, location, amount, status, demand_days, male_count, female_count, customers(${personSpread("first_name, last_name, date_of_birth")})`
       ),
     supabase
       .from("resources")
@@ -371,7 +368,7 @@ export default async function OverviewPage({
     supabase.from("order_assignments").select("order_id, resource_id"),
     // 建新单时用来在客户端直接把姓名换成 customer_id，省掉建单时的那次查询
     // （跟上面几条并行，不额外增加页面加载时间）
-    supabase.from("customers").select("id, first_name"),
+    supabase.from("customers").select(`id, ${personSpread("first_name")}`),
     supabase.from("order_notes").select("order_id, internal_note"),
     // 日期条上「这一天的备注」。整张表拉下来：一天一行，一个季撑死两三百行
     supabase.from("day_notes").select("day, note"),

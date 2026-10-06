@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import { personSpread } from "@/lib/people";
 import {
   formStyle,
   inputStyle,
@@ -31,7 +32,7 @@ export default async function PaymentsAdminPage() {
     supabase
       .from("payments")
       .select(
-        "id, amount, method, status, created_at, orders(location, customers(first_name))"
+        `id, amount, method, status, created_at, orders(location, customers(${personSpread("first_name")}))`
       )
       .order("created_at", { ascending: false }),
     supabase
