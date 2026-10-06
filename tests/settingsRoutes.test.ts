@@ -171,7 +171,12 @@ describe("设置弹框那条接口", () => {
     const { GET } = await import("@/app/admin/settings/route");
     const json = await (await GET()).json();
     // referral_rate 没设过 → 回默认 10（百分数，库里存的是 0.1）
-    expect(json).toEqual({ overview_start: "2026-12-01", band_days: 14, referral_rate: 10 });
+    expect(json).toEqual({
+      overview_start: "2026-12-01",
+      overview_end: null,
+      band_days: 14,
+      referral_rate: 10,
+    });
   });
 
   it("一次存两项", async () => {
@@ -185,6 +190,31 @@ describe("设置弹框那条接口", () => {
     await saveSettings({ overview_start: "2026-12-01" });
     await saveSettings({ overview_start: "" });
     expect(fake.db.app_settings.find((x: any) => x.key === "overview_start")).toBeUndefined();
+  });
+
+  it("结束日期存进去、留空清掉", async () => {
+    await saveSettings({ overview_start: "2026-12-01", overview_end: "2027-03-31" });
+    const rows = Object.fromEntries(fake.db.app_settings.map((x: any) => [x.key, x.value]));
+    expect(rows).toEqual({ overview_start: "2026-12-01", overview_end: "2027-03-31" });
+    await saveSettings({ overview_end: "" });
+    expect(fake.db.app_settings.find((x: any) => x.key === "overview_end")).toBeUndefined();
+  });
+
+  it("**结束早于开始就整个拒掉**，一项都不存", async () => {
+    const r = await saveSettings({ overview_start: "2027-01-10", overview_end: "2027-01-09" });
+    expect(r.status).toBe(400);
+    expect(fake.db.app_settings).toHaveLength(0);
+  });
+
+  it("只改一头时，拿库里现存的另一头比", async () => {
+    seed({ app_settings: [{ key: "overview_start", value: "2027-01-10" }] });
+    const r = await saveSettings({ overview_end: "2027-01-09" });
+    expect(r.status).toBe(400);
+    expect(fake.db.app_settings.find((x: any) => x.key === "overview_end")).toBeUndefined();
+  });
+
+  it("结束日期不存在的日子也拒掉", async () => {
+    expect((await saveSettings({ overview_end: "2027-02-31" })).status).toBe(400);
   });
 
   it("**日子不存在就整个拒掉**，别让日历从一个说不清的地方开始", async () => {

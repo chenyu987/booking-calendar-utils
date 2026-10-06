@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
+import { paginatingFetch } from "./fetchAllRows";
+
 // lib/supabase.ts 那个是模块级单例、不带登录态，admin 页面用它就够了。
 // 但「当前访问者是谁」存在 cookie 里，服务端必须**按请求**读 cookie 才知道，
 // 单例做不到 —— 所以客户这边每个请求现造一个。
@@ -10,6 +12,8 @@ export function createSupabaseServerClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL as string,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string,
     {
+      // 物主页也要查整季的单和分配，一样会碰到 1000 行上限（lib/fetchAllRows.ts）
+      global: { fetch: paginatingFetch((input, init) => fetch(input, { ...init, cache: "no-store" })) },
       cookies: {
         getAll: () => cookieStore.getAll(),
         setAll: (toSet) => {

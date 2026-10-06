@@ -40,3 +40,36 @@ export function ordersBeforeStart<T extends { demand_days?: string[] | null }>(
     return days.length > 0 && days.every((d) => d < start);
   });
 }
+
+// 日历到哪天结束。
+//
+// 默认是「最晚的单子和今天里靠后的那个」再往后留出一整段空白（给拖拽建新单用）。
+// 指定了就**原样用**，跟起点同一个道理：说到哪天就到哪天，不补齐整段、也不再往后
+// 接空白 —— 最后一行可以比别的行短，那正好看得出「日历到这儿就停了」。
+
+/**
+ * 算出时间轴的终点。
+ * @param explicit 界面上指定的结束日期，没指定或格式不对就当没指定（返回 null，用默认）
+ * @param start 已经定下来的起点。**终点早于起点也当没指定** —— 起点可能是默认算出来的
+ *   （没在设置里填），存的时候拦不住；照原样用的话日历整个消失，连往上拖新单的地方都没有
+ */
+export function resolveTimelineEnd(
+  explicit: string | undefined,
+  start: string
+): string | null {
+  if (!isIsoDate(explicit)) return null;
+  return explicit >= start ? explicit : null;
+}
+
+/** 终点定死之后，这些单子整个落在终点之后，界面上一条都看不见 */
+export function ordersAfterEnd<T extends { demand_days?: string[] | null }>(
+  orders: T[],
+  end: string
+): T[] {
+  if (!isIsoDate(end)) return [];
+  // 只要有一天在终点当天或之前就还看得见，不算「被挡住」
+  return orders.filter((o) => {
+    const days = o.demand_days ?? [];
+    return days.length > 0 && days.every((d) => d > end);
+  });
+}

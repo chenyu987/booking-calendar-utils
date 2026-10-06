@@ -1,5 +1,46 @@
 import { describe, it, expect } from "vitest";
-import { orderSegments, buildFootprints } from "./footprint";
+import { orderSegments, buildFootprints, summarizeFootprint, sortByFootprint } from "./footprint";
+
+describe("sortByFootprint：按足迹排 Customer", () => {
+  const s = (start: string, inactive = false) => ({ label: start, start, inactive });
+  // 传进来的顺序就是「默认」（最近添加在前）。segments 是倒序的
+  const rows = [
+    { id: "new-never", segments: [], activeOrderCount: 0 },
+    { id: "only-cancelled", segments: [s("2026-03-01", true)], activeOrderCount: 0 },
+    { id: "veteran", segments: [s("2025-02-01"), s("2024-12-01"), s("2024-11-20")], activeOrderCount: 3 },
+    { id: "recent", segments: [s("2026-08-01"), s("2025-06-10")], activeOrderCount: 2 },
+    { id: "once", segments: [s("2025-01-05")], activeOrderCount: 1 },
+  ];
+  const ids = (sort: Parameters<typeof sortByFootprint>[1]) => sortByFootprint(rows, sort).map((r) => r.id);
+
+  it("默认：顺序不动", () => {
+    expect(ids("default")).toEqual(["new-never", "only-cancelled", "veteran", "recent", "once"]);
+  });
+  it("最近来过：只算真用了的，没来过的（含只黄过单的）排最后", () => {
+    expect(ids("recent")).toEqual(["recent", "veteran", "once", "new-never", "only-cancelled"]);
+  });
+  it("最早来过：第一次来得越早越前", () => {
+    expect(ids("earliest")).toEqual(["veteran", "once", "recent", "new-never", "only-cancelled"]);
+  });
+  it("来得最多：真用了的单数从多到少", () => {
+    expect(ids("most")).toEqual(["veteran", "recent", "once", "new-never", "only-cancelled"]);
+  });
+  it("不改原数组", () => {
+    sortByFootprint(rows, "recent");
+    expect(rows[0].id).toBe("new-never");
+  });
+});
+
+describe("summarizeFootprint：收起时的一行", () => {
+  const seg = (start: string) => ({ label: start, start, inactive: false });
+  it("没有、一段、两段、三段以上", () => {
+    expect(summarizeFootprint([])).toEqual({ earliest: null, latest: null, joiner: "" });
+    expect(summarizeFootprint([seg("b")])).toMatchObject({ earliest: null, latest: { start: "b" }, joiner: "" });
+    // 传进来是倒序的：最近的在前
+    expect(summarizeFootprint([seg("c"), seg("a")])).toMatchObject({ earliest: { start: "a" }, latest: { start: "c" }, joiner: "、" });
+    expect(summarizeFootprint([seg("c"), seg("b"), seg("a")])).toMatchObject({ earliest: { start: "a" }, latest: { start: "c" }, joiner: "…" });
+  });
+});
 
 describe("orderSegments", () => {
   it("连续日期压成一段，带上地点", () => {

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { isIsoDate, resolveTimelineStart, ordersBeforeStart } from "./timelineStart";
+import {
+  isIsoDate,
+  resolveTimelineStart,
+  ordersBeforeStart,
+  resolveTimelineEnd,
+  ordersAfterEnd,
+} from "./timelineStart";
 
 describe("isIsoDate", () => {
   it("认标准的 YYYY-MM-DD", () => {
@@ -58,5 +64,46 @@ describe("ordersBeforeStart", () => {
 
   it("起点填坏了就当没设，谁也没被挡", () => {
     expect(ordersBeforeStart(orders, "乱写")).toEqual([]);
+  });
+});
+
+describe("resolveTimelineEnd", () => {
+  it("指定了就原样用", () => {
+    expect(resolveTimelineEnd("2027-03-31", "2026-12-01")).toBe("2027-03-31");
+  });
+
+  it("终点等于起点也行，就看一天", () => {
+    expect(resolveTimelineEnd("2026-12-01", "2026-12-01")).toBe("2026-12-01");
+  });
+
+  it("没指定或者填坏了就用默认（null）", () => {
+    expect(resolveTimelineEnd(undefined, "2026-12-01")).toBeNull();
+    expect(resolveTimelineEnd("", "2026-12-01")).toBeNull();
+    expect(resolveTimelineEnd("2027-02-31", "2026-12-01")).toBeNull();
+  });
+
+  it("**终点早于起点也当没指定**，不然日历整个消失", () => {
+    expect(resolveTimelineEnd("2026-11-30", "2026-12-01")).toBeNull();
+  });
+});
+
+describe("ordersAfterEnd", () => {
+  const orders = [
+    { id: "a", demand_days: ["2027-04-01", "2027-04-02"] },
+    { id: "b", demand_days: ["2027-03-05"] },
+    { id: "c", demand_days: ["2027-03-31", "2027-04-01"] }, // 跨着终点
+    { id: "d", demand_days: [] },
+  ];
+
+  it("整单都在终点之后的才算被挡住", () => {
+    expect(ordersAfterEnd(orders, "2027-03-31").map((o) => o.id)).toEqual(["a"]);
+  });
+
+  it("跨着终点的还看得见，不算被挡住", () => {
+    expect(ordersAfterEnd(orders, "2027-03-31").map((o) => o.id)).not.toContain("c");
+  });
+
+  it("终点填坏了就当没设，谁也没被挡", () => {
+    expect(ordersAfterEnd(orders, "乱写")).toEqual([]);
   });
 });

@@ -7,6 +7,7 @@ import { THEME_COOKIE, type Theme } from "@/lib/theme";
 
 export type Settings = {
   overview_start: string | null;
+  overview_end: string | null;
   band_days: number;
   /** 介绍人返点的全局默认比例，**百分数**（10 = 10%） */
   referral_rate: number;
@@ -70,6 +71,7 @@ export default function SettingsDialog({
     const form = new FormData(e.currentTarget);
     const next: Settings = {
       overview_start: String(form.get("overview_start") ?? "") || null,
+      overview_end: String(form.get("overview_end") ?? "") || null,
       band_days: Number(form.get("band_days")),
       referral_rate: Number(form.get("referral_rate")),
     };
@@ -81,6 +83,7 @@ export default function SettingsDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           overview_start: String(form.get("overview_start") ?? ""),
+          overview_end: String(form.get("overview_end") ?? ""),
           band_days: String(form.get("band_days") ?? ""),
           referral_rate: String(form.get("referral_rate") ?? ""),
         }),
@@ -139,18 +142,30 @@ export default function SettingsDialog({
         </section>
 
         <section style={sectionStyle}>
-          <div style={labelStyle}>排期总览：日历从哪天开始</div>
+          <div style={labelStyle}>排期总览：日历显示哪几天</div>
           <p style={hintStyle}>
-            留空就是默认：从最早的单子（或今天，看哪个更早）往前一点开始。
-            补录历史单、或者只想看季后半段时，在这儿定一个日子。
+            两头都可以留空，留空就是默认：从最早的单子（或今天，看哪个更早）往前一点开始，
+            到最晚的单子（或今天）再往后留一段空白。补录历史单、或者只想看季某一段时，在这儿定日子。
           </p>
-          <input
-            key={`start-${data.overview_start ?? ""}`}
-            type="date"
-            name="overview_start"
-            defaultValue={data.overview_start ?? ""}
-            style={inputStyle}
-          />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <input
+              key={`start-${data.overview_start ?? ""}`}
+              type="date"
+              name="overview_start"
+              aria-label="从哪天开始"
+              defaultValue={data.overview_start ?? ""}
+              style={inputStyle}
+            />
+            <span style={{ ...hintStyle, margin: 0 }}>到</span>
+            <input
+              key={`end-${data.overview_end ?? ""}`}
+              type="date"
+              name="overview_end"
+              aria-label="到哪天结束"
+              defaultValue={data.overview_end ?? ""}
+              style={inputStyle}
+            />
+          </div>
         </section>
 
         <section style={sectionStyle}>

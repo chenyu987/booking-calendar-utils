@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { calcAge } from "@/lib/age";
 import { formatDayRanges } from "@/lib/dates";
+import { summarizeBookings } from "@/lib/booking";
+import { DELETE_BLOCKED_TEXT } from "@/lib/resourceEdit";
+import { deleteResource, restoreResource } from "./actions";
 import { STATUS_LABELS as ORDER_STATUS_LABELS } from "@/lib/orderStatus";
 import FilterForm from "../orders/FilterForm";
 import {
@@ -80,47 +83,60 @@ async function updateResource(formData: FormData) {
   redirect("/admin/resources");
 }
 
-async function deleteResource(formData: FormData) {
-  "use server";
-  const { error } = await supabase
-    .from("resources")
-    .delete()
-    .eq("id", formData.get("id") as string);
-  if (error) throw new Error(error.message);
-  revalidatePath("/admin/resources");
-  revalidatePath("/admin/overview");
-}
+// 删除 / 恢复在 ./actions.ts（软删除，迁移 0013）
 
 // 筛选行的控件比新增表单里的紧凑：11 列挤在一行。
 // boxSizing 不能少——inputStyle 带内边距和边框，默认 content-box 的话 width:100%
 // 会比同格的 <select>（浏览器默认 border-box）宽出十几像素，右边对不齐。
-// 排期那一列：一行横着滚。nowrap 不能少 —— 少了它 flex 容器照样会把
-// 内容折行，横滚就成了摆设
-const bookingStripStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  whiteSpace: "nowrap",
-  overflowX: "auto",
-  gap: 0,
-  // Firefox。Chrome 那边靠下面注入的 ::-webkit-scrollbar 规则
-  scrollbarWidth: "none",
-};
-
 /**
- * 把这一列的滚动条藏掉。
+ * 排期那一列：「第一单 … 最新一单　N 单」一行，点开浮出全部明细。
  *
- * **不是为了好看，是为了行高。** macOS 的滚动条是浮在内容上的不占地方，
- * Linux 和 Windows 的占 15px —— 塞进一个 32px 高的行里，文字就被挤掉半截。
- * 开发机上看不出来，CI 和别人的机器上才炸，正是 CLAUDE.md 那条
- * 「在这台机器上碰巧成立」说的情况。
+ * 原来是所有单子挤在一行横着滚。这一列在 1600 宽的屏上只分到 139px，一单都放不全
+ * （一条要 190px 上下），实际只看得到第一条的前半截。
  *
- * 藏了之后照样能滚（触控板横划、Shift+滚轮），代价是少了「这儿还有」的暗示 ——
- * 边上那个被切掉半截的字本身就是暗示。
+ * **放不下时整段藏掉「第一单」，不把字截成半截。** 靠的是 `row-reverse + wrap`：
+ * DOM 里顺序是「N 单 / 最新 / 第一单+连接符」，反向排之后从右往左摆，挤不下的
+ * 最后一项（第一单）折到第二行，被固定行高 + overflow:hidden 切掉。
+ * 不用 JS、不用猜一个阈值宽度 —— 放得下就显示，放不下就不显示，按真实字宽算。
+ * `justify-content: flex-end` 在 row-reverse 里是往**左**贴，所以看着还是左对齐。
  *
- * 必须走 dangerouslySetInnerHTML：`<style>` 的文本子节点会被 React 转义，
- * `::-webkit-scrollbar` 里没有 `>` 和 `"` 所以这次侥幸能跑，但别赌下一次。
+ * 浮层用原生 <details>，点外面收起来也是一条 CSS（跟 app/provider/AccountMenu.tsx 的
+ * acctCss 同一个做法）：开着的时候给 summary 铺一张看不见的全屏底板，点底板 = 点 summary。
+ * 浮层是 summary 的兄弟节点，不在 overflow:hidden 里面，不会被切。
+ *
+ * 必须走 dangerouslySetInnerHTML：里面有 `>`，写成 <style>{css}</style> 会被 React 转义成
+ * `&gt;`，整条选择器失效（CLAUDE.md「往页面里塞 CSS」那条）。
  */
-const bookingStripCss = `.booking-strip::-webkit-scrollbar { display: none }`;
+const BOOKING_LINE_HEIGHT = 18;
+const bookingCss = `
+  .bk { position: relative; }
+  .bk > summary { list-style: none; cursor: pointer; }
+  .bk > summary::-webkit-details-marker { display: none; }
+  .bk-line {
+    display: flex;
+    flex-direction: row-reverse;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: baseline;
+    column-gap: 4px;
+    height: ${BOOKING_LINE_HEIGHT}px;
+    line-height: ${BOOKING_LINE_HEIGHT}px;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+  .bk-count { color: var(--text-faint); font-size: 11px; margin-left: 6px; border-bottom: 1px dotted var(--border-strong); line-height: 14px; }
+  .bk[open] .bk-count { color: var(--link); }
+  .bk[open] > summary::after { content: ""; position: fixed; inset: 0; z-index: 5; cursor: default; }
+  .bk-pop {
+    position: absolute; left: 0; top: 100%; margin-top: 4px; z-index: 10;
+    min-width: 280px; box-sizing: border-box; padding: 6px 10px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); box-shadow: 0 6px 20px rgba(0,0,0,.12);
+    font-size: 12px; line-height: 1.9; white-space: nowrap;
+  }
+  .bk-pop-row { display: grid; grid-template-columns: max-content max-content 1fr max-content; column-gap: 10px; }
+`;
 const filterInputStyle = {
   ...inputStyle,
   width: "100%",
@@ -145,6 +161,8 @@ export default async function ResourcesAdminPage({
     vto?: string;
     booked?: string;
     sstatus?: string;
+    /** 删除被拦下时带回来（./actions.ts） */
+    error?: string;
   };
 }) {
   const [{ data: resources, error }, { data: providers }, { data: assignments }] =
@@ -198,11 +216,14 @@ export default async function ResourcesAdminPage({
 
   return (
     <main>
-      <style dangerouslySetInnerHTML={{ __html: bookingStripCss }} />
+      <style dangerouslySetInnerHTML={{ __html: bookingCss }} />
       <h1 style={pageTitleStyle}>Resource 管理</h1>
       <p style={helpTextStyle}>
         一个 Provider 可以挂多个人的资源，一个资源挂一行。
       </p>
+      {searchParams.error === "booked" && (
+        <p style={{ color: "var(--danger)", fontSize: 13 }}>{DELETE_BLOCKED_TEXT}</p>
+      )}
 
       <form action={createResource} style={formStyle}>
         <select name="provider_id" style={selectStyle} required defaultValue="">
@@ -463,7 +484,9 @@ export default async function ResourcesAdminPage({
             </div>
           </form>
         ) : (
-          <div key={s.id} style={rowStyle}>
+          // 删掉的资源整行压暗 —— 右边挂牌状态那一格已经写着「已删除」（statusBadge），
+          // 压暗是让人扫表时一眼略过它
+          <div key={s.id} style={s.deleted_at ? { ...rowStyle, color: "var(--text-faint)" } : rowStyle}>
             <div style={{ ...cellStyle, flex: 1.1 }}>{providerName(s.provider_id)}</div>
             <div style={{ ...cellStyle, width: 70 }}>{s.item_type ?? "-"}</div>
             <div style={{ ...cellStyle, flex: 1.1 }}>{s.holder_name ?? "-"}</div>
@@ -488,38 +511,52 @@ export default async function ResourcesAdminPage({
             </div>
             <div style={{ ...cellStyle, flex: 1.8 }}>
               {(() => {
-                const bookings = (bookingsByResource.get(s.id) ?? []).sort(
-                  (a: any, b: any) =>
-                    (a.demand_days?.[0] ?? "") < (b.demand_days?.[0] ?? "") ? -1 : 1
+                // 一行只给头尾两单，其余（连同客户名、状态）收进浮层。
+                // 还是一行高：一个资源排过七八单也不会把这一行撑高，整张表扫得动
+                const { list, first, last, joiner } = summarizeBookings(
+                  bookingsByResource.get(s.id) ?? []
                 );
+                if (!first) {
+                  return <span style={{ color: "var(--text-faint)", fontSize: 12 }}>还没排过</span>;
+                }
                 return (
-                  <>
-                    {bookings.length === 0 ? (
-                      <span style={{ color: "var(--text-faint)", fontSize: 12 }}>还没排过</span>
-                    ) : (
-                      // 排期**挤在一行里横着滚**，不再一单一行往下摞。
-                      // 一个资源排过七八单的时候，往下摞会把这一行撑到七八行高，
-                      // 整张表被少数几张"劳模资源"拉得东一块西一块，扫都没法扫。
-                      // 横滚的代价是看不全，但这一列本来就是"瞄一眼这个资源去过哪儿"，
-                      // 要细看有 /admin/overview。
-                      <div className="booking-strip" style={bookingStripStyle}>
-                        {bookings.map((o: any, i: number) => (
-                          <span key={o.id} style={{ fontSize: 12 }}>
-                            {i > 0 && <span style={{ color: "var(--border-strong)" }}> ｜ </span>}
-                            <span style={{ color: "var(--link)" }}>
-                              {formatDayRanges(o.demand_days ?? [])}
-                            </span>{" "}
-                            {o.location ?? "?"}
-                            <span style={{ color: "var(--text-faint)" }}>
-                              {" "}
-                              · {o.customers?.first_name ?? "?"} ·{" "}
-                              {ORDER_STATUS_LABELS[o.status] ?? o.status}
-                            </span>
+                  <details className="bk">
+                    <summary>
+                      {/* 顺序是反的，见 bookingCss 的注释：从右往左摆，放不下的第一单折走 */}
+                      <div className="bk-line">
+                        <span className="bk-count">{list.length} 单</span>
+                        {/* 每一段都要包一层 span：BookingText 是 fragment，直接放进 flex
+                            容器会拆成好几个 flex 项，折行时就不是整段一起走了 */}
+                        {last && (
+                          <span>
+                            <BookingText o={last} />
                           </span>
-                        ))}
+                        )}
+                        <span>
+                          <BookingText o={first} />
+                          {joiner && (
+                            <span style={{ color: "var(--text-faint)" }}>
+                              {joiner === "…" ? " … " : joiner}
+                            </span>
+                          )}
+                        </span>
                       </div>
-                    )}
-                  </>
+                    </summary>
+                    <div className="bk-pop">
+                      {list.map((o: any) => (
+                        <div key={o.id} className="bk-pop-row">
+                          <span style={{ color: "var(--link)" }}>
+                            {formatDayRanges(o.demand_days ?? [])}
+                          </span>
+                          <span>{o.location ?? "?"}</span>
+                          <span>{o.customers?.first_name ?? "?"}</span>
+                          <span style={{ color: "var(--text-faint)" }}>
+                            {ORDER_STATUS_LABELS[o.status] ?? o.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 );
               })()}
             </div>
@@ -527,19 +564,45 @@ export default async function ResourcesAdminPage({
               {statusBadge(s).text}
             </div>
             <div style={{ ...cellStyle, width: 110, display: "flex", gap: 10 }}>
-              <Link href={`/admin/resources?edit=${s.id}`} style={linkButtonStyle}>
-                编辑
-              </Link>
-              <form action={deleteResource}>
-                <input type="hidden" name="id" value={s.id} />
-                <button type="submit" style={dangerLinkStyle}>
-                  删除
-                </button>
-              </form>
+              {s.deleted_at ? (
+                // 删掉的资源只给「恢复」：要改就先恢复，别在一张「不存在」的资源上改来改去
+                <form action={restoreResource}>
+                  <input type="hidden" name="id" value={s.id} />
+                  <button type="submit" style={linkButtonStyle}>
+                    恢复
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <Link href={`/admin/resources?edit=${s.id}`} style={linkButtonStyle}>
+                    编辑
+                  </Link>
+                  {/* 已经排出去的资源不给删（lib/resourceEdit.ts 的 deleteBlockReason），
+                      按钮直接不出现；服务端那边另有一道拦 */}
+                  {(bookingsByResource.get(s.id) ?? []).length === 0 && (
+                    <form action={deleteResource}>
+                      <input type="hidden" name="id" value={s.id} />
+                      <button type="submit" style={dangerLinkStyle}>
+                        删除
+                      </button>
+                    </form>
+                  )}
+                </>
+              )}
             </div>
           </div>
         )
       )}
     </main>
+  );
+}
+
+// 排期那一行里的一单：「9/19-20 locbl」。日期蓝色，跟原来一致
+function BookingText({ o }: { o: any }) {
+  return (
+    <>
+      <span style={{ color: "var(--link)" }}>{formatDayRanges(o.demand_days ?? [])}</span>{" "}
+      {o.location ?? "?"}
+    </>
   );
 }

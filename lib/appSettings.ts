@@ -18,6 +18,8 @@ import { REFERRAL_BAND_DAYS_DEFAULT } from "@/lib/referralBoard";
 export const SETTING_KEYS = {
   /** 排期总览的日历从哪天开始显示 */
   overviewStart: "overview_start",
+  /** 排期总览的日历到哪天结束 */
+  overviewEnd: "overview_end",
   /** 排期总览每行排几天 */
   overviewBandDays: "overview_band_days",
   /** 匹配台日历从哪天开始 */
@@ -65,6 +67,19 @@ export async function getOverviewStart(): Promise<string | null> {
 export async function setOverviewStart(value: string | null) {
   await writeSetting(
     SETTING_KEYS.overviewStart,
+    isIsoDate(value ?? undefined) ? value : null
+  );
+}
+
+/** 排期总览的结束日期。跟起始日期一样：没设或者不合法都当没设 */
+export async function getOverviewEnd(): Promise<string | null> {
+  const raw = await readSetting(SETTING_KEYS.overviewEnd);
+  return isIsoDate(raw ?? undefined) ? raw : null;
+}
+
+export async function setOverviewEnd(value: string | null) {
+  await writeSetting(
+    SETTING_KEYS.overviewEnd,
     isIsoDate(value ?? undefined) ? value : null
   );
 }

@@ -3,6 +3,8 @@ import { revalidatePath } from "next/cache";
 import {
   getOverviewStart,
   setOverviewStart,
+  getOverviewEnd,
+  setOverviewEnd,
   getOverviewBandDays,
   setOverviewBandDays,
   getReferralRate,
@@ -16,13 +18,15 @@ import { parseRatePercent } from "@/lib/referral";
 // GET 给弹框打开时拉当前值 —— 不放进 admin layout 预取，那样每开一个 admin
 // 页面都要多跑两条查询，而设置十天半月才点一次。
 export async function GET() {
-  const [start, bandDays, rate] = await Promise.all([
+  const [start, end, bandDays, rate] = await Promise.all([
     getOverviewStart(),
+    getOverviewEnd(),
     getOverviewBandDays(),
     getReferralRate(),
   ]);
   return NextResponse.json({
     overview_start: start,
+    overview_end: end,
     band_days: bandDays,
     // 库里存小数（0.1），界面上填百分数
     referral_rate: Math.round(rate * 10000) / 100,
@@ -37,18 +41,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "body 不是合法 JSON" }, { status: 400 });
   }
 
-  // 起始日期：空 = 回到默认。填了但不是真实存在的日子就拒绝 ——
-  // 放进去之后日历会从一个谁也说不清的地方开始（new Date 把 2/31 滚到 3 月）
-  if ("overview_start" in body) {
-    const raw = typeof body.overview_start === "string" ? body.overview_start.trim() : "";
+  // 起始 / 结束日期：空 = 回到默认。填了但不是真实存在的日子就拒绝 ——
+  // 放进去之后日历会从一个谁也说不清的地方开始（new Date 把 2/31 滚到 3 月）。
+  // **两个都先验完再写**：结束早于开始的话一项都不存，半存半不存最难查
+  const dateField = (key: string) =>
+    typeof body[key] === "string" ? (body[key] as string).trim() : "";
+  const startRaw = dateField("overview_start");
+  const endRaw = dateField("overview_end");
+  for (const raw of [startRaw, endRaw]) {
     if (raw && !isIsoDate(raw)) {
       return NextResponse.json(
         { error: "日期不对：要么留空（回到默认），要么填一个真实存在的日子" },
         { status: 400 }
       );
     }
-    await setOverviewStart(raw || null);
   }
+  // 只有这一次两个都提交了才比得了；只改一头的时候，另一头拿库里现存的比
+  if ("overview_start" in body || "overview_end" in body) {
+    const start = "overview_start" in body ? startRaw : (await getOverviewStart()) ?? "";
+    const end = "overview_end" in body ? endRaw : (await getOverviewEnd()) ?? "";
+    if (start && end && end < start) {
+      return NextResponse.json({ error: "结束日期早于开始日期" }, { status: 400 });
+    }
+  }
+  if ("overview_start" in body) await setOverviewStart(startRaw || null);
+  if ("overview_end" in body) await setOverviewEnd(endRaw || null);
 
   // 每行几天：超范围的不报错、直接夹住 —— 这个值也能靠拖拽改，拖到头本来就是
   // 夹住，两条路的行为得一样。但**类型**要先挡：Number(null)/Number("") 都是 0，

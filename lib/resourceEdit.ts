@@ -98,8 +98,12 @@ export function validateResourceEdit(
  * @returns 能删返回 null，不能删返回一句人话
  */
 export function deleteBlockReason(bookedDays: string[]): string | null {
-  if (bookedDays.length > 0) {
-    return "这个资源已经排出去了，删不了 —— 那几天客户拿的就是它。不想再出租的话改成「暂停」或「已下架」，已经排出去的那几天照常生效。";
-  }
-  return null;
+  return bookedDays.length > 0 ? DELETE_BLOCKED_TEXT : null;
 }
+
+/**
+ * 拦住时那句话。单独导出是给「拦下之后跳回页面再显示」那种路径用的
+ * （`/admin/resources?error=booked`）—— 页面上不该再写第二份。
+ */
+export const DELETE_BLOCKED_TEXT =
+  "这个资源已经排出去了，删不了 —— 那几天客户拿的就是它。不想再出租的话改成「暂停」或「已下架」，已经排出去的那几天照常生效。";

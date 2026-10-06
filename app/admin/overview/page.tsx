@@ -38,10 +38,15 @@ import {
 import { isPeakDate } from "@/lib/peakDates";
 import { BAND_GAP, COL_WIDTH, EXTRA_LANES, clampRailWidth } from "@/lib/bandDays";
 import { shortHolderNames } from "@/lib/holderName";
-import { resolveTimelineStart, ordersBeforeStart } from "@/lib/timelineStart";
+import {
+  resolveTimelineStart,
+  ordersBeforeStart,
+  resolveTimelineEnd,
+  ordersAfterEnd,
+} from "@/lib/timelineStart";
 import { previousOrdersFor, type ResourceUse } from "@/lib/previousUse";
 import { findClashes, indexClashes, clashKey } from "@/lib/doubleBooking";
-import { getOverviewStart, getOverviewBandDays } from "@/lib/appSettings";
+import { getOverviewStart, getOverviewEnd, getOverviewBandDays } from "@/lib/appSettings";
 import DayNote from "./DayNote";
 import { readNoteText } from "@/lib/orderNote";
 import {
@@ -344,6 +349,7 @@ export default async function OverviewPage({
     { data: orderNotes },
     { data: dayNotes },
     overviewStart,
+    overviewEnd,
     bandDaysSetting,
   ] = await Promise.all([
     supabase
@@ -372,6 +378,7 @@ export default async function OverviewPage({
     // 日历从哪天开始。**跟上面几条并排跑**，不要单独 await 一次 ——
     // 这一页渲染一次本来就要 0.6~1.3 秒，再串一个来回纯属白等
     getOverviewStart(),
+    getOverviewEnd(),
     getOverviewBandDays(),
   ]);
 
@@ -591,12 +598,22 @@ export default async function OverviewPage({
       end = shiftDay(end, DAYS_PER_BAND);
       timeline = dateRangeToArray(start, end);
     }
+
+    // 界面上指定了结束日期就原样截到那天：上面补齐整段、末尾留空白那两步都不作数。
+    // 最后一行可以比别的行短 —— 看得出「日历到这儿就停了」（见 lib/timelineStart.ts）
+    const explicitEnd = resolveTimelineEnd(overviewEnd ?? undefined, start);
+    if (explicitEnd) timeline = dateRangeToArray(start, explicitEnd);
   }
 
   // 起点定在中间的时候，整单落在起点之前的就一条都看不见了。数出来告诉人，
   // 别让单子无声无息地消失 —— 「明明建了单怎么没有」是这个项目最容易出的错觉
   const hiddenBeforeStart =
     timeline.length > 0 ? ordersBeforeStart(withDays as any[], timeline[0]).length : 0;
+  // 终点那头同理
+  const hiddenAfterEnd =
+    timeline.length > 0
+      ? ordersAfterEnd(withDays as any[], timeline[timeline.length - 1]).length
+      : 0;
 
   // 库里已经存在的「同一个资源同一天配给两单」。拖日期那条路现在拦着了，但数据
   // 还可能从别处进来（两个人同时操作、直接改库、以前留下的），所以照样查一遍标红 ——
@@ -1031,14 +1048,23 @@ export default async function OverviewPage({
         </FilterForm>
         {/* 有单子被挡在起点前面就说一声，并给一条改设置的路。
             悄悄少几个单子，比日历难看多了 */}
+        {/* 设置是侧边栏里的弹框，不是页面（/admin/settings 只剩一条数据接口，
+            链过去打开的是一段 JSON），所以这里只给文字提示，不给链接 */}
         {hiddenBeforeStart > 0 && (
-          <Link
-            href="/admin/settings"
+          <span
             style={{ fontSize: 12, color: "var(--warn)", whiteSpace: "nowrap" }}
-            title="去设置里改起始日期"
+            title="在侧边栏「设置」里改起始日期"
           >
-            起始日期之前还有 {hiddenBeforeStart} 单没显示 →
-          </Link>
+            起始日期之前还有 {hiddenBeforeStart} 单没显示
+          </span>
+        )}
+        {hiddenAfterEnd > 0 && (
+          <span
+            style={{ fontSize: 12, color: "var(--warn)", whiteSpace: "nowrap" }}
+            title="在侧边栏「设置」里改结束日期"
+          >
+            结束日期之后还有 {hiddenAfterEnd} 单没显示
+          </span>
         )}
 
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -2646,7 +2672,13 @@ function ResourceGroup({
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {rec.top ? "★ 推荐" : rec.score > 0 ? "☆" : "⚠"}
+                      {rec.signals.some((s) => s.code === "repeat-customer")
+                        ? "★★ 推荐"
+                        : rec.top
+                          ? "★ 推荐"
+                          : rec.score > 0
+                            ? "☆"
+                            : "⚠"}
                     </span>
                   )}
                   {isAssigned ? (

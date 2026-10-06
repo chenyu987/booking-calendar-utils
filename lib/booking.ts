@@ -57,6 +57,41 @@ export function sortChronologically(runs: BookingRun[]): BookingRun[] {
   });
 }
 
+/**
+ * Resource 管理页「排期」那一列：一眼只给**第一单**和**最新一单**，其余收进浮层。
+ *
+ * 原来是所有单子挤在一行里横着滚，那一列只分到一百多像素，连一单都放不全，
+ * 实际上只看得到第一条。这一列要回答的是「这个资源去过哪、最近去哪」，
+ * 头尾两条就够了；客户名、状态、中间那几单点开再看。
+ *
+ * 「最新」按**活动日期**算，不按下单时间 —— 补录的历史单下单晚、日子早，
+ * 按下单时间排会把它当成「最新」。
+ *
+ * 连接符：中间真省掉了单子才用「…」；只有两单时中间什么都没省，写成「、」，
+ * 不然「…」会让人以为中间还有。
+ */
+export function summarizeBookings<T extends { demand_days?: string[] | null }>(
+  orders: T[]
+): { list: T[]; first: T | null; last: T | null; joiner: "…" | "、" | null } {
+  const span = (o: T) => {
+    const days = [...(o.demand_days ?? [])].sort();
+    return { start: days[0] ?? "", end: days[days.length - 1] ?? "" };
+  };
+  const list = [...orders].sort((a, b) => {
+    const x = span(a);
+    const y = span(b);
+    if (x.start !== y.start) return x.start < y.start ? -1 : 1;
+    return x.end < y.end ? -1 : x.end > y.end ? 1 : 0;
+  });
+  const n = list.length;
+  return {
+    list,
+    first: list[0] ?? null,
+    last: n > 1 ? list[n - 1] : null,
+    joiner: n >= 3 ? "…" : n === 2 ? "、" : null,
+  };
+}
+
 /** 一段的完整文字，给 tooltip 和窄处截断用 */
 export function formatRun(r: BookingRun): string {
   return r.location ? `${r.label} ${r.location}` : `${r.label} 地点没填`;

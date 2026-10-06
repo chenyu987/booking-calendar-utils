@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRun, sortChronologically, toBookingRuns } from "./booking";
+import { formatRun, sortChronologically, summarizeBookings, toBookingRuns } from "./booking";
 
 const TODAY = "2026-09-10";
 
@@ -117,5 +117,52 @@ describe("formatRun", () => {
     const [without] = toBookingRuns([{ days: ["2026-09-12"], location: null }], TODAY);
     expect(formatRun(withM)).toBe("9/12 locaj");
     expect(formatRun(without)).toContain("没填");
+  });
+});
+
+describe("summarizeBookings", () => {
+  const o = (id: string, days: string[]) => ({ id, demand_days: days });
+
+  it("按活动日期排，不按传进来的顺序 —— 补录的历史单排在前面", () => {
+    const r = summarizeBookings([
+      o("new", ["2026-10-04"]),
+      o("backfill", ["2026-09-03"]),
+      o("mid", ["2026-09-15"]),
+    ]);
+    expect(r.first?.id).toBe("backfill");
+    expect(r.last?.id).toBe("new");
+    expect(r.list.map((x) => x.id)).toEqual(["backfill", "mid", "new"]);
+  });
+
+  it("日子是乱序数组也按最早那天算", () => {
+    const r = summarizeBookings([o("a", ["2026-09-20", "2026-09-08"]), o("b", ["2026-09-10"])]);
+    expect(r.first?.id).toBe("a");
+  });
+
+  it("三单及以上中间省掉了，用「…」", () => {
+    expect(summarizeBookings([o("a", ["2026-09-01"]), o("b", ["2026-09-02"]), o("c", ["2026-09-03"])]).joiner).toBe("…");
+  });
+
+  it("两单中间什么都没省，用「、」", () => {
+    const r = summarizeBookings([o("a", ["2026-09-01"]), o("b", ["2026-09-02"])]);
+    expect(r.joiner).toBe("、");
+    expect([r.first?.id, r.last?.id]).toEqual(["a", "b"]);
+  });
+
+  it("一单只有 first，没有 last 也没有连接符", () => {
+    const r = summarizeBookings([o("a", ["2026-09-01"])]);
+    expect(r.first?.id).toBe("a");
+    expect(r.last).toBe(null);
+    expect(r.joiner).toBe(null);
+  });
+
+  it("没排过就全是空的", () => {
+    expect(summarizeBookings([])).toEqual({ list: [], first: null, last: null, joiner: null });
+  });
+
+  it("不改传进来的数组", () => {
+    const input = [o("b", ["2026-09-02"]), o("a", ["2026-09-01"])];
+    summarizeBookings(input);
+    expect(input.map((x) => x.id)).toEqual(["b", "a"]);
   });
 });
