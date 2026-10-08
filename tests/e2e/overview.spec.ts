@@ -513,10 +513,10 @@ test.describe("按管理员筛 / 管理员的边框颜色", () => {
     const toRgb = (hex: string) =>
       `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
 
-    // Admin1 的单：边框是他的颜色，里面叠了一层
+    // Admin1 的单：边框是他的颜色，不叠那一层（太扎眼）
     const admin1 = await frame(MAIN);
     expect(admin1.border).toBe(toRgb(admin1Color));
-    expect(admin1.shadow).toContain("inset");
+    expect(admin1.shadow).not.toContain("inset");
 
     // 没写是谁的（= admin2 的）：保持原样，没有那层
     const plain = await frame(SHORT_NAME);
@@ -527,11 +527,11 @@ test.describe("按管理员筛 / 管理员的边框颜色", () => {
     await expect(page.locator("[data-admin-legend]")).toHaveText(["Admin1 的单"]);
     await expect(page.getByText("其余是 admin2 的")).toBeVisible();
 
-    // 选中 Admin1 的单：颜色还在，而且加重了（里面那层变 2px）
+    // 选中 Admin1 的单：颜色还在，而且加重了（往里叠一层）
     await gotoOverview(page, `?assign=${MAIN}`);
     const selected = await frame(MAIN);
     expect(selected.border).toBe(toRgb(admin1Color));
-    expect(selected.shadow).toMatch(/2px inset|inset 0px 0px 0px 2px/);
+    expect(selected.shadow).toMatch(/1px inset|inset 0px 0px 0px 1px/);
   });
 });
 

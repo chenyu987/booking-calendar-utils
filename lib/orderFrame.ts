@@ -8,10 +8,10 @@ import type { Admin } from "@/lib/admins";
 //
 // 这一格同时要表达三件事，各走各的通道，互不覆盖：
 //   - 订单状态 → 底色 + 同色系的细边（statusBorder）
-//   - 是哪个管理员的 → **只有非主要管理员才上色**：边框换成他的颜色，往里再叠一层同色细线，
-//     看着像 2px。主要管理员（大多数单子都是他的）保持原样 —— 满屏只有少数单子带颜色，
-//     一眼就分得出哪些不是他的
-//   - 选中（正在分配这一单）→ 外面一圈蓝光。管理员颜色在选中时**再加重**（里面那层变粗），
+//   - 是哪个管理员的 → **只有非主要管理员才上色**：只把 1px 边框换成他的颜色（柔和色）。
+//     主要管理员（大多数单子都是他的）保持原样 —— 满屏只有少数单子带颜色，
+//     一眼就分得出哪些不是他的。原来还往里叠一层同色细线、看着像 2px，太扎眼（2026-10-08 去掉）
+//   - 选中（正在分配这一单）→ 外面一圈蓝光。管理员颜色在选中时**再加重**（往里叠一层），
 //     不被蓝色盖掉
 //   - 「这几个资源上一单在哪儿」→ 外面一圈琥珀光（跟选中互斥）
 
@@ -49,7 +49,7 @@ export function orderFrame({
   assigning: boolean;
   previousUse?: boolean;
 }): { border: string; boxShadow: string | undefined } {
-  const inner = adminColor ? `inset 0 0 0 ${assigning ? 2 : 1}px ${adminColor}` : null;
+  const inner = adminColor && assigning ? `inset 0 0 0 1px ${adminColor}` : null;
   const outer = assigning
     ? "0 0 0 1px var(--link)"
     : previousUse

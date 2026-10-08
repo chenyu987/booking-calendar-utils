@@ -66,17 +66,17 @@ describe("色块的边框和光圈", () => {
     });
   });
 
-  it("别人的单：边框换成他的颜色，里面再叠一层同色", () => {
+  it("别人的单：只把边框换成他的颜色，不再叠一层（太扎眼）", () => {
     expect(orderFrame({ statusBorder: STATUS, adminColor: "var(--admin-1)", assigning: false })).toEqual({
       border: "1px solid var(--admin-1)",
-      boxShadow: "inset 0 0 0 1px var(--admin-1)",
+      boxShadow: undefined,
     });
   });
 
   it("**选中时管理员颜色加重**，外面照样有选中的蓝光", () => {
     expect(orderFrame({ statusBorder: STATUS, adminColor: "var(--admin-1)", assigning: true })).toEqual({
       border: "1px solid var(--admin-1)",
-      boxShadow: "inset 0 0 0 2px var(--admin-1), 0 0 0 1px var(--link)",
+      boxShadow: "inset 0 0 0 1px var(--admin-1), 0 0 0 1px var(--link)",
     });
   });
 
@@ -91,6 +91,6 @@ describe("色块的边框和光圈", () => {
     expect(
       orderFrame({ statusBorder: STATUS, adminColor: "var(--admin-1)", assigning: false, previousUse: true })
         .boxShadow
-    ).toBe("inset 0 0 0 1px var(--admin-1), 0 0 0 2px var(--prev-use)");
+    ).toBe("0 0 0 2px var(--prev-use)");
   });
 });
