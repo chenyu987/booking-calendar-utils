@@ -8,8 +8,7 @@ const card = (over: any = {}) => ({
   holder_name: "阿男",
   holder_gender: "male",
   item_type: "alpha",
-  date_range_start: null,
-  date_range_end: null,
+  validity: [{ start: null, end: null }],
   providers: { chat_name: "admin1", chat_id: "lynnyyyy" },
   ...over,
 });

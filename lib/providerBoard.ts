@@ -295,8 +295,8 @@ type Resource = {
   holder_name?: string | null;
   holder_gender?: string | null;
   item_type?: string | null;
-  date_range_start?: string | null;
-  date_range_end?: string | null;
+  // 有效期（datemultirange 文本），读法见 lib/validity.ts
+  validity?: unknown;
 };
 
 type Order = {

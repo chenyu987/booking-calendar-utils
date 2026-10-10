@@ -1,6 +1,7 @@
 import { normalizeLocation, requiredItem } from "@/lib/locations";
 
 import { todayIso } from "./dates";
+import { dayInPeriods, resourcePeriods } from "./validity";
 
 // 挂牌本身的状态 —— 只有人知道，算不出来
 export const RESOURCE_STATUSES = ["active", "paused", "archived"] as const;
@@ -34,9 +35,11 @@ export function isDeleted(resource: any): boolean {
   return Boolean(resource?.deleted_at);
 }
 
-// 过期与否拿有效期跟今天比，不存字段。结束日留空的资源永远不算过期 —— 没有上限。
+// 过期与否拿有效期跟今天比，不存字段。**每一段都结束了**才算过期 —— 两季之间
+// 空着的那段不算（后面还有一季续上了）；有一段没结束日的资源永远不算过期。
 export function isExpired(resource: any): boolean {
-  return Boolean(resource.date_range_end) && resource.date_range_end < todayIso();
+  const today = todayIso();
+  return resourcePeriods(resource).every((p) => Boolean(p.end) && p.end! < today);
 }
 
 // 有效期显示成一句话，**唯一出处** —— 物主页、Resource 管理、匹配台、排期总览的
@@ -56,8 +59,11 @@ export function formatDateRange(
   return VALIDITY_OPEN_LABEL;
 }
 
+// 有效期有好几段（迁移 0023，lib/validity.ts）时用「、」连起来
 export function formatValidity(resource: any): string {
-  return formatDateRange(resource?.date_range_start, resource?.date_range_end);
+  return resourcePeriods(resource)
+    .map((p) => formatDateRange(p.start, p.end))
+    .join("、");
 }
 
 // 这个资源的有效期能不能覆盖这一单的全部日期。
@@ -66,11 +72,21 @@ export function formatValidity(resource: any): string {
 //
 // 留空的那一头不参与判断（见上面 VALIDITY_OPEN_LABEL 的说明）：两头都空的资源
 // 任何日期都覆盖得了，只填了开始日的资源管住「不能配更早的」。
+// 有效期有好几段时，**每一天各自落在某一段里**就行 —— 跨两季的单子两头都续了也能配，
+// 落在两季中间空档里的那天不行。
 export function coversOrder(resource: any, demandDays: string[]): boolean {
   if (!demandDays?.length) return false;
-  const start = resource?.date_range_start;
-  const end = resource?.date_range_end;
-  return demandDays.every((d) => (!start || d >= start) && (!end || d <= end));
+  const periods = resourcePeriods(resource);
+  return demandDays.every((d) => dayInPeriods(periods, d));
+}
+
+// 这个资源的有效期跟 [from, to] 这段有没有重叠 —— 排期总览只列这一季用得上的资源。
+// 跟 coversOrder 不是一回事：那个要「全部盖住」（能不能配），这个只要「沾上一天」
+// （这一季里有没有可能用到它）。留空的那一头同样不设限
+export function validityOverlaps(resource: any, from: string, to: string): boolean {
+  return resourcePeriods(resource).some(
+    ({ start, end }) => (!start || start <= to) && (!end || end >= from)
+  );
 }
 
 // 卡片上那个小标签：优先显示挂牌状态，其次显示是不是过期了

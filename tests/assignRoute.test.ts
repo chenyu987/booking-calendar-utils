@@ -38,8 +38,7 @@ function seed(overrides: Tables = {}) {
         holder_gender: "male",
         item_type: "alpha",
         status: "active",
-        date_range_start: "2026-06-01",
-        date_range_end: "2027-05-01",
+        validity: [{ start: "2026-06-01", end: "2027-05-01" }],
       },
       {
         id: "s-male2",
@@ -47,8 +46,7 @@ function seed(overrides: Tables = {}) {
         holder_gender: "male",
         item_type: "alpha",
         status: "active",
-        date_range_start: "2026-06-01",
-        date_range_end: "2027-05-01",
+        validity: [{ start: "2026-06-01", end: "2027-05-01" }],
       },
       {
         id: "s-expired",
@@ -56,8 +54,7 @@ function seed(overrides: Tables = {}) {
         holder_gender: "male",
         item_type: "alpha",
         status: "active",
-        date_range_start: "2026-06-01",
-        date_range_end: "2026-07-01",
+        validity: [{ start: "2026-06-01", end: "2026-07-01" }],
       },
       {
         id: "s-open",
@@ -66,8 +63,7 @@ function seed(overrides: Tables = {}) {
         item_type: "alpha",
         status: "active",
         // 有效期两头都留空 = 不设限（整季通用的资源）
-        date_range_start: null,
-        date_range_end: null,
+        validity: [{ start: null, end: null }],
       },
       {
         id: "s-from-only",
@@ -75,8 +71,7 @@ function seed(overrides: Tables = {}) {
         holder_gender: "male",
         item_type: "alpha",
         status: "active",
-        date_range_start: "2026-09-11",
-        date_range_end: null,
+        validity: [{ start: "2026-09-11", end: null }],
       },
       {
         id: "s-deleted",
@@ -84,8 +79,7 @@ function seed(overrides: Tables = {}) {
         holder_gender: "male",
         item_type: "alpha",
         status: "active",
-        date_range_start: "2026-06-01",
-        date_range_end: "2027-05-01",
+        validity: [{ start: "2026-06-01", end: "2027-05-01" }],
         // 软删除：行还在库里，但不该再配出去（迁移 0013）
         deleted_at: "2026-09-14T00:00:00Z",
       },
@@ -95,8 +89,7 @@ function seed(overrides: Tables = {}) {
         holder_gender: "male",
         item_type: "alpha",
         status: "paused",
-        date_range_start: "2026-06-01",
-        date_range_end: "2027-05-01",
+        validity: [{ start: "2026-06-01", end: "2027-05-01" }],
       },
     ],
     order_assignments: [],

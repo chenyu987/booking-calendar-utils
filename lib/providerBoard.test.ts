@@ -111,8 +111,7 @@ describe("buildProviderBoard", () => {
     holder_name: "阿男",
     holder_gender: "male",
     item_type: "alpha",
-    date_range_start: null,
-    date_range_end: null,
+    validity: [{ start: null, end: null }],
   };
   const femaleCard = { ...maleCard, id: "s-female", holder_name: "阿女", holder_gender: "female" };
 
@@ -205,7 +204,7 @@ describe("buildProviderBoard", () => {
 
   it("有效期盖不住的不显示", () => {
     const b = board({
-      resources: [{ ...maleCard, date_range_end: "2026-09-19" }],
+      resources: [{ ...maleCard, validity: [{ start: null, end: "2026-09-19" }] }],
       orders: [
         { id: "o1", location: "locaa", demand_days: ["2026-09-20"], male_count: 1, female_count: 0 },
       ],
@@ -391,8 +390,7 @@ describe("filterBoardByCard", () => {
     holder_name: "阿男",
     holder_gender: "male",
     item_type: "alpha",
-    date_range_start: null,
-    date_range_end: null,
+    validity: [{ start: null, end: null }],
   };
   const femaleCard = { ...maleCard, id: "s-female", holder_name: "阿女", holder_gender: "female" };
   const orders = [

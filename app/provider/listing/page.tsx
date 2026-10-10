@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
 import { claimProvider } from "@/lib/accountClaim";
+import { serializeValidity } from "@/lib/validity";
 
 export const dynamic = "force-dynamic";
 
@@ -37,9 +38,13 @@ async function submitListing(formData: FormData) {
     holder_name: formData.get("holder_name") as string,
     holder_gender: formData.get("holder_gender") as string,
     holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
-    // 有效期两头各自选填，留空 = 这一头不设限（见 lib/resourceStatus.ts）
-    date_range_start: (formData.get("start_date") as string) || null,
-    date_range_end: (formData.get("end_date") as string) || null,
+    // 有效期两头各自选填，留空 = 这一头不设限（lib/validity.ts）。新挂的资源只有一段
+    validity: serializeValidity([
+      {
+        start: (formData.get("start_date") as string) || null,
+        end: (formData.get("end_date") as string) || null,
+      },
+    ]),
     status: "active",
   });
   if (resourceError) throw new Error(resourceError.message);

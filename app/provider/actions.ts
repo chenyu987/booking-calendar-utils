@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
 import { claimProvider } from "@/lib/accountClaim";
 import { validateResourceEdit, deleteBlockReason } from "@/lib/resourceEdit";
+import { type Period, periodsFromFormData, serializeValidity } from "@/lib/validity";
 import { cookies } from "next/headers";
 
 import { bookedDaysFor } from "./data";
@@ -44,8 +45,7 @@ export async function saveResource(formData: FormData) {
     itemType: text(formData, "item_type"),
     holderName: text(formData, "holder_name"),
     holderGender: text(formData, "holder_gender"),
-    dateRangeStart: text(formData, "date_range_start"),
-    dateRangeEnd: text(formData, "date_range_end"),
+    validity: periodsFromFormData(formData),
     status: text(formData, "status"),
   };
   const booked = (await bookedDaysFor([id])).get(id) ?? [];
@@ -59,9 +59,8 @@ export async function saveResource(formData: FormData) {
       holder_name: next.holderName,
       holder_gender: next.holderGender,
       holder_date_of_birth: text(formData, "holder_date_of_birth") || null,
-      // 留空 = 这一头不设限，别写成空字符串
-      date_range_start: next.dateRangeStart || null,
-      date_range_end: next.dateRangeEnd || null,
+      // 一段或几段，留空 = 这一头不设限（lib/validity.ts）。走到这儿 validity 不会是 "dates"
+      validity: serializeValidity(next.validity as Period[]),
       status: next.status,
     })
     .eq("id", id)

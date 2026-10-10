@@ -10,11 +10,28 @@
 //   · 有一个资源在本单之前用过、另一张只在之后用过 —— 「上一次」那条规则
 //   · 至少两个单子，才测得了多选
 
+import { seasonOf } from "../../lib/season";
+
 function day(offset: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + offset);
   return d.toISOString().slice(0, 10);
 }
+
+// 排期总览默认只读今天这一季（lib/season.ts）。订单摆在今天前 5 天到后 20 天，
+// 今天离季初 / 季末太近的时候会有单子掉进隔壁那季、页面上看不见 —— 测试一年里
+// 有二十几天莫名其妙地挂。所以离边太近就整体往季里挪一点，保证全落在今天这季
+const ORDER_FROM = -5;
+const ORDER_TO = 20;
+const SEASON = seasonOf(day(0));
+const ORDER_SHIFT =
+  day(ORDER_FROM) < SEASON.start
+    ? Math.round((Date.parse(SEASON.start) - Date.parse(day(ORDER_FROM))) / 86_400_000)
+    : day(ORDER_TO) > SEASON.end
+      ? Math.round((Date.parse(SEASON.end) - Date.parse(day(ORDER_TO))) / 86_400_000)
+      : 0;
+/** 订单用的日子：跟 day() 一样按今天算，再挪进今天这一季 */
+const orderDay = (offset: number) => day(offset + ORDER_SHIFT);
 
 export const SEED = {
   // 人和身份分开（0017）：昵称、生日在 people，customers / providers 只是身份，id 跟人同一个。
@@ -43,8 +60,7 @@ export const SEED = {
       holder_date_of_birth: "1995-10-10",
       item_type: "alpha",
       status: "active",
-      date_range_start: day(-200),
-      date_range_end: day(200),
+      validity: [{ start: day(-200), end: day(200) }],
     },
     {
       id: "s-female",
@@ -54,8 +70,7 @@ export const SEED = {
       holder_date_of_birth: "1995-09-10",
       item_type: "alpha",
       status: "active",
-      date_range_start: day(-200),
-      date_range_end: day(200),
+      validity: [{ start: day(-200), end: day(200) }],
     },
     {
       id: "s-later",
@@ -65,8 +80,7 @@ export const SEED = {
       holder_date_of_birth: "1999-04-16",
       item_type: "alpha",
       status: "active",
-      date_range_start: day(-200),
-      date_range_end: day(200),
+      validity: [{ start: day(-200), end: day(200) }],
     },
   ],
   orders: [
@@ -79,7 +93,7 @@ export const SEED = {
       location: "locbl",
       amount: 140,
       status: "itemAssigned",
-      demand_days: [day(3), day(4)],
+      demand_days: [orderDay(3), orderDay(4)],
       male_count: 1,
       female_count: 1,
     },
@@ -90,7 +104,7 @@ export const SEED = {
       location: "locbm",
       amount: 160,
       status: "created",
-      demand_days: [day(6)],
+      demand_days: [orderDay(6)],
       male_count: 1,
       female_count: 1,
     },
@@ -101,7 +115,7 @@ export const SEED = {
       location: "locbn",
       amount: 80,
       status: "complete",
-      demand_days: [day(-5)],
+      demand_days: [orderDay(-5)],
       male_count: 1,
       female_count: 0,
     },
@@ -112,7 +126,7 @@ export const SEED = {
       location: "locbl",
       amount: 80,
       status: "created",
-      demand_days: [day(20)],
+      demand_days: [orderDay(20)],
       male_count: 1,
       female_count: 0,
     },

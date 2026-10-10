@@ -58,8 +58,7 @@ function seed(overrides: Tables = {}) {
         holder_gender: "male",
         item_type: "alpha",
         status: "active",
-        date_range_start: "2026-06-01",
-        date_range_end: "2027-05-01",
+        validity: [{ start: "2026-06-01", end: "2027-05-01" }],
       },
       {
         id: "s-theirs",
@@ -68,8 +67,7 @@ function seed(overrides: Tables = {}) {
         holder_gender: "male",
         item_type: "alpha",
         status: "active",
-        date_range_start: "2026-06-01",
-        date_range_end: "2027-05-01",
+        validity: [{ start: "2026-06-01", end: "2027-05-01" }],
       },
       {
         id: "s-expired",
@@ -78,8 +76,7 @@ function seed(overrides: Tables = {}) {
         holder_gender: "male",
         item_type: "alpha",
         status: "active",
-        date_range_start: "2026-06-01",
-        date_range_end: "2026-09-10", // 只盖得住第一天
+        validity: [{ start: "2026-06-01", end: "2026-09-10" }], // 只盖得住第一天
       },
       {
         id: "s-deleted",
@@ -88,8 +85,7 @@ function seed(overrides: Tables = {}) {
         holder_gender: "male",
         item_type: "alpha",
         status: "active",
-        date_range_start: "2026-06-01",
-        date_range_end: "2027-05-01",
+        validity: [{ start: "2026-06-01", end: "2027-05-01" }],
         deleted_at: "2026-09-01T00:00:00Z",
       },
     ],

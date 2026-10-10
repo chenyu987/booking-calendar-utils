@@ -17,8 +17,7 @@ const resource = {
   holder_name: "阿男",
   holder_gender: "male",
   item_type: "alpha",
-  date_range_start: "2026-06-01",
-  date_range_end: "2027-05-01",
+  validity: [{ start: "2026-06-01", end: "2027-05-01" }],
 };
 const ok = { order, resource, alreadyAssigned: [], resourceBookedDays: [] };
 
@@ -38,7 +37,7 @@ describe("assignBlockReason", () => {
   it("挂牌状态排在最前 —— 哪怕别的也不成立，先说这条", () => {
     const r = assignBlockReason({
       ...ok,
-      resource: { ...resource, status: "paused", date_range_end: "2026-07-01" },
+      resource: { ...resource, status: "paused", validity: [{ start: "2026-06-01", end: "2026-07-01" }] },
     });
     expect(r).toBe("这个资源不在出租中");
   });
@@ -56,7 +55,7 @@ describe("assignBlockReason", () => {
   it("类型排在有效期前面", () => {
     const r = assignBlockReason({
       ...ok,
-      resource: { ...resource, item_type: "beta", date_range_end: "2026-07-01" },
+      resource: { ...resource, item_type: "beta", validity: [{ start: "2026-06-01", end: "2026-07-01" }] },
     });
     expect(r).toContain("进不去");
   });
@@ -64,7 +63,7 @@ describe("assignBlockReason", () => {
   it("有效期排在撞天前面", () => {
     const r = assignBlockReason({
       ...ok,
-      resource: { ...resource, date_range_end: "2026-07-01" },
+      resource: { ...resource, validity: [{ start: "2026-06-01", end: "2026-07-01" }] },
       resourceBookedDays: ["2026-09-10"],
     });
     expect(r).toContain("覆盖不了");

@@ -60,8 +60,8 @@ type Resource = {
   holder_gender?: string | null;
   holder_date_of_birth?: string | null;
   item_type?: string | null;
-  date_range_start?: string | null;
-  date_range_end?: string | null;
+  // 有效期（datemultirange 文本），读法见 lib/validity.ts
+  validity?: unknown;
   providers?: Nameable;
 };
 

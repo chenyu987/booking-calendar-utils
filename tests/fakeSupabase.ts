@@ -6,16 +6,19 @@
 // 配重了、日期盖不住、类型不对——这些全在服务端代码里，跟 Postgres 怎么存无关。
 //
 // 支持的链子就是 handler 里实际用到的那些，用到新的再往这儿加：
-//   from(t).select(cols).eq().neq().in().is().ilike() → 数组
+//   from(t).select(cols).eq().neq().in().is().ilike().overlaps() → 数组
 //   ….single() / .maybeSingle()     → 单行
 //   from(t).insert(row)            （也能接 .select("id").single() 拿回新行）
 //   from(t).update(patch).eq()
 //   from(t).delete().eq().eq()
 //   from(t).upsert(row, { onConflict })
 //
-// select 里写成 "resources(id, holder_gender)" 的嵌套关系也认：按
-// <表名去掉 s>_id 去对应的表里找，返回 { resources: {...} } 这种形状，
-// 跟 PostgREST 一致。
+// select 里写成 "resources(id, holder_gender)" 的嵌套关系也认，一条 select 里可以有好几个：
+//   · 这一行上有外键列的（order_assignments.resource_id → resources）：多对一，
+//     返回 { resources: {...} }
+//   · 反过来，别的表指着这一行的（orders ← order_assignments.order_id）：一对多，
+//     按 <这张表去掉 s>_id 去找，返回 { order_assignments: [...] }
+// 两种形状都跟 PostgREST 一致。
 //
 // 身份表（customers / providers）上的 `...people(…)` 也认（0017）：按同一个 id 去 people
 // 里找到那个人，把他的字段摊平进这一行 —— 顶层的和嵌套里的都一样。
@@ -41,9 +44,32 @@ function matches(row: any, filters: Filter[]) {
 const PERSON_ROLE_TABLES = new Set(["customers", "providers"]);
 const wantsPersonSpread = (select: string) => select.includes("...people(");
 
-function embedName(select: string): string | null {
-  const m = select.match(/([a-z_]+)\s*\(/);
-  return m ? m[1] : null;
+/**
+ * select 里**顶层**的嵌套关系：
+ * 「id, customers(...people(x)), order_assignments(resource_id)」→ [customers, order_assignments]。
+ * 嵌套里面的不算（customers 里的 people 是摊平，另说）；`...people(` 摊平不算；
+ * `people!inner(` 这种只用来筛选的，按 people 算、下面会跳过
+ */
+function topLevelEmbeds(select: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let token = "";
+  for (const ch of select) {
+    if (ch === "(") {
+      const name = token.trim();
+      if (depth === 0 && name && !name.startsWith("...")) out.push(name.split("!")[0]);
+      depth++;
+      token = "";
+    } else if (ch === ")") {
+      depth--;
+      token = "";
+    } else if (ch === ",") {
+      token = "";
+    } else {
+      token += ch;
+    }
+  }
+  return out;
 }
 
 export function createFakeSupabase(seed: Tables = {}) {
@@ -85,14 +111,21 @@ export function createFakeSupabase(seed: Tables = {}) {
     const project = (row: any) => {
       const spread = wantsPersonSpread(select);
       const base = spread && PERSON_ROLE_TABLES.has(t) ? withPerson(row) : row;
-      const embed = embedName(select.replace(/\.\.\.people\(/g, ""));
-      if (!embed) return base;
-      const fk = FK_COLUMN[embed];
-      const linked = fk ? table(embed).find((x) => x.id === row[fk]) ?? null : null;
-      return {
-        ...base,
-        [embed]: spread && PERSON_ROLE_TABLES.has(embed) ? withPerson(linked) : linked,
-      };
+      const out = { ...base };
+      for (const embed of topLevelEmbeds(select)) {
+        // people!inner(...) 只用来筛选（真库里是把 people 那边的条件带上），这里不挂出来
+        if (embed === "people") continue;
+        const fk = FK_COLUMN[embed];
+        if (fk) {
+          const linked = table(embed).find((x) => x.id === row[fk]) ?? null;
+          out[embed] = spread && PERSON_ROLE_TABLES.has(embed) ? withPerson(linked) : linked;
+        } else {
+          // 一对多：orders 的 order_assignments = order_id 指着这一单的那几行
+          const back = `${t.replace(/s$/, "")}_id`;
+          out[embed] = table(embed).filter((x) => x[back] === row.id);
+        }
+      }
+      return out;
     };
 
     const settle = () => {
@@ -121,6 +154,12 @@ export function createFakeSupabase(seed: Tables = {}) {
       in(col: string, vals: any[]) {
         const set = new Set(vals);
         filters.push((row) => set.has(row[col]));
+        return api;
+      },
+      // 数组列跟给的值有没有交集（PostgREST 的 ov）。排期总览按季读订单用
+      overlaps(col: string, vals: any[]) {
+        const set = new Set(vals);
+        filters.push((row) => Array.isArray(row[col]) && row[col].some((v: any) => set.has(v)));
         return api;
       },
       // 只做「不分大小写的整串相等」，不认 % 通配 —— 认领按邮箱、建单按名字，都是整串比

@@ -34,7 +34,7 @@ export async function proposeIntent(
       supabase
         .from("resources")
         .select(
-          "id, provider_id, status, deleted_at, holder_name, holder_gender, item_type, date_range_start, date_range_end"
+          "id, provider_id, status, deleted_at, holder_name, holder_gender, item_type, validity"
         )
         .eq("id", resourceId)
         // 删掉的资源物主那边就当它不存在

@@ -8,6 +8,7 @@ import { calcAge } from "@/lib/age";
 import { formatDayRanges } from "@/lib/dates";
 import { summarizeBookings } from "@/lib/booking";
 import { DELETE_BLOCKED_TEXT } from "@/lib/resourceEdit";
+import { periodsFromFormData, serializeValidity, resourcePeriods, validitySpan } from "@/lib/validity";
 import { deleteResource, restoreResource } from "./actions";
 import { STATUS_LABELS as ORDER_STATUS_LABELS } from "@/lib/orderStatus";
 import FilterForm from "../orders/FilterForm";
@@ -42,6 +43,13 @@ function genderLabel(g?: string | null) {
   return g === "male" ? "男" : g === "female" ? "女" : "-";
 }
 
+// 表单上的有效期 → 能写库的 Period[]。一段一对输入框，几段就几对（lib/validity.ts）
+function validityFromForm(formData: FormData) {
+  const periods = periodsFromFormData(formData);
+  if (periods === "dates") throw new Error("有效期的结束日期不能早于开始日期");
+  return periods;
+}
+
 async function createResource(formData: FormData) {
   "use server";
   const providerId = formData.get("provider_id") as string;
@@ -53,9 +61,8 @@ async function createResource(formData: FormData) {
     holder_name: (formData.get("holder_name") as string)?.trim() || null,
     holder_gender: (formData.get("holder_gender") as string) || null,
     holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
-    // 有效期两头各自选填，留空 = 这一头不设限（见 lib/resourceStatus.ts）
-    date_range_start: (formData.get("date_range_start") as string) || null,
-    date_range_end: (formData.get("date_range_end") as string) || null,
+    // 有效期两头各自选填，留空 = 这一头不设限（lib/validity.ts）。新建只有一段
+    validity: serializeValidity(validityFromForm(formData)),
     status: "active",
   });
   if (error) throw new Error(error.message);
@@ -73,8 +80,7 @@ async function updateResource(formData: FormData) {
       holder_name: (formData.get("holder_name") as string)?.trim() || null,
       holder_gender: (formData.get("holder_gender") as string) || null,
       holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
-      date_range_start: (formData.get("date_range_start") as string) || null,
-      date_range_end: (formData.get("date_range_end") as string) || null,
+      validity: serializeValidity(validityFromForm(formData)),
       status: formData.get("status") as string,
     })
     .eq("id", formData.get("id") as string);
@@ -207,8 +213,9 @@ export default async function ResourcesAdminPage({
         holderName: s.holder_name,
         holderGender: s.holder_gender,
         age: calcAge(s.holder_date_of_birth),
-        rangeStart: s.date_range_start,
-        rangeEnd: s.date_range_end,
+        // 有好几段时按整个跨度筛（最早开始 ~ 最晚结束）
+        rangeStart: validitySpan(resourcePeriods(s)).start,
+        rangeEnd: validitySpan(resourcePeriods(s)).end,
         bookingCount: (bookingsByResource.get(s.id) ?? []).length,
         status: s.status,
       },
@@ -442,23 +449,31 @@ export default async function ResourcesAdminPage({
               />
             </div>
             <div style={{ ...cellStyle, width: 70, color: "var(--text-faint)" }}>自动</div>
+            {/* 有效期一段一对输入框，几段就上下叠几个（lib/validity.ts）。
+                同一段的开始和结束在两列的同一高度上 */}
             <div style={{ ...cellStyle, width: 130 }}>
-              <input
-                name="date_range_start"
-                type="date"
-                title="空 = 不设下限"
-                defaultValue={s.date_range_start ?? ""}
-                style={{ ...inputStyle, width: "100%" }}
-              />
+              {resourcePeriods(s).map((p, i) => (
+                <input
+                  key={i}
+                  name="date_range_start"
+                  type="date"
+                  title="空 = 不设下限"
+                  defaultValue={p.start ?? ""}
+                  style={{ ...inputStyle, width: "100%" }}
+                />
+              ))}
             </div>
             <div style={{ ...cellStyle, width: 130 }}>
-              <input
-                name="date_range_end"
-                type="date"
-                title="空 = 不设上限"
-                defaultValue={s.date_range_end ?? ""}
-                style={{ ...inputStyle, width: "100%" }}
-              />
+              {resourcePeriods(s).map((p, i) => (
+                <input
+                  key={i}
+                  name="date_range_end"
+                  type="date"
+                  title="空 = 不设上限"
+                  defaultValue={p.end ?? ""}
+                  style={{ ...inputStyle, width: "100%" }}
+                />
+              ))}
             </div>
             <div style={{ ...cellStyle, flex: 1.8, color: "var(--text-faint)", fontSize: 11 }}>
               排期由订单决定，改不了
@@ -501,15 +516,24 @@ export default async function ResourcesAdminPage({
             <div style={{ ...cellStyle, width: 70 }}>
               {calcAge(s.holder_date_of_birth) ?? "-"}
             </div>
+            {/* 有效期有好几段时一段一行，开始和结束两列对齐 */}
             <div style={{ ...cellStyle, width: 130 }}>
-              {s.date_range_start ?? (
-                <span style={{ color: "var(--text-faint)" }}>{VALIDITY_OPEN_LABEL}</span>
-              )}
+              {resourcePeriods(s).map((p, i) => (
+                <div key={i}>
+                  {p.start ?? (
+                    <span style={{ color: "var(--text-faint)" }}>{VALIDITY_OPEN_LABEL}</span>
+                  )}
+                </div>
+              ))}
             </div>
             <div style={{ ...cellStyle, width: 130 }}>
-              {s.date_range_end ?? (
-                <span style={{ color: "var(--text-faint)" }}>{VALIDITY_OPEN_LABEL}</span>
-              )}
+              {resourcePeriods(s).map((p, i) => (
+                <div key={i}>
+                  {p.end ?? (
+                    <span style={{ color: "var(--text-faint)" }}>{VALIDITY_OPEN_LABEL}</span>
+                  )}
+                </div>
+              ))}
             </div>
             <div style={{ ...cellStyle, flex: 1.8 }}>
               {(() => {

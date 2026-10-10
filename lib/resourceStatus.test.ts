@@ -7,10 +7,27 @@ import {
   statusBadge,
   abnormalBadge,
   itemConflictReason,
+  validityOverlaps,
 } from "./resourceStatus";
 
+describe("validityOverlaps：有效期跟这一季沾不沾边", () => {
+  const from = "2025-10-01";
+  const to = "2026-05-31";
+  it.each([
+    [{ validity: [{ start: "2025-11-01", end: "2026-04-30" }] }, true], // 整个在季里
+    [{ validity: [{ start: "2025-06-01", end: "2025-10-01" }] }, true], // 只沾季里第一天
+    [{ validity: [{ start: "2026-05-31", end: "2026-09-30" }] }, true], // 只沾季里最后一天
+    [{ validity: [{ start: "2025-06-01", end: "2025-09-30" }] }, false], // 季开始前就过期了
+    [{ validity: [{ start: "2026-06-01", end: null }] }, false], // 季结束后才生效
+    [{ validity: [{ start: null, end: null }] }, true], // 两头都空 = 不限
+    [{ validity: [{ start: null, end: "2025-12-01" }] }, true],
+  ])("%j → %s", (resource, want) => {
+    expect(validityOverlaps(resource, from, to)).toBe(want);
+  });
+});
+
 describe("coversOrder", () => {
-  const resource = { date_range_start: "2026-07-30", date_range_end: "2026-09-20" };
+  const resource = { validity: [{ start: "2026-07-30", end: "2026-09-20" }] };
 
   it("订单日期全在有效期内就算覆盖", () => {
     expect(coversOrder(resource, ["2026-09-10", "2026-09-12"])).toBe(true);
@@ -22,7 +39,7 @@ describe("coversOrder", () => {
 
   it("过期的资源配历史订单（订单日期在过期前）是合法的", () => {
     // 关键：判断依据是订单那几天资源有没有效，不是今天资源过没过期
-    const expiredCard = { date_range_start: "2026-06-01", date_range_end: "2026-07-01" };
+    const expiredCard = { validity: [{ start: "2026-06-01", end: "2026-07-01" }] };
     expect(coversOrder(expiredCard, ["2026-06-15"])).toBe(true);
   });
 
@@ -32,55 +49,55 @@ describe("coversOrder", () => {
 
   // 有效期两头各自选填，留空 = 这一头不设限
   it("两头都留空的资源，什么日子都盖得住", () => {
-    const open = { date_range_start: null, date_range_end: null };
+    const open = { validity: [{ start: null, end: null }] };
     expect(coversOrder(open, ["2020-01-01", "2099-12-31"])).toBe(true);
   });
 
   it("只填了开始日：更早的日子拦住，之后的都行", () => {
-    const noEnd = { date_range_start: "2026-09-01", date_range_end: null };
+    const noEnd = { validity: [{ start: "2026-09-01", end: null }] };
     expect(coversOrder(noEnd, ["2026-08-31"])).toBe(false);
     expect(coversOrder(noEnd, ["2026-09-01", "2030-01-01"])).toBe(true);
   });
 
   it("只填了结束日：之后的日子拦住，之前的都行", () => {
-    const noStart = { date_range_start: null, date_range_end: "2026-09-30" };
+    const noStart = { validity: [{ start: null, end: "2026-09-30" }] };
     expect(coversOrder(noStart, ["2026-10-01"])).toBe(false);
     expect(coversOrder(noStart, ["2020-01-01", "2026-09-30"])).toBe(true);
   });
 
   it("留空的资源还是要有需求日期才算覆盖", () => {
-    expect(coversOrder({ date_range_start: null, date_range_end: null }, [])).toBe(false);
+    expect(coversOrder({ validity: [{ start: null, end: null }] }, [])).toBe(false);
   });
 });
 
 describe("formatValidity", () => {
   it("两头都填了", () => {
     expect(
-      formatValidity({ date_range_start: "2026-09-07", date_range_end: "2026-11-26" })
+      formatValidity({ validity: [{ start: "2026-09-07", end: "2026-11-26" }] })
     ).toBe("2026-09-07 ~ 2026-11-26");
   });
 
   it("只填了一头", () => {
-    expect(formatValidity({ date_range_start: "2026-09-07", date_range_end: null })).toBe(
+    expect(formatValidity({ validity: [{ start: "2026-09-07", end: null }] })).toBe(
       "2026-09-07 起"
     );
-    expect(formatValidity({ date_range_start: null, date_range_end: "2026-11-26" })).toBe(
+    expect(formatValidity({ validity: [{ start: null, end: "2026-11-26" }] })).toBe(
       "截至 2026-11-26"
     );
   });
 
   it("两头都空 —— 整季通用的资源", () => {
-    expect(formatValidity({ date_range_start: null, date_range_end: null })).toBe("不限");
+    expect(formatValidity({ validity: [{ start: null, end: null }] })).toBe("不限");
   });
 });
 
 describe("isExpired", () => {
   it("有效期早于今天算过期", () => {
-    expect(isExpired({ date_range_end: "2000-01-01" })).toBe(true);
+    expect(isExpired({ validity: [{ start: null, end: "2000-01-01" }] })).toBe(true);
   });
 
   it("有效期晚于今天不算过期", () => {
-    expect(isExpired({ date_range_end: "2999-01-01" })).toBe(false);
+    expect(isExpired({ validity: [{ start: null, end: "2999-01-01" }] })).toBe(false);
   });
 
   it("没有有效期不算过期", () => {
@@ -102,7 +119,7 @@ describe("isDeleted", () => {
 describe("statusBadge / abnormalBadge", () => {
   it("删掉的压过一切状态 —— 一张暂停的、过期的资源被删了，先说它删了", () => {
     expect(
-      statusBadge({ status: "paused", date_range_end: "2000-01-01", deleted_at: "2026-09-14T00:00:00Z" })
+      statusBadge({ status: "paused", validity: [{ start: null, end: "2000-01-01" }], deleted_at: "2026-09-14T00:00:00Z" })
         .text
     ).toBe("已删除");
   });
@@ -116,12 +133,12 @@ describe("statusBadge / abnormalBadge", () => {
   });
 
   it("正常出租中的资源没有 abnormalBadge", () => {
-    const resource = { status: "active", date_range_end: "2999-01-01" };
+    const resource = { status: "active", validity: [{ start: null, end: "2999-01-01" }] };
     expect(abnormalBadge(resource)).toBeNull();
   });
 
   it("过期的资源有 abnormalBadge", () => {
-    const resource = { status: "active", date_range_end: "2000-01-01" };
+    const resource = { status: "active", validity: [{ start: null, end: "2000-01-01" }] };
     expect(abnormalBadge(resource)?.text).toBe("已过期");
   });
 });

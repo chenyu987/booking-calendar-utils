@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { formatDayRanges } from "@/lib/dates";
 import { formatHolder } from "@/lib/age";
@@ -7,6 +8,7 @@ import {
   formatValidity,
   isExpired,
 } from "@/lib/resourceStatus";
+import { resourcePeriods } from "@/lib/validity";
 import { saveResource, deleteResource } from "./actions";
 
 // 「我的」里的资源那一段：每个资源一张小卡片，点编辑就地改。
@@ -108,6 +110,7 @@ function ResourceEditForm({
   errorText: string | null;
 }) {
   const hasBooked = booked.length > 0;
+  const periods = resourcePeriods(s);
 
   return (
     <div style={cardStyle}>
@@ -172,26 +175,32 @@ function ResourceEditForm({
           />
         </label>
 
-        <label style={labelStyle}>
-          有效期开始
-          <input
-            name="date_range_start"
-            type="date"
-            max={hasBooked ? booked[0] : undefined}
-            defaultValue={s.date_range_start ?? ""}
-            style={inputStyle}
-          />
-        </label>
-        <label style={labelStyle}>
-          有效期结束
-          <input
-            name="date_range_end"
-            type="date"
-            min={hasBooked ? booked[booked.length - 1] : undefined}
-            defaultValue={s.date_range_end ?? ""}
-            style={inputStyle}
-          />
-        </label>
+        {/* 有效期可能有好几段（lib/validity.ts），一段一对。只有一段时才用 min/max
+            提示「得盖住已排的日子」—— 好几段时哪天归哪段说不清，交给服务端校验 */}
+        {periods.map((p, i) => (
+          <Fragment key={i}>
+            <label style={labelStyle}>
+              有效期开始{periods.length > 1 ? `（第 ${i + 1} 段）` : ""}
+              <input
+                name="date_range_start"
+                type="date"
+                max={hasBooked && periods.length === 1 ? booked[0] : undefined}
+                defaultValue={p.start ?? ""}
+                style={inputStyle}
+              />
+            </label>
+            <label style={labelStyle}>
+              有效期结束{periods.length > 1 ? `（第 ${i + 1} 段）` : ""}
+              <input
+                name="date_range_end"
+                type="date"
+                min={hasBooked && periods.length === 1 ? booked[booked.length - 1] : undefined}
+                defaultValue={p.end ?? ""}
+                style={inputStyle}
+              />
+            </label>
+          </Fragment>
+        ))}
         <p style={hintStyle}>
           两头都选填，留空就是这一头不设限 —— 整季通用的资源两个都空着。
         </p>

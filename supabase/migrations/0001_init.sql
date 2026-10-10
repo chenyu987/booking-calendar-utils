@@ -94,12 +94,14 @@ create table resources (
   holder_name text,
   holder_gender text check (holder_gender in ('male', 'female')),
   holder_date_of_birth date,
-  -- 有效期两头各自选填，空 = 这一头不设限（整季通用的资源两头都空）。
-  -- 逼着填只会填进假日期，反倒在分配那一刻把合法的资源拦掉。见 lib/resourceStatus.ts
-  date_range_start date,
-  date_range_end date,
+  -- 有效期：一组日期段（迁移 0023）。24/25 季能用、25/26 没续、26/27 又续上了，
+  -- 存成 {[2024-11-01,2025-05-31),[2026-11-01,2027-05-31)}。每段两头各自可以不设限，
+  -- 整季通用的资源就是 {(,)}。逼着填只会填进假日期，反倒在分配那一刻把合法的资源拦掉。
+  -- 不许是空集合：哪天都不能用的资源改挂牌状态。读写见 lib/validity.ts
+  validity datemultirange not null default '{(,)}'
+    constraint resources_validity_not_empty check (not isempty(validity)),
   -- 只表达「这个挂牌还在不在出租」。哪几天被占了由 order_assignments 算出来，
-  -- 过期与否拿 date_range_end 跟今天比，都不存字段，避免跟实际排期不同步。
+  -- 过期与否拿有效期跟今天比，都不存字段，避免跟实际排期不同步。
   status text not null default 'active'
     check (status in ('active', 'paused', 'archived')),
   -- 软删除：物主点「删除」只打时间戳，行留着。真删会顺着 cascade 把分配记录

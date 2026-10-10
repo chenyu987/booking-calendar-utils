@@ -147,7 +147,7 @@ export default async function OrdersAdminPage({
     supabase
       .from("resources")
       .select(
-        "id, holder_name, holder_gender, holder_date_of_birth, item_type, date_range_start, date_range_end"
+        "id, holder_name, holder_gender, holder_date_of_birth, item_type, validity"
       ),
     supabase.from("order_assignments").select("order_id, resource_id"),
   ]);

@@ -1,4 +1,5 @@
 import { RESOURCE_STATUSES, coversOrder } from "./resourceStatus";
+import { type Period, type ValidityFormError, serializeValidity } from "./validity";
 
 // 物主自助改资源信息的校验。
 //
@@ -13,9 +14,9 @@ export type ResourceEditInput = {
   itemType: string;
   holderName: string;
   holderGender: string;
-  // 有效期两头各自选填，留空 = 这一头不设限（见 lib/resourceStatus.ts）
-  dateRangeStart: string;
-  dateRangeEnd: string;
+  // 有效期：一段或几段，每段两头各自选填，留空 = 这一头不设限（lib/validity.ts）。
+  // 表单解析失败（某段结束早于开始）时是 "dates"，由这里统一报错
+  validity: Period[] | ValidityFormError;
   status: string;
 };
 
@@ -49,14 +50,8 @@ export function validateResourceEdit(
   if (next.itemType !== "beta" && next.itemType !== "alpha") return "required";
   if (!next.holderName.trim()) return "required";
   if (next.holderGender !== "male" && next.holderGender !== "female") return "required";
-  // 有效期两头都可以空着。两头都填了才有「先后」可言
-  if (
-    next.dateRangeStart &&
-    next.dateRangeEnd &&
-    next.dateRangeEnd < next.dateRangeStart
-  ) {
-    return "dates";
-  }
+  // 有效期两头都可以空着。两头都填了才有「先后」可言（periodsFromForm 里查过）
+  if (next.validity === "dates") return "dates";
   if (!(RESOURCE_STATUSES as readonly string[]).includes(next.status)) return "status";
 
   // 没排出去的资源随便改 —— 下面两条都只在「已经有订单靠着它」的时候才成立
@@ -65,10 +60,7 @@ export function validateResourceEdit(
   // 判断依据是「已排的那几天在不在新有效期里」，不是「今天过没过期」——
   // 补录的历史单也得算数。直接借 coversOrder：分配那一刻用的就是它，
   // 这里再写一遍同样的比较，哪天「留空 = 不设限」的规则改了就会漏掉一边
-  const covers = coversOrder(
-    { date_range_start: next.dateRangeStart || null, date_range_end: next.dateRangeEnd || null },
-    bookedDays
-  );
+  const covers = coversOrder({ validity: serializeValidity(next.validity) }, bookedDays);
   if (!covers) return "range";
 
   // 性别是硬条件不是参考信息：物品登记了使用人，客户核验时要对得上人。

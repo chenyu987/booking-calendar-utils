@@ -23,6 +23,7 @@ import { parseView } from "@/lib/providerView";
 import ResourceList from "./ResourceList";
 import AccountMenu, { acctCss } from "./AccountMenu";
 import Disclosure, { summaryCss } from "./Disclosure";
+import { compareByValidityStart } from "@/lib/validity";
 
 export const dynamic = "force-dynamic";
 
@@ -90,15 +91,16 @@ export default async function ProviderHomePage({
     supabase
       .from("resources")
       .select(
-        "id, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, status"
+        "id, item_type, holder_name, holder_gender, holder_date_of_birth, validity, status"
       )
       .eq("provider_id", providerId)
       // 物主把它删了就当它不存在。库里还在，admin 那边照常看得见（迁移 0013）
-      .is("deleted_at", null)
-      .order("date_range_start", { ascending: true }),
+      .is("deleted_at", null),
   ]);
 
-  const myResources = resources ?? [];
+  // 按开始生效排。有效期是多段的 multirange，库里排的话不设下限的会跑到最前，
+  // 所以在内存里排（lib/validity.ts）
+  const myResources = [...(resources ?? [])].sort(compareByValidityStart);
   const resourceIds = myResources.map((s: any) => s.id);
 
   const [{ data: orders }, bookedByResource, { data: myMatches }] = await Promise.all([

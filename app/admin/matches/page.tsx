@@ -143,7 +143,7 @@ async function updateMatchStatus(formData: FormData) {
       supabase
         .from("resources")
         .select(
-          "id, date_range_start, date_range_end, status, deleted_at, holder_name, holder_gender, item_type"
+          "id, validity, status, deleted_at, holder_name, holder_gender, item_type"
         )
         .eq("id", match.resource_id)
         .single(),
@@ -237,7 +237,7 @@ export default async function MatchesAdminPage({
       supabase
         .from("matches")
         .select(
-          `id, status, created_at, order_id, resource_id, orders(location, demand_days, status, male_count, female_count, customers(${personSpread(DISPLAY_COLUMNS)})), resources(id, status, deleted_at, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(${personSpread(DISPLAY_COLUMNS)}))`
+          `id, status, created_at, order_id, resource_id, orders(location, demand_days, status, male_count, female_count, customers(${personSpread(DISPLAY_COLUMNS)})), resources(id, status, deleted_at, item_type, holder_name, holder_gender, holder_date_of_birth, validity, providers(${personSpread(DISPLAY_COLUMNS)}))`
         )
         .order("created_at", { ascending: false }),
       supabase
@@ -247,7 +247,7 @@ export default async function MatchesAdminPage({
       supabase
         .from("resources")
         .select(
-          `id, item_type, holder_name, holder_gender, holder_date_of_birth, date_range_start, date_range_end, providers(${personSpread(DISPLAY_COLUMNS)})`
+          `id, item_type, holder_name, holder_gender, holder_date_of_birth, validity, providers(${personSpread(DISPLAY_COLUMNS)})`
         )
         .eq("status", "active")
         .is("deleted_at", null),

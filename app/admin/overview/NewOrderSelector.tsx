@@ -23,7 +23,6 @@ export default function NewOrderSelector({
   laneCount,
   assigningOrderId,
   createOrderAction,
-  customerIdByName,
   adminName,
   adminId,
 }: {
@@ -33,7 +32,6 @@ export default function NewOrderSelector({
   laneCount: number;
   assigningOrderId: string | null;
   createOrderAction: (formData: FormData) => Promise<string>;
-  customerIdByName: Record<string, string>;
   /** 当前身份（标题旁边那个下拉）。null = 还没选，不让建 —— 不知道这个客人该记在谁名下 */
   adminName: string | null;
   /** 当前身份的 id。新单记到他名下（orders.admin_id），建完要看它跟管理员筛选对不对得上 */
@@ -261,9 +259,6 @@ export default function NewOrderSelector({
     fd.set("female_count", String(parseCount(female)));
     fd.set("demand_days", JSON.stringify(days));
     fd.set("amount", totalPrice.trim());
-    // 这个名字页面加载时已经查到过 id 的话就直接带上，服务端能少查一次库（省一两秒）
-    const knownCustomerId = customerIdByName[name.trim().toLowerCase()];
-    if (knownCustomerId) fd.set("customer_id", knownCustomerId);
 
     // 先把弹窗关掉、同时在日历上画一个占位色块再等服务端：写库要一两秒，
     // 让人对着"建单中…"干等、或者点完日历上半天不出现，都像卡住了。

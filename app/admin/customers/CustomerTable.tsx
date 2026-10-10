@@ -5,10 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   FOOTPRINT_SORTS,
   FOOTPRINT_SORT_LABELS,
+  groupSegmentsBySeason,
   sortByFootprint,
   summarizeFootprint,
   type FootprintSegment,
   type FootprintSort,
+  type CustomerSeason,
 } from "@/lib/footprint";
 import { CUSTOMER_STATUSES, CUSTOMER_STATUS_LABELS } from "@/lib/customerEdit";
 import { CONTACT_FILTER_NONE, matchesContactFilter, type Admin } from "@/lib/admins";
@@ -38,7 +40,6 @@ export type CustomerRow = {
     status: string;
     note: string;
   };
-  phone: string;
   /** 账号（选填）。name 是显示名（昵称优先，lib/person.ts） */
   chatId: string;
   age: number | null;
@@ -47,6 +48,8 @@ export type CustomerRow = {
   referrer: string;
   note: string;
   segments: FootprintSegment[];
+  /** 去过哪几季，新的在前（按订单现算，lib/footprint.ts）。空 = 没下过单 */
+  seasons: CustomerSeason[];
   orderCount: number;
   /** 真用了的单数（不算取消/未确认），按「来得最多」排序用 */
   activeOrderCount: number;
@@ -59,12 +62,21 @@ export type CustomerRow = {
  * 勾「他是谁的客人」。新增表单和编辑那一行共用一份。
  * 两个都勾 = 两行记录，不是一个「都有」的值（见 0018 迁移）
  */
-export function ContactCheckboxes({ admins, checked }: { admins: Admin[]; checked: string[] }) {
+export function ContactCheckboxes({
+  admins,
+  checked,
+  form,
+}: {
+  admins: Admin[];
+  checked: string[];
+  /** 勾选框不在 <form> 里面时（编辑那一行，见 EditRow），用 form 属性挂到那张表单上 */
+  form?: string;
+}) {
   return (
-    <span style={{ display: "inline-flex", gap: 10, alignItems: "center", fontSize: 13 }}>
+    <span style={{ display: "inline-flex", flexWrap: "wrap", columnGap: 10, alignItems: "center", fontSize: 13 }}>
       {admins.map((a) => (
         <label key={a.id} style={{ display: "inline-flex", gap: 4, alignItems: "center", whiteSpace: "nowrap" }}>
-          <input type="checkbox" name="contact" value={a.id} defaultChecked={checked.includes(a.id)} />
+          <input type="checkbox" name="contact" value={a.id} defaultChecked={checked.includes(a.id)} form={form} />
           {a.name}
         </label>
       ))}
@@ -102,6 +114,49 @@ function ContactTags({ ids, admins }: { ids: string[]; admins: Admin[] }) {
 }
 
 /**
+ * 季那一格：去过哪几季，一季一个小标签，新的在前（跟「谁的客人」一个样子）。
+ * 这季的单全是取消/未确认的，标签灰掉划线 —— 跟足迹里黄掉的单同一个画法。
+ * 季多了不把格子撑开：超过 3 个只露最近 2 个，后面「+N」，鼠标停上去看全部
+ */
+const SEASON_TAGS_SHOWN = 2;
+/** 季筛选里「没下过单」那一档。不会跟季 key（25-26-na）撞 */
+const SEASON_FILTER_NONE = "none";
+function SeasonTags({ seasons }: { seasons: CustomerSeason[] }) {
+  if (seasons.length === 0) return <span style={{ color: "var(--text-faint)" }}>-</span>;
+  const shown = seasons.length > SEASON_TAGS_SHOWN + 1 ? seasons.slice(0, SEASON_TAGS_SHOWN) : seasons;
+  const rest = seasons.length - shown.length;
+  return (
+    <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 4 }}>
+      {shown.map((s) => (
+        <span
+          key={s.key}
+          title={s.inactive ? "这季的单都取消了或没确认" : undefined}
+          style={{
+            padding: "0 6px",
+            borderRadius: 3,
+            fontSize: 12,
+            whiteSpace: "nowrap",
+            background: "var(--row-tint)",
+            color: s.inactive ? "var(--text-faint)" : "var(--link)",
+            textDecoration: s.inactive ? "line-through" : "none",
+          }}
+        >
+          {s.label}
+        </span>
+      ))}
+      {rest > 0 && (
+        <span
+          title={seasons.map((s) => s.label).join("、")}
+          style={{ fontSize: 12, color: "var(--text-faint)", whiteSpace: "nowrap" }}
+        >
+          +{rest}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
  * 足迹那一格：「最早一段 … 最近一段　N 单」一行，点「N 单」浮出全部足迹。
  * 跟 Resource 管理的排期列一个做法（那边的注释讲得更细）：
  *   - 原来是默认露 3 段、点开全部铺在格子里，老客户十几段一展开，那一行撑得老高，整张表没法扫
@@ -132,6 +187,11 @@ const footprintCss = `
     background: var(--surface); box-shadow: 0 6px 20px rgba(0,0,0,.12);
     font-size: 12px; line-height: 1.9; white-space: nowrap;
   }
+  .fp-season {
+    font-size: 11px; font-weight: 600; color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+  }
+  .fp-group + .fp-group .fp-season { margin-top: 4px; }
 `;
 
 /** 一段足迹的字：正常的是链接色，取消/未确认的灰掉划线（「这人黄过一单」本身有用） */
@@ -169,10 +229,16 @@ function FootprintCell({ r }: { r: CustomerRow }) {
           )}
         </div>
       </summary>
+      {/* 按季分组：段上只写「月/日」，不分季认不出是哪年；跟左边季那列同一套叫法（lib/footprint.ts） */}
       <div className="fp-pop">
-        {r.segments.map((s, i) => (
-          <div key={`${s.start}-${i}`}>
-            <SegmentText s={s} />
+        {groupSegmentsBySeason(r.segments).map((g) => (
+          <div key={g.season.key} className="fp-group">
+            <div className="fp-season">{g.season.label}</div>
+            {g.segments.map((s, i) => (
+              <div key={`${s.start}-${i}`}>
+                <SegmentText s={s} />
+              </div>
+            ))}
           </div>
         ))}
       </div>
@@ -197,9 +263,24 @@ const filterThStyle: React.CSSProperties = {
   verticalAlign: "top",
 };
 
+// 昵称 / 账号那两列收窄了。库里不少是一长串连着的字母（「Ianyyyyyyy」），表格不会
+// 在单词中间折行，一个长名字就把整列撑回去，表头写的宽度等于白写 —— 所以允许在任意位置折
+const narrowTdStyle: React.CSSProperties = { ...tdStyle, overflowWrap: "anywhere" };
+
 const statusLabel = (s: string) => CUSTOMER_STATUS_LABELS[s as keyof typeof CUSTOMER_STATUS_LABELS] ?? s;
 
-/** 编辑态那一行：一整行铺开的表单（<form> 包不住 <tr>，所以放在一个跨满的格子里） */
+/**
+ * 编辑态：**每个输入框就在它自己那一列底下**，跟上面的表头、上下的行对齐 ——
+ * 原来是一整行铺开的表单，自己排自己的，一进编辑跟表头全对不上。
+ *
+ * <form> 包不住 <tr>，所以表单本体放在「操作」那一格（里面是隐藏的 id 和保存按钮），
+ * 别的格子里的输入框用 form 属性挂到这张表单上 —— 提交时浏览器照样把它们收进 FormData，
+ * 服务端那边一个字不用改。
+ *
+ * 能改的列放输入框；改不了的（季、介绍人、足迹）照原样显示，不留空。
+ * 年龄那一列放生日（年龄就是生日算出来的）。电话、邮箱在列表里没有列，
+ * 放在紧跟着的第二行，连同那句「不提供删除」
+ */
 function EditRow({
   row,
   error,
@@ -214,53 +295,84 @@ function EditRow({
   admins: Admin[];
 }) {
   const e = row.edit;
+  const formId = `customer-edit-${row.id}`;
   // 库里要是有不在列表里的老状态值，也放进下拉框，别存的时候被悄悄改掉
   const statuses: string[] = CUSTOMER_STATUSES.includes(e.status as (typeof CUSTOMER_STATUSES)[number])
     ? [...CUSTOMER_STATUSES]
     : [e.status, ...CUSTOMER_STATUSES];
-  const field = (label: string, input: React.ReactNode) => (
-    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12, color: "var(--text-muted)" }}>
-      {label}
-      {input}
-    </label>
+  const editTd: React.CSSProperties = { ...tdStyle, background: "var(--row-tint)" };
+  // 输入框撑满自己那一格：width 100% 必须配 border-box，不然内边距 + 边框让它比格子宽一截
+  const cellInput: React.CSSProperties = { ...inputStyle, width: "100%", boxSizing: "border-box", minWidth: 0 };
+  const label = (text: string) => (
+    <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{text}</span>
   );
   return (
-    <tr id={`customer-${row.id}`}>
-      <td colSpan={colSpan} style={{ ...tdStyle, background: "var(--row-tint)" }}>
-        {error && <p style={{ color: "var(--danger)", fontSize: 13, margin: "0 0 6px" }}>没存上：{error}</p>}
-        <form action={action} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
-          <input type="hidden" name="id" value={row.id} />
-          {/* 昵称排第一、必填：认人、显示都靠它 */}
-          {field("昵称 *", <input name="chat_name" defaultValue={e.chat_name} required style={inputStyle} />)}
-          {field("账号", <input name="chat_id" defaultValue={e.chat_id} style={inputStyle} />)}
-          {field("电话", <input name="phone_number" defaultValue={e.phone_number} style={inputStyle} />)}
-          {field("邮箱", <input name="email" type="email" defaultValue={e.email} style={inputStyle} />)}
-          {field("生日", <input name="date_of_birth" type="date" defaultValue={e.date_of_birth} style={inputStyle} />)}
-          {field(
-            "状态",
-            <select name="status" defaultValue={e.status} style={selectStyle}>
-              {statuses.map((s) => (
-                <option key={s} value={s}>
-                  {statusLabel(s)}
-                </option>
-              ))}
-            </select>
-          )}
-          {field("备注", <input name="note" defaultValue={e.note} style={{ ...inputStyle, minWidth: 200 }} />)}
-          {field("谁的客人", <ContactCheckboxes admins={admins} checked={row.contactIds} />)}
-          <button type="submit" style={buttonStyle}>
-            保存
-          </button>
-          {/* scroll={false}：Next 默认每次跳转都滚回页面顶上，表里几百人，改一个就得重新往下翻 */}
-          <Link href="/admin/customers" scroll={false} style={{ ...linkButtonStyle, padding: "6px 0" }}>
-            取消
-          </Link>
-        </form>
-        <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "6px 0 0" }}>
-          不提供删除（会连带删掉订单和流水）。不用了就把状态改成停用或黑名单。介绍人在「返点」页改。
-        </p>
-      </td>
-    </tr>
+    <>
+      <tr id={`customer-${row.id}`}>
+        {/* 昵称必填：认人、显示都靠它 */}
+        <td style={editTd}>
+          <input name="chat_name" form={formId} defaultValue={e.chat_name} required aria-label="昵称" style={cellInput} />
+        </td>
+        <td style={editTd}>
+          <input name="chat_id" form={formId} defaultValue={e.chat_id} aria-label="账号" style={cellInput} />
+        </td>
+        <td style={editTd}>
+          <SeasonTags seasons={row.seasons} />
+        </td>
+        <td style={editTd}>
+          <ContactCheckboxes admins={admins} checked={row.contactIds} form={formId} />
+        </td>
+        <td style={editTd}>
+          <input name="date_of_birth" type="date" form={formId} defaultValue={e.date_of_birth} aria-label="生日" style={cellInput} />
+        </td>
+        <td style={editTd}>
+          <select name="status" form={formId} defaultValue={e.status} aria-label="状态" style={{ ...selectStyle, width: "100%", boxSizing: "border-box" }}>
+            {statuses.map((s) => (
+              <option key={s} value={s}>
+                {statusLabel(s)}
+              </option>
+            ))}
+          </select>
+        </td>
+        <td style={editTd}>{row.referrer || <span style={{ color: "var(--text-faint)" }}>-</span>}</td>
+        <td style={editTd}>
+          <input name="note" form={formId} defaultValue={e.note} aria-label="备注" style={cellInput} />
+        </td>
+        <td style={editTd}>
+          <FootprintCell r={row} />
+        </td>
+        <td style={editTd}>
+          <form id={formId} action={action} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+            <input type="hidden" name="id" value={row.id} />
+            <button type="submit" style={{ ...buttonStyle, padding: "4px 10px" }}>
+              保存
+            </button>
+            {/* scroll={false}：Next 默认每次跳转都滚回页面顶上，表里几百人，改一个就得重新往下翻 */}
+            <Link href="/admin/customers" scroll={false} style={linkButtonStyle}>
+              取消
+            </Link>
+          </form>
+        </td>
+      </tr>
+      <tr>
+        <td colSpan={colSpan} style={{ ...editTd, paddingTop: 0 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+            {error && <span style={{ color: "var(--danger)", fontSize: 13 }}>没存上：{error}</span>}
+            <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+              {label("电话")}
+              <input name="phone_number" form={formId} defaultValue={e.phone_number} style={inputStyle} />
+            </label>
+            <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+              {label("邮箱")}
+              <input name="email" type="email" form={formId} defaultValue={e.email} style={inputStyle} />
+            </label>
+            <span style={{ fontSize: 12, color: "var(--text-faint)" }}>
+              不提供删除（会连带删掉订单和流水）。不用了就把状态改成停用或黑名单。介绍人在「返点」页改。
+            </span>
+          </div>
+        </td>
+      </tr>
+    </>
   );
 }
 
@@ -302,7 +414,6 @@ export default function CustomerTable({
   }, [savedId, editingId, editError]);
 
   const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
   const [chat, setChat] = useState("");
   const [ageMin, setAgeMin] = useState("");
   const [ageMax, setAgeMax] = useState("");
@@ -311,6 +422,8 @@ export default function CustomerTable({
   const [footprint, setFootprint] = useState("");
   // 空 = 不筛；CONTACT_FILTER_NONE = 还没标的；其余是某个管理员的 id
   const [contact, setContact] = useState("");
+  // 空 = 不筛；SEASON_FILTER_NONE = 没下过单的；其余是季 key（25-26-na）
+  const [season, setSeason] = useState("");
   // 排序跟筛选一样在客户端做：数据一次全拿回来了，切一下当场重排，不回服务端
   const [sort, setSort] = useState<FootprintSort>("default");
 
@@ -318,6 +431,12 @@ export default function CustomerTable({
     () => [...new Set(rows.map((r) => r.status).filter(Boolean))].sort(),
     [rows]
   );
+  // 季筛选的选项：表里实际出现过的季，新的在前
+  const seasonOptions = useMemo(() => {
+    const byKey = new Map<string, CustomerSeason>();
+    for (const r of rows) for (const s of r.seasons) if (!byKey.has(s.key)) byKey.set(s.key, s);
+    return [...byKey.values()].sort((a, b) => b.start.localeCompare(a.start));
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const min = ageMin.trim() === "" ? null : Number(ageMin);
@@ -328,12 +447,15 @@ export default function CustomerTable({
       if (r.id === editingId) return true;
       // 昵称、称呼都能搜
       if (!matches(`${r.name} ${r.selfName}`, name)) return false;
-      if (!matches(r.phone, phone)) return false;
       if (!matches(r.chatId, chat)) return false;
       if (!matches(r.referrer, referrer)) return false;
       if (!matches(r.footprintText, footprint)) return false;
       if (status && r.status !== status) return false;
       if (!matchesContactFilter(r.contactIds, contact)) return false;
+      // 两季都来过的人，选哪一季都在。灰掉的（那季只黄过单）也算 —— 标签上看得到它，筛出来才对得上
+      if (season === SEASON_FILTER_NONE ? r.seasons.length > 0 : season && !r.seasons.some((s) => s.key === season)) {
+        return false;
+      }
       // 年龄没填的人：一旦按年龄筛就排除掉，不然「找 25 岁以上」会把没记生日的全捞出来
       if (min !== null || max !== null) {
         if (r.age === null) return false;
@@ -343,19 +465,19 @@ export default function CustomerTable({
       return true;
     });
     return sortByFootprint(kept, sort);
-  }, [rows, editingId, name, phone, chat, referrer, footprint, status, contact, ageMin, ageMax, sort]);
+  }, [rows, editingId, name, chat, referrer, footprint, status, contact, season, ageMin, ageMax, sort]);
 
   const hasFilter =
-    name || phone || chat || referrer || footprint || status || contact || ageMin || ageMax;
+    name || chat || referrer || footprint || status || contact || season || ageMin || ageMax;
 
   function clearAll() {
     setName("");
-    setPhone("");
     setChat("");
     setReferrer("");
     setFootprint("");
     setStatus("");
     setContact("");
+    setSeason("");
     setAgeMin("");
     setAgeMax("");
   }
@@ -409,19 +531,28 @@ export default function CustomerTable({
         )}
       </div>
 
-      <table style={{ ...tableStyle, marginTop: 8 }}>
+      {/* tableLayout fixed：列宽只听表头的，不跟着内容变。不然一进编辑，生日框、保存按钮
+          把各自那列撑宽，整张表的列都挪几像素 —— 进出编辑几何必须一模一样（CLAUDE.md） */}
+      <table style={{ ...tableStyle, marginTop: 8, tableLayout: "fixed" }}>
         <thead>
           <tr>
-            <th style={{ ...thStyle, borderBottom: "none", width: "14%" }}>昵称</th>
-            <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>账号</th>
-            <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>电话</th>
-            <th style={{ ...thStyle, borderBottom: "none", width: "9%" }}>谁的客人</th>
-            <th style={{ ...thStyle, borderBottom: "none", width: "10%" }}>年龄</th>
-            <th style={{ ...thStyle, borderBottom: "none", width: "10%" }}>状态</th>
-            <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>介绍人</th>
-            <th style={{ ...thStyle, borderBottom: "none", width: "12%" }}>备注</th>
+            {/* 列宽**只在这一行定**（tableLayout fixed，下面的行都听它的）。百分比是内容宽，
+                每列还要加上左右内边距，所以加起来只到 70% 左右 —— 剩下的给不写宽度的「足迹」。
+                写满 100% 的话足迹那列会被挤得只剩十几像素。
+                昵称 / 账号收窄了（2026-10-08），腾给季那列；长名字会折行，不截断 */}
+            <th style={{ ...thStyle, borderBottom: "none", width: "9%" }}>昵称</th>
+            <th style={{ ...thStyle, borderBottom: "none", width: "7%" }}>账号</th>
+            {/* 电话不在列表里单独占一列（2026-10-08 去掉的）。数据还在，要看/改点「编辑」 */}
+            <th style={{ ...thStyle, borderBottom: "none", width: "11.5%" }}>季</th>
+            <th style={{ ...thStyle, borderBottom: "none", width: "8%" }}>谁的客人</th>
+            {/* 年龄这列进编辑时放生日输入框，别再窄了 */}
+            <th style={{ ...thStyle, borderBottom: "none", width: "9%" }}>年龄</th>
+            <th style={{ ...thStyle, borderBottom: "none", width: "7%" }}>状态</th>
+            <th style={{ ...thStyle, borderBottom: "none", width: "9%" }}>介绍人</th>
+            <th style={{ ...thStyle, borderBottom: "none", width: "10%" }}>备注</th>
             <th style={{ ...thStyle, borderBottom: "none" }}>足迹</th>
-            <th style={{ ...thStyle, borderBottom: "none", width: 48 }}>操作</th>
+            {/* 进编辑时这里是「保存」按钮，按它的宽度留 */}
+            <th style={{ ...thStyle, borderBottom: "none", width: 52 }}>操作</th>
           </tr>
           <tr>
             <th style={filterThStyle}>
@@ -441,12 +572,15 @@ export default function CustomerTable({
               />
             </th>
             <th style={filterThStyle}>
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="筛选电话"
-                style={filterInputStyle}
-              />
+              <select value={season} onChange={(e) => setSeason(e.target.value)} style={filterInputStyle}>
+                <option value="">全部</option>
+                {seasonOptions.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+                <option value={SEASON_FILTER_NONE}>没下过单</option>
+              </select>
             </th>
             <th style={filterThStyle}>
               <select value={contact} onChange={(e) => setContact(e.target.value)} style={filterInputStyle}>
@@ -500,13 +634,13 @@ export default function CustomerTable({
                 style={filterInputStyle}
               />
             </th>
-            {/* 备注不给筛选框：内容太散，真要找人用姓名/电话/足迹更快 */}
+            {/* 备注不给筛选框：内容太散，真要找人用昵称/足迹更快 */}
             <th style={filterThStyle} />
             <th style={filterThStyle}>
               <input
                 value={footprint}
                 onChange={(e) => setFootprint(e.target.value)}
-                placeholder="筛选地点或日期，如 locbl / 1/18"
+                placeholder="筛选地点、日期或年份，如 locbl / 1/18 / 2025"
                 style={filterInputStyle}
               />
             </th>
@@ -534,15 +668,17 @@ export default function CustomerTable({
                   transition: "background 0.6s",
                 }}
               >
-                <td style={tdStyle}>
+                <td style={narrowTdStyle}>
                   {r.name || <span style={{ color: "var(--text-faint)" }}>-</span>}
                   {/* 自己注册时填的称呼：排期总览上显示的是它（称呼优先），这里也得看得到 */}
                   {r.selfName && r.selfName !== r.name && (
                     <span style={{ color: "var(--text-faint)", fontSize: 12 }}> · 称呼 {r.selfName}</span>
                   )}
                 </td>
-                <td style={tdStyle}>{r.chatId}</td>
-                <td style={tdStyle}>{r.phone}</td>
+                <td style={narrowTdStyle}>{r.chatId}</td>
+                <td style={tdStyle}>
+                  <SeasonTags seasons={r.seasons} />
+                </td>
                 <td style={tdStyle}>
                   <ContactTags ids={r.contactIds} admins={admins} />
                 </td>

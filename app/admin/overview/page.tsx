@@ -2,7 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { createPerson, personSpread } from "@/lib/people";
-import { DISPLAY_COLUMNS, displayName, formatPerson } from "@/lib/person";
+import { displayName, formatPerson } from "@/lib/person";
 import {
   ADMIN_COOKIE,
   CONTACT_FILTER_NONE,
@@ -106,7 +106,17 @@ import {
   coversOrder,
   formatValidity,
   itemConflictReason,
+  validityOverlaps,
 } from "@/lib/resourceStatus";
+import { compareByValidityStart } from "@/lib/validity";
+import {
+  inSeason,
+  parseSeasonKey,
+  seasonDays,
+  seasonOf,
+  seasonsBetween,
+  type Season,
+} from "@/lib/season";
 import {
   pageTitleStyle,
   inputStyle,
@@ -239,10 +249,6 @@ async function createQuickOrder(formData: FormData) {
   const amountRaw = ((formData.get("amount") as string) ?? "").trim();
   const amount = amountRaw === "" ? null : Number(amountRaw);
 
-  // Supabase 一个来回要 0.4~2 秒（实测原生 fetch 也一样慢，不是客户端库的锅，
-  // 就是网络延迟），所以能少一次查询就少一次：客户端如果已经知道这个名字对应的
-  // customer_id（页面加载时把 customers 一起查出来了），就直接带过来，跳过这次查询。
-  const passedCustomerId = ((formData.get("customer_id") as string) ?? "").trim();
 
   // 当前身份（标题旁边那个下拉，存在 cookie 里）：这单的客人记成这个管理员的
   // （= 哪个账号加的，以后找人知道用谁的号）。cookie 里的 id 得在库里真有这个人，
@@ -257,7 +263,6 @@ async function createQuickOrder(formData: FormData) {
   // 名字在 people 上，但只在**客户**里找（!inner = 没有 customers 这一行的人不算）——
   // 同名的物主不该被顺手拉来下单
   const findCustomer = async () => {
-    if (passedCustomerId) return passedCustomerId;
     const { data } = await supabase
       .from("customers")
       .select("id, people!inner(chat_name)")
@@ -366,15 +371,22 @@ export default async function OverviewPage({
     sregion?: string;
     smtn?: string;
     ssort?: string;
+    /** 看哪一季（lib/season.ts 的 key，25-26-na）。不写 = 今天所在的那季 */
+    season?: string;
   };
 }) {
+  const todayForSeason = todayIso();
+  const currentSeason = seasonOf(todayForSeason);
+  const season: Season = parseSeasonKey(searchParams.season) ?? currentSeason;
+  const isCurrentSeason = season.key === currentSeason.key;
+
   const [
     { data: orders, error },
-    { data: allResources, error: resourceError },
-    { data: assignments },
-    { data: allCustomers },
+    { data: rawResources, error: resourceError },
     { data: orderNotes },
     { data: dayNotes },
+    { data: earliestOrder },
+    { data: latestOrder },
     overviewStart,
     overviewEnd,
     bandDaysSetting,
@@ -384,26 +396,31 @@ export default async function OverviewPage({
     supabase
       .from("orders")
       .select(
-        // customer_id / 生日是推荐分配要用的：认「这个客人以前用的哪个资源」和年龄
-        `id, customer_id, admin_id, location, amount, status, demand_days, male_count, female_count, customers(${personSpread("chat_name, chat_id, first_name, last_name, date_of_birth")})`
-      ),
+        // customer_id / 生日是推荐分配要用的：认「这个客人以前用的哪个资源」和年龄。
+        // 分配跟着订单一起带回来，不再单独拉整张 order_assignments（那张表跟着
+        // 历年的单子一起涨，单独拉就又是全量）
+        `id, customer_id, admin_id, location, amount, status, demand_days, male_count, female_count, customers(${personSpread("chat_name, chat_id, first_name, last_name, date_of_birth")}), order_assignments(resource_id)`
+      )
+      // 有一天落在这一季里就算（lib/season.ts）。跨季的单两边都看得见
+      .overlaps("demand_days", seasonDays(season)),
     supabase
       .from("resources")
       .select(
         // provider_id 是推荐要用的：同一单的两个资源如果同一个物主，取还跑一趟就够
-        "id, provider_id, holder_name, holder_gender, holder_date_of_birth, item_type, date_range_start, date_range_end, status"
+        "id, provider_id, holder_name, holder_gender, holder_date_of_birth, item_type, validity, status"
       )
       // 物主删掉的资源不在这儿列 —— 这一页是干活的地方，配也配不上（lib/assignable.ts
       // 拦着）。库里还在，要看去 /admin/resources（迁移 0013）
-      .is("deleted_at", null)
-      .order("date_range_start", { ascending: true }),
-    supabase.from("order_assignments").select("order_id, resource_id"),
-    // 建新单时用来在客户端直接把姓名换成 customer_id，省掉建单时的那次查询
-    // （跟上面几条并行，不额外增加页面加载时间）
-    supabase.from("customers").select(`id, ${personSpread(DISPLAY_COLUMNS)}`),
+      .is("deleted_at", null),
     supabase.from("order_notes").select("order_id, internal_note"),
     // 日期条上「这一天的备注」。整张表拉下来：一天一行，一个季撑死两三百行
     supabase.from("day_notes").select("day, note"),
+    // 季下拉列哪几季：最早那单到最晚那单，各取一行。数组按第一个元素排序 ——
+    // 绝大多数单子的 demand_days 是从小到大存的，但订单列表页手填的那条路不保证，
+    // 所以这只是近似：最坏漏掉一头那一季的入口（URL 上直接写 season 照样能看）。
+    // 为这个去全表扫一遍就又回到全量读了，不值
+    supabase.from("orders").select("demand_days").order("demand_days", { ascending: true }).limit(1),
+    supabase.from("orders").select("demand_days").order("demand_days", { ascending: false }).limit(1),
     // 日历从哪天开始。**跟上面几条并排跑**，不要单独 await 一次 ——
     // 这一页渲染一次本来就要 0.6~1.3 秒，再串一个来回纯属白等
     getOverviewStart(),
@@ -430,16 +447,31 @@ export default async function OverviewPage({
     if (t) noteByOrder.set(n.order_id, t);
   }
 
-  // 昵称统一转小写当 key：服务端找人用的是 ilike，大小写不敏感，这里保持一致。
-  // 只认昵称 —— 跟服务端那条查询（people.chat_name）对得上，不然这边认出来的人那边认不出
-  const customerIdByName: Record<string, string> = {};
-  for (const r of allCustomers ?? []) {
-    const key = (r.chat_name ?? "").trim().toLowerCase();
-    if (key && !customerIdByName[key]) customerIdByName[key] = r.id;
-  }
+  // 季下拉：最早那单到最晚那单的每一季，再把今天这季和正在看的这季也算进去
+  // （新的一季还没单子时也得能选到它）
+  const boundDays = [...(earliestOrder ?? []), ...(latestOrder ?? [])]
+    .flatMap((o: any) => o.demand_days ?? [])
+    .sort();
+  const seasonEnds = [
+    currentSeason,
+    season,
+    ...(boundDays.length ? [seasonOf(boundDays[0]), seasonOf(boundDays[boundDays.length - 1])] : []),
+  ].sort((a, b) => (a.start < b.start ? -1 : 1));
+  const seasonOptions = seasonsBetween(seasonEnds[0], seasonEnds[seasonEnds.length - 1]);
 
-  const resourceById = new Map((allResources ?? []).map((s: any) => [s.id, s]));
+  // 资源：只列有效期跟这一季沾边的（往年的资源配不了今年的单，列出来只是占地方）。
+  // 但**认分配记录用全部的** —— 一单配的资源万一有效期对不上这季（以前留下的），
+  // 也得照样显示「配了谁」，不能让它看着像没配
+  // 按开始生效排（原来是库里 .order("date_range_start")，有效期改成多段之后在内存里排，
+  // 见 lib/validity.ts 的 compareByValidityStart）
+  const allResources = (rawResources ?? [])
+    .filter((s: any) => validityOverlaps(s, season.start, season.end))
+    .sort(compareByValidityStart);
+  const resourceById = new Map((rawResources ?? []).map((s: any) => [s.id, s]));
   const orderById = new Map((orders ?? []).map((o: any) => [o.id, o]));
+  const assignments = (orders ?? []).flatMap((o: any) =>
+    (o.order_assignments ?? []).map((a: any) => ({ order_id: o.id, resource_id: a.resource_id }))
+  );
 
   const assignedTo = new Map<string, any[]>();
   // 每个资源被订单占用了哪几天 —— 用来在卡片上显示「已排 9/10~9/12」
@@ -551,7 +583,9 @@ export default async function OverviewPage({
   //
   // **只筛日历和统计，不筛资源面板那边的排期历史** —— 一个资源去过哪几个地点是它
   // 自己的事实，不该因为当前在看 RegionB 就少掉几段。bookedDays / assignHistory
-  // 都是上面用全部订单算好的，这里不动它们。
+  // 都是上面用这一季的全部订单算好的，这里不动它们。（往年那几季的不在里面 ——
+  // 资源基本一季一张，往年的资源配不了今年的单；有效期不限的那种跨物品，
+  // 推荐时就只看得到它这一季的记录，为这个把历年分配全读一遍不划算）
   //
   // 状态筛选（ostatus）走的是同一条路：**日历和统计一起筛**。顶上那几个数字
   // 跟着筛选走是有意的 —— 「只看已完成的单」就该看到这批单的钱，
@@ -595,16 +629,27 @@ export default async function OverviewPage({
 
   const todayForTimeline = todayIso();
 
+  // 设置里的起止日期只在这一季里面再缩小范围：落在这季外面的（比如去年设的）就当没设，
+  // 不然切到另一季，日历要么从一年前画起、要么整个是空的
+  const startSetting =
+    overviewStart && inSeason(overviewStart, season) ? overviewStart : undefined;
+  const endSetting = overviewEnd && inSeason(overviewEnd, season) ? overviewEnd : undefined;
+
+  // 日历要盖住的几个点：这季的单子；看的是今天这季的话还有今天。
+  // 一单都没有、今天也不在这季（翻到一个空的老季）就从季初画起 ——
+  // 新的一季刚开始一单都没有时也照样有日历，能拖着建第一单
+  const anchors = [...allDays];
+  if (inSeason(todayForTimeline, season)) anchors.push(todayForTimeline);
+  if (anchors.length === 0) anchors.push(season.start);
+  anchors.sort();
+
   let timeline: string[] = [];
-  if (allDays.length > 0) {
+  {
     // 时间轴必须盖住"今天"：不然九月的单子做完了、现在已经十二月的时候，日历上
     // 压根没有十二月那几列，进来只能停在九月，也没法在今天附近拖新单子。
-    const earliest =
-      allDays[0] < todayForTimeline ? allDays[0] : todayForTimeline;
-    const latest =
-      allDays[allDays.length - 1] > todayForTimeline
-        ? allDays[allDays.length - 1]
-        : todayForTimeline;
+    // （看往年那季时今天不在季里，就不硬拉到今天 —— 那样会接上一大段空白）
+    const earliest = anchors[0];
+    const latest = anchors[anchors.length - 1];
 
     // 起点先往前留两天，再退到那一周的周一（getUTCDay：0=周日）。
     // 界面上指定了开始日期的话就原样用它，这一套默认不参与（见 lib/timelineStart.ts）
@@ -612,10 +657,7 @@ export default async function OverviewPage({
     const backToMonday = (new Date(`${firstPadded}T00:00:00Z`).getUTCDay() + 6) % 7;
     // 起始日期是**设置**不是筛选：筛选是「这一眼我想看什么」，看完就没了；
     // 这个是「以后每次进来都这样」，所以存在库里（/admin/settings），不走 URL
-    const start = resolveTimelineStart(
-      overviewStart ?? undefined,
-      shiftDay(firstPadded, -backToMonday)
-    );
+    const start = resolveTimelineStart(startSetting, shiftDay(firstPadded, -backToMonday));
     // 起点被拖到所有单子后面时，latest 会跑到 start 前面，dateRangeToArray 就空了 ——
     // 那样日历整个不见，连往后拖新单的空白都没有。所以末尾至少给起点留出一段
     let end = shiftDay(latest > start ? latest : start, 10);
@@ -642,7 +684,7 @@ export default async function OverviewPage({
 
     // 界面上指定了结束日期就原样截到那天：上面补齐整段、末尾留空白那两步都不作数。
     // 最后一行可以比别的行短 —— 看得出「日历到这儿就停了」（见 lib/timelineStart.ts）
-    const explicitEnd = resolveTimelineEnd(overviewEnd ?? undefined, start);
+    const explicitEnd = resolveTimelineEnd(endSetting, start);
     if (explicitEnd) timeline = dateRangeToArray(start, explicitEnd);
   }
 
@@ -709,7 +751,14 @@ export default async function OverviewPage({
   const weekOrderCount = countInRange(withDays, weekStart, weekEnd);
   const weekRevenue = sumInRange(withDays, weekStart, weekEnd);
   const monthRevenue = sumInRange(withDays, monthFirstDay(today), weekEnd);
-  const seasonRevenue = sumInRange(withDays, null, weekEnd);
+  // 季流水 = 最早那天落在这季里的单（跨季的单整单算进开始那季，不按天拆）。
+  // 以前起点是 null（「到本周日为止的所有单」），只有一季数据时看不出来；
+  // 导入往年之后那个数是好几季加起来的。看往年那季时，结束点就是那季最后一天
+  const seasonRevenue = sumInRange(
+    withDays,
+    season.start,
+    isCurrentSeason && weekEnd < season.end ? weekEnd : season.end
+  );
 
   // 本周未配齐：跟上面几个数字同一套归属规则（按最早那天算本周），
   // 取消/退款的单子不用分配所以排除掉
@@ -806,8 +855,11 @@ export default async function OverviewPage({
       .sort((a, b) => b.score - a.score);
   })();
 
+  // 今天这季是默认，不写进 URL；认不出来的 season 参数也不往下传
+  const seasonParam = isCurrentSeason ? "" : season.key;
   const qs = (extra: Record<string, string>) => {
     const p = new URLSearchParams();
+    if (seasonParam) p.set("season", seasonParam);
     if (f.item) p.set("item", f.item);
     if (f.gender) p.set("gender", f.gender);
     if (f.sstatus !== "active") p.set("sstatus", f.sstatus); // active 是默认，不写进 URL
@@ -962,6 +1014,7 @@ export default async function OverviewPage({
             assignHistory={assignHistory}
             orderRegion={orderFilter.region}
             orderMtn={orderFilter.mtn}
+            season={seasonParam}
             showAllCards={searchParams.allcards === "1"}
             showAllHref={qs({ allcards: "1" })}
             hideUnusableHref={qs({ allcards: "" })}
@@ -1005,7 +1058,10 @@ export default async function OverviewPage({
         <Stat label="本周订单数" value={String(weekOrderCount)} />
         <Stat label="本周流水" value={`$${weekRevenue.toLocaleString()}`} />
         <Stat label="本月流水" value={`$${monthRevenue.toLocaleString()}`} />
-        <Stat label="本季流水" value={`$${seasonRevenue.toLocaleString()}`} />
+        <Stat
+          label={isCurrentSeason ? "本季流水" : `${season.label} 流水`}
+          value={`$${seasonRevenue.toLocaleString()}`}
+        />
         <Stat
           label="本周未配齐"
           value={String(weekNotFullyAssigned)}
@@ -1015,6 +1071,22 @@ export default async function OverviewPage({
             其它筛选一个路子，筛选状态留在 URL 上，刷新和分享链接都还在。
             选完自动提交（onChange 交给 FilterAutoSubmit，跟资源筛选共用）。 */}
         <FilterForm action="/admin/overview" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {/* 看哪一季。放最前面：它决定读哪批数据，后面几个筛选都是在这一季里面再筛。
+              今天这季的选项值是空的 —— 默认那档不写进 URL（FilterForm 会剔掉空值） */}
+          <select
+            key={`season-${season.key}`}
+            name="season"
+            defaultValue={seasonParam}
+            style={filterSelectStyle}
+            aria-label="季"
+          >
+            {seasonOptions.map((s) => (
+              <option key={s.key} value={s.key === currentSeason.key ? "" : s.key}>
+                {s.label}
+                {s.key === currentSeason.key ? "（本季）" : ""}
+              </option>
+            ))}
+          </select>
           {/* 资源面板那边的筛选也在 URL 上，这个表单一提交就会把它们冲掉，
               所以原样带过去 */}
           {f.item && <input type="hidden" name="item" value={f.item} />}
@@ -1222,7 +1294,6 @@ export default async function OverviewPage({
                   laneCount={band.laneCount}
                   assigningOrderId={assigningOrder ? (assigningOrder as any).id : null}
                   createOrderAction={createQuickOrder}
-                  customerIdByName={customerIdByName}
                   adminName={currentAdmin?.name ?? null}
                   adminId={currentAdmin?.id ?? null}
                 />
@@ -2152,6 +2223,7 @@ function ResourcePanel({
   bookingsByResource,
   orderRegion,
   orderMtn,
+  season,
   showAllCards,
   showAllHref,
   hideUnusableHref,
@@ -2188,6 +2260,8 @@ function ResourcePanel({
   sortHrefs: Record<ResourceSort, string>;
   orderRegion: string;
   orderMtn: string;
+  /** 正在看的季（URL 上的 season，今天这季是空）。筛资源、清除筛选都不能把它冲掉 */
+  season: string;
   hasFilter: boolean;
   total: number;
   loadError?: string;
@@ -2198,6 +2272,8 @@ function ResourcePanel({
   initialCollapsed: boolean;
   filtersCollapsed: boolean;
 }) {
+  // 「清除」只清资源的筛选，看的是哪一季不动
+  const clearHref = season ? `/admin/overview?season=${season}` : "/admin/overview";
   // 每组按选中的方式重排。库里那条 .order("date_range_start") 排的是
   // 「资源什么时候开始生效」，跟挑资源这件事没关系 —— 挑资源时脑子里的顺序要么是
   // 年龄（登记了使用人的资源，年龄要跟客户对得上），要么是出借频率
@@ -2264,7 +2340,7 @@ function ResourcePanel({
         initialCollapsed={filtersCollapsed}
         hasFilter={hasFilter}
         summary={filterSummary}
-        clearHref="/admin/overview"
+        clearHref={clearHref}
         sortSlot={<SortMenu current={sortBy} hrefFor={sortHrefs} />}
       >
       <FilterForm
@@ -2277,6 +2353,7 @@ function ResourcePanel({
         {/* 顶上那两个订单筛选也在 URL 上，这个表单一提交会把它们冲掉，原样带过去 */}
         {orderRegion && <input type="hidden" name="region" value={orderRegion} />}
         {orderMtn && <input type="hidden" name="mtn" value={orderMtn} />}
+        {season && <input type="hidden" name="season" value={season} />}
         <input
           key={`q-${filters.q}`}
           name="q"
@@ -2368,7 +2445,7 @@ function ResourcePanel({
           {hasFilter ? (
             <>
               <span style={{ color: "var(--warn)" }}>{resources.length} 张</span>
-              <Link href="/admin/overview" style={linkButtonStyle}>
+              <Link href={clearHref} style={linkButtonStyle}>
                 清除
               </Link>
             </>
