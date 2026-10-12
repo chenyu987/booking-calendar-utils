@@ -18,6 +18,7 @@ const navItems = [
   { href: "/admin/payments", label: "Payment" },
   { href: "/admin/matches", label: "Match" },
   { href: "/admin/referrals", label: "Referral" },
+  { href: "/admin/history", label: "改动记录" },
 ];
 
 export default function AdminLayout({

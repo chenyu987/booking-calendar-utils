@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
 
+import { ADMIN_COOKIE } from "./admins";
 import { paginatingFetch } from "./fetchAllRows";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
@@ -28,8 +30,40 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // **这两层都别拆**，也别另建一个不带它们的 client。
 const noStoreFetch: typeof fetch =(input, init) => fetch(input, { ...init, cache: "no-store" });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * 写库时带上「当前身份」（排期总览标题旁边选的那个管理员），给改动记录用：
+ * 0025 的 trigger 从 PostgREST 的 `request.headers` 里读 `x-admin-id`。
+ *
+ * 放在 client 的 fetch 上而不是每个写库的地方各传一遍 —— 入口几十处，漏一处就是一段
+ * 「不知道谁改的」。client 是模块级单例，但 fetch 是在请求里调的，`cookies()` 在
+ * server action 和 route handler 里都读得到当前这个请求的 cookie。
+ *
+ * **只碰写请求。** 读请求不需要，而且页面渲染时调 `cookies()` 会把这一页拖成动态渲染 ——
+ * 写请求只会出现在 action / route 里，没这个顾虑。
+ * 不在请求里（脚本、测试）`cookies()` 会抛，那就不带：记录里「谁」是空的，写照常写。
+ */
+const withAdminHeader =
+  (f: typeof fetch): typeof fetch =>
+  (input, init) => {
+    const method = (init?.method ?? "GET").toUpperCase();
+    if (method === "GET" || method === "HEAD") return f(input, init);
+    let adminId: string | undefined;
+    try {
+      adminId = cookies().get(ADMIN_COOKIE)?.value;
+    } catch {
+      adminId = undefined;
+    }
+    // cookie 是浏览器给的，不是 uuid 就别往请求头里塞（非 ASCII 会让 Headers 直接抛）
+    if (!adminId || !UUID_RE.test(adminId)) return f(input, init);
+    const headers = new Headers(init?.headers);
+    headers.set("x-admin-id", adminId);
+    return f(input, { ...init, headers });
+  };
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: {
-    fetch: paginatingFetch(noStoreFetch),
+    fetch: paginatingFetch(withAdminHeader(noStoreFetch)),
   },
 });

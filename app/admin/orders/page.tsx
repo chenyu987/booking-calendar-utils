@@ -522,6 +522,9 @@ export default async function OrdersAdminPage({
               <Link href={`/admin/orders?edit=${o.id}`} style={linkButtonStyle}>
                 编辑
               </Link>
+              <Link href={`/admin/history?about=${o.id}`} style={linkButtonStyle}>
+                记录
+              </Link>
               <form action={deleteOrder}>
                 <input type="hidden" name="id" value={o.id} />
                 <button type="submit" style={dangerLinkStyle}>
