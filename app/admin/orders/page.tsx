@@ -167,9 +167,6 @@ export default async function OrdersAdminPage({
     return r ? displayName(r, "-") : "-";
   };
 
-  // 逐列筛选。在内存里筛不写进 SQL：一季 150~250 单，全捞回来才几十 KB；
-  // 而"配齐没配齐"是算出来的、日期是数组要判交集，写成 SQL 既别扭又容易跟
-  // 界面上的算法走偏（判断规则统一放在 lib/orderFilter.ts，有单测）。
   const filters = parseOrderFilters(searchParams);
   const filtering = hasAnyFilter(filters);
   const visibleOrders = (orders ?? []).filter((o: any) => {

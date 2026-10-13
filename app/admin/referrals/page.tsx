@@ -482,8 +482,6 @@ export default async function ReferralsAdminPage({
 }: {
   searchParams: Record<string, string | undefined>;
 }) {
-  // 一季 150~250 单、几百个人，全量拉回来几十 KB。返点整个是算出来的，
-  // 建单那一刻不写任何东西，所以这里是唯一一次「算返点」的地方。
   const [{ data: customers, error }, { data: orders }, { data: payouts }, defaultRate] =
     await Promise.all([
       supabase

@@ -2,10 +2,6 @@
 //
 // 纯函数，不连数据库：页面把每一行整理成 FilterableOrder（客人姓名、分配进度这些
 // 派生的东西在页面那边算好），这里只负责判断"这一行留不留"。这样能单测。
-//
-// 为什么在内存里筛而不是写进 SQL：一个季 150~250 单，一次全捞回来才几十 KB；
-// 而"配齐没配齐"是**算出来的**（CLAUDE.md：能算出来的东西不要存成字段），
-// 日期是数组要判交集，这两条写成 SQL 既别扭又容易跟界面上的算法走偏。
 
 export type PartyFilter = "" | "male" | "female" | "both";
 export type AssignFilter = "" | "none" | "partial" | "full";

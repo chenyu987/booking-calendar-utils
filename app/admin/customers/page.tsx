@@ -80,9 +80,6 @@ export default async function CustomersAdminPage({
 }: {
   searchParams: { edit?: string; error?: string; saved?: string };
 }) {
-  // 足迹要拉一遍 orders。跟 customers 并行发，页面加载时间取两者里慢的那个，不叠加。
-  // 一季 150~250 单，全量拉回来几十 KB，比排期总览拉的还少，不用分页也不用按需加载。
-  // 管理员 / 归属两条查询出错会直接抛 —— 当成「都没标」的话，编辑一下就会把原来的全删掉
   const [{ data: customers, error }, { data: orders }, admins, contactsByPerson] = await Promise.all([
     supabase
       .from("customers")
