@@ -2,8 +2,8 @@
 //
 //
 // 这里包一层 fetch，**一处管全站**（跟 lib/supabase.ts 那层 no-store 一个思路）：
-// 列表查询一次正好拿满 1000 行，就说明被截了，带上稳定排序一页一页重新拉，合起来再返回。
-// 不满 1000 的照旧，一个请求都不多发。
+// 列表查询一律带上稳定排序按页拉：第一页正好拿满 1000 行，就说明被截了，接着拉下一页，
+// 合起来再返回。不满 1000 的照旧，一个请求都不多发。
 
 /** Supabase 默认的 max-rows。改过项目设置的话这里跟着改 */
 export const PAGE_SIZE = 1000;
@@ -61,7 +61,14 @@ export function paginatingFetch(base: FetchLike): FetchLike {
     const explicit = url.searchParams.has("limit") || url.searchParams.has("offset") || headers.has("range");
     if (method !== "GET" || !isRest || single || explicit) return base(input, init);
 
-    const first = await base(input, init);
+    url.searchParams.set("order", withStableOrder(url.searchParams.get("order"), tableOf(url)));
+    url.searchParams.set("limit", String(PAGE_SIZE));
+    const pageAt = (offset: number) => {
+      url.searchParams.set("offset", String(offset));
+      return base(url.toString(), { ...init, method: "GET", headers });
+    };
+
+    const first = await pageAt(0);
     if (!first.ok) return first;
     const rows = await first
       .clone()
@@ -69,13 +76,9 @@ export function paginatingFetch(base: FetchLike): FetchLike {
       .catch(() => null);
     if (!Array.isArray(rows) || rows.length < PAGE_SIZE) return first;
 
-    // 拿满了：从头按稳定顺序一页一页拉。第一页不复用 —— 它没排序，跟后面的页对不上
-    url.searchParams.set("order", withStableOrder(url.searchParams.get("order"), tableOf(url)));
-    const all: unknown[] = [];
-    for (let offset = 0; ; offset += PAGE_SIZE) {
-      url.searchParams.set("limit", String(PAGE_SIZE));
-      url.searchParams.set("offset", String(offset));
-      const res = await base(url.toString(), { ...init, method: "GET" });
+    const all: unknown[] = [...rows];
+    for (let offset = PAGE_SIZE; ; offset += PAGE_SIZE) {
+      const res = await pageAt(offset);
       // 中间某页出错就原样把错误交出去，别拿半截数据装作完整的
       if (!res.ok) return res;
       const page = (await res.json()) as unknown[];

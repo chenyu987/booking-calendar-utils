@@ -43,15 +43,24 @@ describe("paginatingFetch：超过 1000 行自动分页拉全", () => {
     const got = (await res.json()) as { id: string }[];
     expect(got).toHaveLength(2500);
     expect(new Set(got.map((r) => r.id)).size).toBe(2500);
-    // 第一次探出满了，然后按 order=id.asc 拉三页
-    expect(s.calls.slice(1).every((q) => q.includes("order=id.asc"))).toBe(true);
-    expect(s.calls).toHaveLength(4);
+    // 从第一个请求起就按 order=id.asc 拉，三页正好三个请求
+    expect(s.calls.every((q) => q.includes("order=id.asc"))).toBe(true);
+    expect(s.calls).toHaveLength(3);
+  });
+
+  it("**第一页不白拉**：拿满了接着往后拉，不从头重拉一遍", async () => {
+    // 原来第一次不排序，满了再从 offset=0 重拉 —— 排期总览那一下白等两秒多
+    const s = fakeServer(1800);
+    const res = await paginatingFetch(s.fetchImpl)(`${BASE}/orders?select=*`);
+    expect(await res.json()).toHaveLength(1800);
+    const offsets = s.calls.map((q) => new URLSearchParams(q).get("offset"));
+    expect(offsets).toEqual(["0", "1000"]);
   });
 
   it("本来就排了序的：保留原来的顺序，只在后面补 id 兜底", async () => {
     const s = fakeServer(1500);
     await paginatingFetch(s.fetchImpl)(`${BASE}/resources?select=*&order=date_range_start.asc`);
-    expect(decodeURIComponent(s.calls[1])).toContain("order=date_range_start.asc,id.asc");
+    expect(s.calls.every((q) => decodeURIComponent(q).includes("order=date_range_start.asc,id.asc"))).toBe(true);
   });
 
   it("正好 1000 行：多拉一页确认拉完了，结果还是 1000", async () => {
@@ -92,8 +101,10 @@ describe("主键不叫 id 的表", () => {
   it("分页时真的按这张表的唯一键去拉", async () => {
     const s = fakeServer(1500);
     await paginatingFetch(s.fetchImpl)(`${BASE}/person_contacts?select=person_id,admin_id`);
-    expect(decodeURIComponent(s.calls[1])).toContain("order=person_id.asc,admin_id.asc");
-    expect(decodeURIComponent(s.calls[1])).not.toMatch(/order=[^&]*(^|,)id\.asc/);
+    for (const q of s.calls) {
+      expect(decodeURIComponent(q)).toContain("order=person_id.asc,admin_id.asc");
+      expect(decodeURIComponent(q)).not.toMatch(/order=[^&]*(^|,)id\.asc/);
+    }
   });
 
   it("**0001_init.sql 里每张主键不叫 id 的表都登记了** —— 新建这种表漏登记，一过 1000 行整页报错", () => {
