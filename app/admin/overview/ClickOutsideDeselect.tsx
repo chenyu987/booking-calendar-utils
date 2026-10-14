@@ -3,6 +3,61 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
+/**
+ * 这个编辑框里**真的改过**的字段（值跟 data-original 不一样的）。没动过的不放进来。
+ * 退出时存回去用；点下去当场画的那一份（InstantAssign）在服务端那份到之前就退出时也用它
+ */
+export function collectChangedEdits(block: Element | null): Record<string, string> {
+  const customerNameInput = block?.querySelector<HTMLInputElement>('input[name="customer_name"]');
+  const locationInput = block?.querySelector<HTMLInputElement>('input[name="location"]');
+  const maleInput = block?.querySelector<HTMLInputElement>('input[name="male_count"]');
+  const femaleInput = block?.querySelector<HTMLInputElement>('input[name="female_count"]');
+  const amountInput = block?.querySelector<HTMLInputElement>('input[name="amount"]');
+  const noteInput = block?.querySelector<HTMLInputElement>('input[name="note"]');
+  const statusSelect = block?.querySelector<HTMLSelectElement>('select[name="status"]');
+
+  const payload: Record<string, string> = {};
+  if (
+    customerNameInput &&
+    customerNameInput.value.trim() &&
+    customerNameInput.value !== customerNameInput.dataset.original
+  ) {
+    payload.customer_name = customerNameInput.value;
+  }
+  if (locationInput && locationInput.value !== locationInput.dataset.original) {
+    payload.location = locationInput.value;
+  }
+  if (
+    maleInput &&
+    femaleInput &&
+    (maleInput.value !== maleInput.dataset.original ||
+      femaleInput.value !== femaleInput.dataset.original)
+  ) {
+    payload.male_count = maleInput.value;
+    payload.female_count = femaleInput.value;
+  }
+  if (amountInput && amountInput.value !== amountInput.dataset.original) {
+    payload.amount = amountInput.value;
+  }
+  // 备注框在窄色块上会被容器查询 display:none 掉（一列宽的单子塞不下）。
+  // 藏起来的元素还在 DOM 里、照样能被 querySelector 找到，但既然点不进去也打不了字，
+  // 它的 value 就等于 data-original，会被下面这个"只存改过的"判断自然跳过，
+  // 不会把备注误清空。
+  if (noteInput && noteInput.value !== noteInput.dataset.original) {
+    payload.note = noteInput.value;
+  }
+  if (statusSelect && statusSelect.value !== statusSelect.dataset.original) {
+    payload.status = statusSelect.value;
+  }
+
+  return payload;
+}
+
+/** 某一单的编辑框（服务端画的那一份）。按单号找，不按 id：当场画的那份可能同时在页面上，id 会重复 */
+export function editorFor(orderId: string): Element | null {
+  return document.querySelector(`[data-assign-editor="${CSS.escape(orderId)}"]:not([data-instant])`);
+}
+
 // 离开当前这单的编辑——点外面空白、点了另一个订单、点了导航栏——都算确认：
 // 自动保存改过的字段（客人姓名/地点/男女人数/状态/总价）。不需要专门的"存/更新"按钮。
 // 只有 Esc 是真正的"取消"：改过的字段不保存，退回编辑前的样子。
@@ -31,49 +86,7 @@ export default function ClickOutsideDeselect({
   useEffect(() => {
     // 只把真的改过的字段存回去，没动过的就不放进这次请求
     async function saveChangedEdits() {
-      const block = document.getElementById("assign-active-block");
-      const customerNameInput = block?.querySelector<HTMLInputElement>('input[name="customer_name"]');
-      const locationInput = block?.querySelector<HTMLInputElement>('input[name="location"]');
-      const maleInput = block?.querySelector<HTMLInputElement>('input[name="male_count"]');
-      const femaleInput = block?.querySelector<HTMLInputElement>('input[name="female_count"]');
-      const amountInput = block?.querySelector<HTMLInputElement>('input[name="amount"]');
-      const noteInput = block?.querySelector<HTMLInputElement>('input[name="note"]');
-      const statusSelect = block?.querySelector<HTMLSelectElement>('select[name="status"]');
-
-      const payload: Record<string, string> = {};
-      if (
-        customerNameInput &&
-        customerNameInput.value.trim() &&
-        customerNameInput.value !== customerNameInput.dataset.original
-      ) {
-        payload.customer_name = customerNameInput.value;
-      }
-      if (locationInput && locationInput.value !== locationInput.dataset.original) {
-        payload.location = locationInput.value;
-      }
-      if (
-        maleInput &&
-        femaleInput &&
-        (maleInput.value !== maleInput.dataset.original ||
-          femaleInput.value !== femaleInput.dataset.original)
-      ) {
-        payload.male_count = maleInput.value;
-        payload.female_count = femaleInput.value;
-      }
-      if (amountInput && amountInput.value !== amountInput.dataset.original) {
-        payload.amount = amountInput.value;
-      }
-      // 备注框在窄色块上会被容器查询 display:none 掉（一列宽的单子塞不下）。
-      // 藏起来的元素还在 DOM 里、照样能被 querySelector 找到，但既然点不进去也打不了字，
-      // 它的 value 就等于 data-original，会被下面这个"只存改过的"判断自然跳过，
-      // 不会把备注误清空。
-      if (noteInput && noteInput.value !== noteInput.dataset.original) {
-        payload.note = noteInput.value;
-      }
-      if (statusSelect && statusSelect.value !== statusSelect.dataset.original) {
-        payload.status = statusSelect.value;
-      }
-
+      const payload = collectChangedEdits(editorFor(orderId));
       if (Object.keys(payload).length === 0) return;
       payload.order_id = orderId;
       await fetch("/admin/overview/save-field", {

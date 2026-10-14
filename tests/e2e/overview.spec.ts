@@ -191,6 +191,62 @@ test.describe("点下去要立刻有反应", () => {
   });
 });
 
+test.describe("点一下当场就能编辑（不等整页渲染）", () => {
+  // 进分配态要整页回服务端（真数据一季 1800 单，2026-10-14 实测 1.2~1.4 秒）。
+  // InstantAssign 在点击的同一帧就在同一个格子里画上同一个编辑框（AssignEditor），
+  // 服务端那份到了再把打的字搬过去。
+
+  /** 点一下，**同一帧**里读：当场画的那份编辑框在不在、里面每个元素的位置 */
+  async function clickAndMeasure(page: Page, id: string) {
+    return page.evaluate((id) => {
+      document.querySelector<HTMLElement>(`a[data-order-id="${id}"][data-edit-seg]`)!.click();
+      const ed = document.querySelector(`[data-assign-editor="${id}"][data-instant]`);
+      return {
+        present: !!ed,
+        typeable: !!ed?.querySelector('input[name="customer_name"]'),
+        rects: ed ? [...ed.querySelectorAll("*")].map((e) => { const r = e.getBoundingClientRect(); return [e.tagName, +r.x.toFixed(2), +r.y.toFixed(2), +r.width.toFixed(2), +r.height.toFixed(2)]; }) : [],
+      };
+    }, id);
+  }
+
+  test("点一下，同一帧色块里就是能打字的编辑框", async ({ page }) => {
+    await gotoOverview(page);
+    const got = await clickAndMeasure(page, MAIN);
+    expect(got).toMatchObject({ present: true, typeable: true });
+  });
+
+  test("**当场画的和服务端画的，里面每个元素的位置一模一样**", async ({ page }) => {
+    await gotoOverview(page);
+    const instant = await clickAndMeasure(page, MAIN);
+    const server = page.locator(`[data-assign-editor="${MAIN}"]:not([data-instant])`);
+    await server.waitFor();
+    // 接上之后当场画的那份撤掉了
+    await expect(page.locator(`[data-assign-editor="${MAIN}"][data-instant]`)).toHaveCount(0);
+    const real = await server.evaluate((ed) =>
+      [...ed.querySelectorAll("*")].map((e) => { const r = e.getBoundingClientRect(); return [e.tagName, +r.x.toFixed(2), +r.y.toFixed(2), +r.width.toFixed(2), +r.height.toFixed(2)]; })
+    );
+    expect(instant.rects.length).toBeGreaterThan(10);
+    expect(real).toEqual(instant.rects);
+  });
+
+  test("服务端那份回来之前打的字：接上之后还在，光标也还在那个框里", async ({ page }) => {
+    await gotoOverview(page);
+    await page.evaluate((id) => {
+      document.querySelector<HTMLElement>(`a[data-order-id="${id}"][data-edit-seg]`)!.click();
+      const input = document.querySelector<HTMLInputElement>(`[data-assign-editor="${id}"][data-instant] input[name="customer_name"]`)!;
+      input.focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "改过的名字");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }, MAIN);
+    const server = page.locator(`[data-assign-editor="${MAIN}"]:not([data-instant])`);
+    await server.waitFor();
+    await expect(page.locator(`[data-assign-editor="${MAIN}"][data-instant]`)).toHaveCount(0);
+    const nameInput = server.locator('input[name="customer_name"]');
+    await expect(nameInput).toHaveValue("改过的名字");
+    await expect(nameInput).toBeFocused();
+  });
+});
+
 test.describe("一天的单子也放得下", () => {
   // 一天的色块内宽只有 136px。曾经为了腾地方，把状态下拉框在
   // @container (max-width:180px) 里整个藏掉 —— 等于一天的单子改不了状态。
