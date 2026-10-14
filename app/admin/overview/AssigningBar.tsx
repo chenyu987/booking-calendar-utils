@@ -22,6 +22,7 @@ export default function AssigningBar({
   candidates,
   deleteAction,
   exitHref,
+  instant = false,
 }: {
   orderId: string;
   label: string;
@@ -29,6 +30,8 @@ export default function AssigningBar({
   candidates: { id: string; name: string; hint: string }[];
   deleteAction: (formData: FormData) => Promise<void>;
   exitHref: string;
+  /** 点下去当场画的那一份（InstantAssign），服务端那份到了就撤 */
+  instant?: boolean;
 }) {
   return (
     <div
@@ -37,6 +40,7 @@ export default function AssigningBar({
       // 只判断「有没有真条」的话，抢画的假状态一挂上就被立刻撤掉 ——
       // 等于换单的时候完全没有即时反馈，干等一次整页重渲染
       data-assign-bar={orderId}
+      data-instant={instant ? "1" : undefined}
       style={{
         position: "fixed",
         left: "50%",

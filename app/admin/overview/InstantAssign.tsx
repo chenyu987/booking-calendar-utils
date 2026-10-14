@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import AssignEditor, { type EditorData } from "./AssignEditor";
 import { collectChangedEdits } from "./ClickOutsideDeselect";
+import AssigningBar from "./AssigningBar";
+import { getPanelData, setInstantSelection } from "./assignSelection";
+import { nameCandidates } from "@/lib/assignPanel";
 
 // 点色块**当场**就是分配态：能打字、能改状态，不等整页渲染。
 //
@@ -12,7 +15,9 @@ import { collectChangedEdits } from "./ClickOutsideDeselect";
 // 2026-10-14 实测 1.2~1.4 秒）。原来这段时间里只有 OptimisticAssign 抢画的一圈光和假浮动条，
 // 色块里的编辑框要等服务端。现在按下去的同一帧，就在**同一个格子**里画上**同一个**编辑框
 // （AssignEditor，服务端也用它），把原来那段普通态藏起来；服务端那一份到了，把打的字、
-// 光标搬过去，自己撤掉。左边资源清单和顶上浮动条还是等服务端（下一步再做）。
+// 光标搬过去，自己撤掉。
+// 左边资源清单和顶上浮动条也是当场的：清单看 assignSelection（这里点下去就写进去），
+// 浮动条这里直接画一份（同一个 AssigningBar），候选跟服务端同一个算法（lib/assignPanel.ts）。
 //
 // 命令式的东西都有撤销点（CLAUDE.md「命令式改了 DOM 就得自己负责撤」）：
 //   - 藏普通态那段用的是注入一条 CSS 规则，跟节点生死无关；active 一清就没了
@@ -25,10 +30,12 @@ export default function InstantAssign({
   editors,
   bandDays,
   exitHref,
+  deleteAction,
 }: {
   editors: InstantEditors;
   bandDays: string[][];
   exitHref: string;
+  deleteAction: (formData: FormData) => Promise<void>;
 }) {
   const router = useRouter();
   const [active, setActive] = useState<string | null>(null);
@@ -58,11 +65,19 @@ export default function InstantAssign({
       flushSync(() => {
         setActive(id);
         setSnapshot(editorsRef.current[id]);
+        // 左边资源清单当场换成这一单的（ResourcePanel 看 assignSelection），同一帧画
+        setInstantSelection(id);
       });
     }
     document.addEventListener("click", onClick);
     return () => document.removeEventListener("click", onClick);
   }, []);
+
+  // 撤掉当场画的那份时，「当场选中」也一起清掉，资源清单退回看服务端的 ?assign=
+  useEffect(() => {
+    if (!active) setInstantSelection(null);
+  }, [active]);
+  useEffect(() => () => setInstantSelection(null), []);
 
   // 服务端那一份到了：把打的字、光标搬过去，自己撤掉
   useEffect(() => {
@@ -70,9 +85,15 @@ export default function InstantAssign({
     const id = active;
     const handover = (sync: boolean) => {
       const real = document.querySelector(`[data-assign-editor="${CSS.escape(id)}"]:not([data-instant])`);
-      if (!real) return false;
+      // 编辑框和浮动条都到了才交接：两样一起撤，打的字两边都得搬
+      const realBarReady = document.querySelector(`[data-assign-bar="${CSS.escape(id)}"]:not([data-instant])`);
+      if (!real || !realBarReady) return false;
       const ours = document.querySelector(`[data-assign-editor="${CSS.escape(id)}"][data-instant]`);
       if (ours) moveEdits(ours, real);
+      // 浮动条同理：「打名字分配」「备注」打了一半的字搬到服务端那条上
+      const oursBar = document.querySelector(`[data-assign-bar="${CSS.escape(id)}"][data-instant]`);
+      const realBar = document.querySelector(`[data-assign-bar="${CSS.escape(id)}"]:not([data-instant])`);
+      if (oursBar && realBar) moveBarEdits(oursBar, realBar);
       // flushSync：**就在这个回调里**把当场画的那份撤掉。不 flush 的话 React 要等下一轮才删，
       // 中间有一小段两份编辑框同时在页面上 —— CI 机器慢，e2e 正好在这一段里查到两个
       // customer_name 输入框（strict mode violation，2026-10-14 合进 main 后的那次 CI）。
@@ -132,6 +153,13 @@ export default function InstantAssign({
   }, [active, exitHref, router]);
 
   const d = active && snapshot?.orderId === active ? snapshot : null;
+  // 浮动条「打名字分配」的候选：跟服务端同一个算法，点哪单算哪单
+  // 数据跟资源清单共用一份（ResourcePanel 登记在 assignSelection 里），不另传
+  const candidates = useMemo(() => {
+    const data = getPanelData();
+    const order = d && data?.orders[d.orderId];
+    return order ? nameCandidates(order, data!.allResources, data!.bookedDays, data!.history) : [];
+  }, [d]);
   if (!d) return null;
   const grid = document.querySelector(`[data-band-grid="${d.band}"]`);
   if (!grid) return null;
@@ -154,6 +182,16 @@ export default function InstantAssign({
         <AssignEditor d={d} timeline={bandDays[d.band] ?? []} exitHref={exitHref} instant />,
         grid
       )}
+      {/* 顶上浮动条，跟服务端那条同一个组件 */}
+      <AssigningBar
+        orderId={d.orderId}
+        label={[d.customerName, d.location].filter(Boolean).join(" · ")}
+        note={d.note}
+        candidates={candidates}
+        deleteAction={deleteAction}
+        exitHref={exitHref}
+        instant
+      />
     </>
   );
 }
@@ -196,4 +234,20 @@ function moveEdits(from: Element, to: Element) {
       }
     }
   }
+}
+
+/** 浮动条里打了一半的字（打名字分配、备注）：按顺序一一对应搬过去，焦点也搬 */
+function moveBarEdits(from: Element, to: Element) {
+  const src = [...from.querySelectorAll<HTMLInputElement>("input:not([type=hidden])")];
+  const dst = [...to.querySelectorAll<HTMLInputElement>("input:not([type=hidden])")];
+  const focusedIdx = src.findIndex((el) => el === document.activeElement);
+  src.forEach((el, i) => {
+    const target = dst[i];
+    // 不能拿 defaultValue 判断「打没打过字」：受控输入框（打名字分配那个）React 会把
+    // value 同步到 defaultValue 上，永远相等。跟服务端那条比，不一样就搬
+    if (!target || el.value === target.value) return;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(target, el.value);
+    target.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  if (focusedIdx >= 0) dst[focusedIdx]?.focus();
 }

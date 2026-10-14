@@ -247,6 +247,56 @@ test.describe("点一下当场就能编辑（不等整页渲染）", () => {
   });
 });
 
+test.describe("点一下，左边资源清单和顶上浮动条也当场就是这一单的", () => {
+  // 资源清单搬到了客户端（ResourcePanel），选中哪单看 assignSelection；浮动条 InstantAssign
+  // 当场画一份。原来这两样要等整页渲染回来（一秒多）
+
+  test("同一帧：左边清单换成这一单（已配的资源打勾），顶上是能打字的真浮动条", async ({ page }) => {
+    await gotoOverview(page);
+    const before = await page.locator('[data-resource-id="s-female"]').innerText();
+    expect(before).not.toContain("已配给这单");
+    const got = await page.evaluate((id) => {
+      document.querySelector<HTMLElement>(`a[data-order-id="${id}"][data-edit-seg]`)!.click();
+      const bar = document.querySelector(`[data-assign-bar="${id}"][data-instant]`);
+      return {
+        assignedTick: document.querySelector('[data-resource-id="s-female"]')!.textContent!.includes("已配给这单"),
+        bar: !!bar,
+        barTypeable: !!bar?.querySelector("input:not([type=hidden])"),
+      };
+    }, MAIN);
+    expect(got).toEqual({ assignedTick: true, bar: true, barTypeable: true });
+  });
+
+  test("**当场画的清单，跟服务端那份回来之后的清单，一字不差**", async ({ page }) => {
+    await gotoOverview(page);
+    const instant = await page.evaluate((id) => {
+      document.querySelector<HTMLElement>(`a[data-order-id="${id}"][data-edit-seg]`)!.click();
+      return document.getElementById("resource-panel")!.innerText;
+    }, MAIN);
+    await page.locator(`[data-assign-editor="${MAIN}"]:not([data-instant])`).waitFor();
+    await expect(page.locator("[data-assign-bar][data-instant]")).toHaveCount(0);
+    const settled = await page.locator("#resource-panel").innerText();
+    expect(instant).toContain("已配给这单");
+    expect(settled).toBe(instant);
+  });
+
+  test("浮动条里打了一半的名字：服务端那条接上之后还在，焦点也在", async ({ page }) => {
+    await gotoOverview(page);
+    await page.evaluate((id) => {
+      document.querySelector<HTMLElement>(`a[data-order-id="${id}"][data-edit-seg]`)!.click();
+      const input = document.querySelector<HTMLInputElement>(`[data-assign-bar="${id}"][data-instant] input:not([type=hidden])`)!;
+      input.focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "jack");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }, MAIN);
+    await page.locator(`[data-assign-bar="${MAIN}"]:not([data-instant])`).waitFor();
+    await expect(page.locator("[data-assign-bar][data-instant]")).toHaveCount(0);
+    const input = page.locator(`[data-assign-bar="${MAIN}"] input:not([type=hidden])`).first();
+    await expect(input).toHaveValue("jack");
+    await expect(input).toBeFocused();
+  });
+});
+
 test.describe("一天的单子也放得下", () => {
   // 一天的色块内宽只有 136px。曾经为了腾地方，把状态下拉框在
   // @container (max-width:180px) 里整个藏掉 —— 等于一天的单子改不了状态。
@@ -672,10 +722,17 @@ test.describe("滚动条「不动就看不见」", () => {
     expect(scrollable, "面板没溢出，这条测不到东西（视口再压矮点）").toBe(true);
 
     await panel.evaluate((el) => { el.scrollTop = 40; });
+    // 等它显出来，不要设完 scrollTop 马上读：scroll 事件是下一帧才派发的，马上读就是在赌
+    // 两次 evaluate 之间有没有过一帧 —— 机器稍慢一点就红（2026-10-14 跑 15 遍红过 1 遍）。
+    // 等的上限是 expect.poll 的默认超时，一直没显出来照样红
+    await expect
+      .poll(() => panel.evaluate((el) => Number(el.style.getPropertyValue("--cal-thumb-a"))), {
+        message: "滚了之后滚动条没显出来",
+      })
+      .toBeGreaterThan(0);
     const peak = await panel.evaluate((el) =>
       Number(el.style.getPropertyValue("--cal-thumb-a"))
     );
-    expect(peak, "滚了之后滚动条没显出来").toBeGreaterThan(0);
 
     // 停手 1.4 秒之后开始淡，这里等到淡出区间里再看一眼
     await page.waitForTimeout(2600);
