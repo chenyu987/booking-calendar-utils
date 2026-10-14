@@ -5,13 +5,21 @@ import { PAGE_SIZE, STABLE_KEY, paginatingFetch, withStableOrder } from "./fetch
 
 const BASE = "https://x.supabase.co/rest/v1";
 
-/** 假的 PostgREST：一张有 n 行的表，一次最多返回 PAGE_SIZE 行，认 order/limit/offset */
-function fakeServer(n: number, opts: { failAtOffset?: number } = {}) {
+/**
+ * 假的 PostgREST：一张有 n 行的表，认 order/limit/offset。
+ * cap = 服务器的 max-rows（项目设置），默认 1000 —— 模拟**设置没改过的库**。
+ * 请求里带了 Prefer: count=… 就在 Content-Range 里给总数（noCount 时不给，模拟拿不到总数）
+ */
+function fakeServer(n: number, opts: { failAtOffset?: number; cap?: number; noCount?: boolean } = {}) {
+  const cap = opts.cap ?? 1000;
   const rows = Array.from({ length: n }, (_, i) => ({ id: `id-${String(n - i).padStart(6, "0")}`, v: i }));
   const calls: string[] = [];
+  const prefers: string[] = [];
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     calls.push(url.search);
+    const headers = new Headers(init?.headers);
+    prefers.push(headers.get("prefer") ?? "");
     if ((init?.method ?? "GET") !== "GET") return new Response("{}", { status: 201 });
     const offset = Number(url.searchParams.get("offset") ?? 0);
     if (opts.failAtOffset !== undefined && offset === opts.failAtOffset) {
@@ -20,16 +28,19 @@ function fakeServer(n: number, opts: { failAtOffset?: number } = {}) {
     let list = [...rows];
     const order = url.searchParams.get("order");
     if (order?.startsWith("id")) list.sort((a, b) => a.id.localeCompare(b.id));
-    const limit = Math.min(Number(url.searchParams.get("limit") ?? PAGE_SIZE), PAGE_SIZE);
+    const limit = Math.min(Number(url.searchParams.get("limit") ?? cap), cap);
     list = list.slice(offset, offset + limit);
-    const accept = new Headers(init?.headers).get("accept") ?? "";
-    const body = accept.includes("vnd.pgrst.object") ? list[0] : list;
-    return new Response(JSON.stringify(body), { status: 200 });
+    const out = new Headers();
+    if (!opts.noCount && /count=/.test(headers.get("prefer") ?? "")) {
+      out.set("content-range", `${offset}-${offset + list.length - 1}/${n}`);
+    }
+    const body = (headers.get("accept") ?? "").includes("vnd.pgrst.object") ? list[0] : list;
+    return new Response(JSON.stringify(body), { status: 200, headers: out });
   };
-  return { rows, calls, fetchImpl };
+  return { rows, calls, prefers, fetchImpl };
 }
 
-describe("paginatingFetch：超过 1000 行自动分页拉全", () => {
+describe("paginatingFetch：被服务器截了就自动分页拉全", () => {
   it("不到 1000 行：照旧，只发一个请求", async () => {
     const s = fakeServer(300);
     const res = await paginatingFetch(s.fetchImpl)(`${BASE}/orders?select=*`);
@@ -76,6 +87,36 @@ describe("paginatingFetch：超过 1000 行自动分页拉全", () => {
     await f(`${BASE}/orders?select=*&limit=10`);
     await f(`${BASE}/orders`, { method: "POST", body: "{}" });
     expect(s.calls).toHaveLength(3);
+  });
+
+  it("**max-rows 调到 10000 的库：3449 行一个请求拿完**", async () => {
+    const s = fakeServer(3449, { cap: 10000 });
+    const res = await paginatingFetch(s.fetchImpl)(`${BASE}/orders?select=*`);
+    expect(await res.json()).toHaveLength(3449);
+    expect(s.calls).toHaveLength(1);
+  });
+
+  it("**设置没改的库（还是 1000）：照样拉全，不在 1000 行处悄悄截断**", async () => {
+    // PAGE_SIZE 现在是 10000，服务器只给 1000 —— 要是还拿「没拿满 PAGE_SIZE 就算完」判断，
+    // 这里只会拿回 1000 行，页面上看着一切正常
+    expect(PAGE_SIZE).toBeGreaterThan(1000);
+    const s = fakeServer(3449, { cap: 1000 });
+    const got = (await (await paginatingFetch(s.fetchImpl)(`${BASE}/orders?select=*`)).json()) as { id: string }[];
+    expect(got).toHaveLength(3449);
+    expect(new Set(got.map((r) => r.id)).size).toBe(3449);
+    expect(s.calls.map((q) => new URLSearchParams(q).get("offset"))).toEqual(["0", "1000", "2000", "3000"]);
+  });
+
+  it("服务器没给总数（Content-Range 缺了）：按它实际给的页大小一页页拉，拉到不满为止", async () => {
+    const s = fakeServer(2500, { cap: 1000, noCount: true });
+    const res = await paginatingFetch(s.fetchImpl)(`${BASE}/orders?select=*`);
+    expect(await res.json()).toHaveLength(2500);
+  });
+
+  it("调用方自己要了 count 的：原样留着，不改成 exact", async () => {
+    const s = fakeServer(10);
+    await paginatingFetch(s.fetchImpl)(`${BASE}/orders?select=*`, { headers: { Prefer: "count=planned" } });
+    expect(s.prefers[0]).toBe("count=planned");
   });
 
   it("中间某页出错：把错误交出去，不拿半截数据装完整", async () => {
