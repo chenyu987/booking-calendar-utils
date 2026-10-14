@@ -68,17 +68,26 @@ export default function InstantAssign({
   useEffect(() => {
     if (!active) return;
     const id = active;
-    const handover = () => {
+    const handover = (sync: boolean) => {
       const real = document.querySelector(`[data-assign-editor="${CSS.escape(id)}"]:not([data-instant])`);
       if (!real) return false;
       const ours = document.querySelector(`[data-assign-editor="${CSS.escape(id)}"][data-instant]`);
       if (ours) moveEdits(ours, real);
-      setActive((cur) => (cur === id ? null : cur));
+      // flushSync：**就在这个回调里**把当场画的那份撤掉。不 flush 的话 React 要等下一轮才删，
+      // 中间有一小段两份编辑框同时在页面上 —— CI 机器慢，e2e 正好在这一段里查到两个
+      // customer_name 输入框（strict mode violation，2026-10-14 合进 main 后的那次 CI）。
+      // MutationObserver 的回调在服务端那份插进来之后、任何别的任务之前跑，这里同步删掉，
+      // 别的代码就永远看不到两份并存
+      // （effect 里直接调的那一次不 flush —— 在 effect 里 flushSync 会被 React 警告，
+      // 而且那时候服务端那份本来就已经在了，不存在「中间那一段」）
+      const clear = () => setActive((cur) => (cur === id ? null : cur));
+      if (sync) flushSync(clear);
+      else clear();
       return true;
     };
-    if (handover()) return;
+    if (handover(false)) return;
     const mo = new MutationObserver(() => {
-      if (handover()) mo.disconnect();
+      if (handover(true)) mo.disconnect();
     });
     mo.observe(document.body, { childList: true, subtree: true });
     return () => mo.disconnect();
