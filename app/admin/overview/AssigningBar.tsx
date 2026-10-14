@@ -23,6 +23,7 @@ export default function AssigningBar({
   deleteAction,
   exitHref,
   instant = false,
+  onDelete,
 }: {
   orderId: string;
   label: string;
@@ -32,6 +33,8 @@ export default function AssigningBar({
   exitHref: string;
   /** 点下去当场画的那一份（InstantAssign），服务端那份到了就撤 */
   instant?: boolean;
+  /** 确认删除这单的那一刻：退出分配态、不存改动（InstantAssign） */
+  onDelete?: () => void;
 }) {
   return (
     <div
@@ -95,6 +98,7 @@ export default function AssigningBar({
           orderId={orderId}
           deleteAction={deleteAction}
           exitHref={exitHref}
+          onStart={onDelete}
           style={{
             width: "auto",
             padding: "2px 8px",

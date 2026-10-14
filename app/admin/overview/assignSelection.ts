@@ -1,34 +1,88 @@
 import { useSyncExternalStore } from "react";
+import type { PendingPatch } from "./blockPatch";
 
-// 排期总览「现在选中的是哪一单」—— 给资源清单（ResourcePanel）看的。
+// 排期总览：分配态（编辑一单）的客户端状态。**选中、退出、存都在浏览器里**（InstantAssign 管），
+// 服务端永远只画普通态 —— 进出编辑态不回服务端，当场完成。
 //
-// 两个来源：服务端渲染的 ?assign=<id>（页面传下来的），和 InstantAssign 点下去当场
-// 选中的那一单（服务端那份还没回来）。后者优先：点了 B，左边就该当场换成 B 的资源，
-// 不能还停在 A 上等一秒多。服务端那份接上以后 InstantAssign 把这里清掉，两个来源说的
-// 是同一单，自然就接上了。
-//
-// 模块级一份，不放 React context：InstantAssign 和资源清单在树上隔得远（清单是
-// ZoomableCalendar 的 panel 插槽），中间都是服务端组件，context 传不过去。
+// 这里放几样要跨组件看的东西（模块级一份，不放 React context：InstantAssign、资源清单、
+// 1800 个色块在树上隔得远，中间都是服务端组件，context 传不过去）：
+//   - 现在选中的是哪一单（资源清单、色块的选中光圈、建单框选看它）
+//   - 选中那一单的资源「上一次」用在哪几单（那几单亮一圈，lib/previousUse.ts）
+//   - 退出时改过、还在后台存的字段（色块先显示新值，blockPatch.ts）
+//   - 别的组件要求「退出编辑」（多选、删单）时找谁
 
-let instant: string | null = null;
 const listeners = new Set<() => void>();
-
-export function setInstantSelection(id: string | null) {
-  if (instant === id) return;
-  instant = id;
-  listeners.forEach((l) => l());
-}
-
+const emit = () => listeners.forEach((l) => l());
 function subscribe(l: () => void) {
   listeners.add(l);
   return () => listeners.delete(l);
 }
 
-/** 现在选中的单：当场选的优先，没有就是服务端渲染的那一单 */
+// ── 选中哪一单 ───────────────────────────────────────────────────────────────
+// undefined = 还没接管（刚打开页面、InstantAssign 还没挂上）：这时听服务端的 ?assign=；
+// 接管以后 null 就是「没选」，不再回头看 URL 上那份（它可能是旧的）
+let selected: string | null | undefined = undefined;
+
+export function setInstantSelection(id: string | null) {
+  if (selected === id) return;
+  selected = id;
+  emit();
+}
+
+export function getSelection(): string | null {
+  return selected ?? null;
+}
+
+/** 现在选中的单。还没接管时退回服务端渲染的那一单 */
 export function useAssignSelection(serverId: string | null): string | null {
-  // 服务端渲染时没有「当场选的」，第三个参数给 null，hydration 不会对不上
-  const v = useSyncExternalStore(subscribe, () => instant, () => null);
-  return v ?? serverId;
+  const v = useSyncExternalStore(subscribe, () => selected, () => undefined);
+  return v === undefined ? serverId : v;
+}
+
+/** 这一单是不是选中的（色块用：1800 个色块各订阅一个布尔，只有变了的那两块重画） */
+export function useIsSelected(orderId: string): boolean {
+  return useSyncExternalStore(subscribe, () => selected === orderId, () => false);
+}
+
+// ── 「上一次」那几单 ─────────────────────────────────────────────────────────
+let previousUse: ReadonlySet<string> = new Set();
+
+export function setPreviousUse(ids: ReadonlySet<string>) {
+  previousUse = ids;
+  emit();
+}
+
+export function useIsPreviousUse(orderId: string): boolean {
+  return useSyncExternalStore(subscribe, () => previousUse.has(orderId), () => false);
+}
+
+// ── 退出时改过、还在后台存的字段 ─────────────────────────────────────────────
+let patches: ReadonlyMap<string, PendingPatch> = new Map();
+
+export function getPatches() {
+  return patches;
+}
+
+export function setPatches(next: ReadonlyMap<string, PendingPatch>) {
+  patches = next;
+  emit();
+}
+
+export function usePatch(orderId: string): PendingPatch | undefined {
+  return useSyncExternalStore(subscribe, () => patches.get(orderId), () => undefined);
+}
+
+// ── 别的组件要求退出编辑 ─────────────────────────────────────────────────────
+// 多选（BulkSelect）一选中多单就得退出分配态；删单要退出且**不存**（单子都没了）
+export type ExitMode = "save" | "discard";
+let exitHandler: ((mode: ExitMode) => void) | null = null;
+
+export function registerExitHandler(fn: ((mode: ExitMode) => void) | null) {
+  exitHandler = fn;
+}
+
+export function requestExit(mode: ExitMode) {
+  exitHandler?.(mode);
 }
 
 // ── 资源清单和浮动条共用的那批数据 ───────────────────────────────────────────
@@ -43,6 +97,7 @@ export type SharedPanelData = {
   allResources: any[];
   bookedDays: Record<string, string[]>;
   history: import("@/lib/recommend").PastUse[];
+  usesByResource: Record<string, import("@/lib/previousUse").ResourceUse[]>;
 };
 
 let shared: SharedPanelData | null = null;

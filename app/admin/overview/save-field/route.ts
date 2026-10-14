@@ -117,5 +117,7 @@ export async function POST(req: NextRequest) {
   revalidatePath("/admin/orders");
   revalidatePath("/admin/customers");
 
-  return NextResponse.json({ ok: true });
+  // 写完那一刻的服务端时间：退出分配态时先画上去的新值，等到「存完之后才开始查库」的那次
+  // 渲染（main 上的 data-rendered-at 比它晚）到了才撤（app/admin/overview/blockPatch.ts）
+  return NextResponse.json({ ok: true, at: Date.now() });
 }

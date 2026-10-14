@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { STATUS_LABELS } from "@/lib/orderStatus";
 import { BULK_SETTABLE_STATUSES } from "@/lib/bulkStatus";
+import { requestExit, useAssignSelection } from "./assignSelection";
 
 // 多选 + 批量改状态。
 //
 // 为什么不做成「多个单子同时进入编辑态」：分配这个动作天生是单目标的
-// （资源面板的「配这单」得知道配给谁），而且 ClickOutsideDeselect 靠
+// （资源面板的「配这单」得知道配给谁），而且退出时收集改动（当年的 ClickOutsideDeselect，现在 InstantAssign）靠
 // getElementById("assign-active-block") 收集改动——同一个 id 出现多次，
 // 后面几单的改动会被静默丢掉。所以这里把「选中」和「编辑」拆成两件事：
 // 编辑还是单个（?assign=），选中纯粹是客户端状态，不进 URL、不发请求。
@@ -19,7 +20,6 @@ import { BULK_SETTABLE_STATUSES } from "@/lib/bulkStatus";
 // 新渲染出来的节点自动就带上高亮。也省掉了 MutationObserver 那一套。
 export default function BulkSelect() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -38,16 +38,14 @@ export default function BulkSelect() {
   // 为什么要把正在配的那一单也算进来：人的做法是「先点开 lych，再 ⌘ 点
   // laura kim」，在他看来这就是选了两单。代码里「点开」是进分配态、「⌘ 点」
   // 才是选中，两回事 —— 于是只剩一单，看着就像「⌘ 没生效」。按人的理解来。
-  const assigning = searchParams.get("assign");
+  // 正在配的是哪一单看 assignSelection（分配态全在浏览器里，InstantAssign 管），
+  // 退出也找它（requestExit）：改过的字段照样存，不会因为 ⌘ 点了一下就丢掉
+  const assigning = useAssignSelection(null);
   useEffect(() => {
     if (selected.length === 0 || !assigning) return;
     setSelected((prev) => (prev.includes(assigning) ? prev : [assigning, ...prev]));
-    const next = new URLSearchParams(searchParams.toString());
-    next.delete("assign");
-    const qs = next.toString();
-    // replace 不是 push：这是「模式切换」不是一次导航，不该在后退历史里留一格
-    router.replace(qs ? `/admin/overview?${qs}` : "/admin/overview");
-  }, [selected.length, assigning, searchParams, router]);
+    requestExit("save");
+  }, [selected.length, assigning]);
 
   // 订单在日历上的先后：按最早的需求日排，同一天的按 id 排（稳定就行）。
   // 不用 DOM 顺序——DOM 里是按泳道排的，看起来在上面的不一定排在前面。
@@ -96,7 +94,7 @@ export default function BulkSelect() {
         //   1. 选着两单时普通点第三单，选中没清，接着下面那个「把正在配的
         //      那一单折进选中」的 effect 一看还有选中，把第三单也加了进去 ——
         //      明明没按 ⌘，却变成了三选
-        //   2. 点空白处没有任何人管（ClickOutsideDeselect 只在分配态里挂着），
+        //   2. 点空白处没有任何人管（当年退出分配态的逻辑只在分配态里挂着），
         //      那批蓝框就一直赖着
         anchorRef.current = id;
         setMsg(null);

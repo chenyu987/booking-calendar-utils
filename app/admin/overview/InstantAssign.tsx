@@ -1,28 +1,49 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import AssignEditor, { type EditorData } from "./AssignEditor";
-import { collectChangedEdits } from "./ClickOutsideDeselect";
 import AssigningBar from "./AssigningBar";
-import { getPanelData, setInstantSelection } from "./assignSelection";
+import { ErrorToast } from "./AssignActions";
+import { collectChangedEdits } from "./editorFields";
+import {
+  getPanelData,
+  getPatches,
+  registerExitHandler,
+  setInstantSelection,
+  setPatches,
+  setPreviousUse,
+  type ExitMode,
+} from "./assignSelection";
+import {
+  applyPatchToEditor,
+  patchFromChanges,
+  settledPatches,
+  type FieldPatch,
+} from "./blockPatch";
 import { nameCandidates } from "@/lib/assignPanel";
+import { previousOrdersFor } from "@/lib/previousUse";
 
-// 点色块**当场**就是分配态：能打字、能改状态，不等整页渲染。
+// 排期总览的分配态（编辑一单），**全在浏览器里**：进、出、存都不等整页渲染。
 //
-// 进分配态是一次真的服务端导航（?assign=<id>），整页渲染回来要一秒多（25-26 季 1800 单，
-// 2026-10-14 实测 1.2~1.4 秒）。原来这段时间里只有 OptimisticAssign 抢画的一圈光和假浮动条，
-// 色块里的编辑框要等服务端。现在按下去的同一帧，就在**同一个格子**里画上**同一个**编辑框
-// （AssignEditor，服务端也用它），把原来那段普通态藏起来；服务端那一份到了，把打的字、
-// 光标搬过去，自己撤掉。
-// 左边资源清单和顶上浮动条也是当场的：清单看 assignSelection（这里点下去就写进去），
-// 浮动条这里直接画一份（同一个 AssigningBar），候选跟服务端同一个算法（lib/assignPanel.ts）。
+// 原来进出分配态是一次服务端导航（?assign=<id>），25-26 季 1800 单，整页渲染回来要一两秒，
+// 进一次等一次、出一次（存完再刷新）又等一次。现在：
+//   - **进**：点色块，当场在同一个格子里画上编辑框（AssignEditor）、左边资源清单换成这一单
+//     （ResourcePanel 看 assignSelection）、顶上画浮动条（AssigningBar）。链接的导航拦掉，
+//     地址栏用 replaceState 跟着变，刷新 / 分享照旧
+//   - **出**（点完成 / 点空白 / 点别的单 / 在框里回车）：收集改过的字段，**当场**退出 ——
+//     色块先画成新值（blockPatch.ts，OrderBlock 订阅），写库在后台（save-field），
+//     存完后台刷新一次跟库对齐。**存不上**：撤回新值，重新打开这一单，框里是刚才打的，
+//     并说出原因 —— 不能让人以为存好了
+//   - **Esc**：取消，不存
+// 服务端永远只画普通态。分配、撤销分配、拖边改日期这些操作照旧自己调接口再 router.refresh()，
+// 刷新回来编辑框跟着拿到新数据（editors 是服务端每次都给的）。
 //
 // 命令式的东西都有撤销点（CLAUDE.md「命令式改了 DOM 就得自己负责撤」）：
-//   - 藏普通态那段用的是注入一条 CSS 规则，跟节点生死无关；active 一清就没了
-//   - 编辑框是 portal 进日历 grid 的，React 管它的生死
-//   - 撤的时机：服务端那份接上 / Esc / 点空白退出
+//   - 藏普通态那段：注入一条 CSS 规则，跟节点生死无关；active 一清就没了
+//   - 编辑框 portal 进日历 grid，React 管生死
+//   - 存失败时把刚才打的字填回去：只填重新打开的那个编辑框，下一次挂载就是新的
 
 export type InstantEditors = Record<string, EditorData & { band: number }>;
 
@@ -38,139 +59,287 @@ export default function InstantAssign({
   deleteAction: (formData: FormData) => Promise<void>;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [active, setActive] = useState<string | null>(null);
-  // 点下去那一刻这一单的数据，**存一份快照**。不能每次从 editors 里现取：服务端那份回来的
-  // 同一次渲染里，这一单已经在分配态、不在 editors 里了 —— 现取的话当场画的那份跟着就没了，
-  // 打的字还没来得及搬过去（e2e 那条「打的字接上之后还在」就是这么抓到的）
-  const [snapshot, setSnapshot] = useState<(EditorData & { band: number }) | null>(null);
+  // 存不上、重新打开时要填回去的字（save-field 的字段名）
+  const [draft, setDraft] = useState<{ id: string; changes: Record<string, string> } | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const activeRef = useRef<string | null>(null);
+  activeRef.current = active;
   const editorsRef = useRef(editors);
   editorsRef.current = editors;
+  // 选中那一单最后一次拿到的数据：万一它从 editors 里没了（被筛掉了），编辑框不至于凭空消失
+  const lastData = useRef<(EditorData & { band: number }) | null>(null);
+  // 同一单连着存两次要排队，不然后发的可能先到，库里留下的是前一次的
+  const saving = useRef(new Map<string, Promise<unknown>>());
 
-  // 点下去：同一帧画上编辑框。
-  // **挂在 click 上，不挂 pointerdown**：按下去就画的话，编辑框盖住了链接，抬手落在编辑框上，
-  // 浏览器的 click 就落到两者共同的祖先（日历 grid）上 —— 链接收不到点击，根本不导航，
-  // 上一单的 ClickOutsideDeselect 还会当成「点了空白」退出。等 click 到了再画：
-  // 链接照常导航（或者被上一单的 ClickOutsideDeselect 接管：先存再跳），这里只管画。
-  // 按下去那一下的即时反馈（光圈、假浮动条）还是 OptimisticAssign 在 pointerdown 上给。
-  // 监听挂在 document 冒泡阶段，排在 React 和 ClickOutsideDeselect（捕获阶段）之后
-  useEffect(() => {
-    function onClick(e: MouseEvent) {
-      const el = (e.target as HTMLElement | null)?.closest?.("a[data-order-id]") as HTMLElement | null;
-      if (!el) return;
-      // 修饰键和中键是「新标签页打开 / 多选」，当前页面不进分配态
-      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-      const id = el.dataset.orderId;
-      if (!id || !editorsRef.current[id]) return;
-      // flushSync：监听不是 React 的事件，不 flush 的话要等下一帧
-      flushSync(() => {
-        setActive(id);
-        setSnapshot(editorsRef.current[id]);
-        // 左边资源清单当场换成这一单的（ResourcePanel 看 assignSelection），同一帧画
-        setInstantSelection(id);
-      });
-    }
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
+  const setUrl = useCallback((id: string | null) => {
+    const p = new URLSearchParams(window.location.search);
+    if (id) p.set("assign", id);
+    else p.delete("assign");
+    const qs = p.toString();
+    window.history.replaceState(null, "", qs ? `/admin/overview?${qs}` : "/admin/overview");
   }, []);
 
-  // 撤掉当场画的那份时，「当场选中」也一起清掉，资源清单退回看服务端的 ?assign=
-  useEffect(() => {
-    if (!active) setInstantSelection(null);
-  }, [active]);
-  useEffect(() => () => setInstantSelection(null), []);
+  const select = useCallback(
+    (id: string) => {
+      // flushSync：多半是从 document 上的监听里调的，不是 React 事件，不 flush 要等下一帧
+      // 选中写进 assignSelection 也要在 flushSync 里：资源清单、色块的光圈订阅的是它，
+      // 放在外面的话它们要等下一轮才重画，跟编辑框错开一帧（e2e 抓到过）
+      flushSync(() => {
+        setActive(id);
+        setDraft(null);
+        setInstantSelection(id);
+      });
+      setUrl(id);
+    },
+    [setUrl]
+  );
 
-  // 服务端那一份到了：把打的字、光标搬过去，自己撤掉
-  useEffect(() => {
-    if (!active) return;
-    const id = active;
-    const handover = (sync: boolean) => {
-      const real = document.querySelector(`[data-assign-editor="${CSS.escape(id)}"]:not([data-instant])`);
-      // 编辑框和浮动条都到了才交接：两样一起撤，打的字两边都得搬
-      const realBarReady = document.querySelector(`[data-assign-bar="${CSS.escape(id)}"]:not([data-instant])`);
-      if (!real || !realBarReady) return false;
-      const ours = document.querySelector(`[data-assign-editor="${CSS.escape(id)}"][data-instant]`);
-      if (ours) moveEdits(ours, real);
-      // 浮动条同理：「打名字分配」「备注」打了一半的字搬到服务端那条上
-      const oursBar = document.querySelector(`[data-assign-bar="${CSS.escape(id)}"][data-instant]`);
-      const realBar = document.querySelector(`[data-assign-bar="${CSS.escape(id)}"]:not([data-instant])`);
-      if (oursBar && realBar) moveBarEdits(oursBar, realBar);
-      // flushSync：**就在这个回调里**把当场画的那份撤掉。不 flush 的话 React 要等下一轮才删，
-      // 中间有一小段两份编辑框同时在页面上 —— CI 机器慢，e2e 正好在这一段里查到两个
-      // customer_name 输入框（strict mode violation，2026-10-14 合进 main 后的那次 CI）。
-      // MutationObserver 的回调在服务端那份插进来之后、任何别的任务之前跑，这里同步删掉，
-      // 别的代码就永远看不到两份并存
-      // （effect 里直接调的那一次不 flush —— 在 effect 里 flushSync 会被 React 警告，
-      // 而且那时候服务端那份本来就已经在了，不存在「中间那一段」）
-      const clear = () => setActive((cur) => (cur === id ? null : cur));
-      if (sync) flushSync(clear);
-      else clear();
-      return true;
-    };
-    if (handover(false)) return;
-    const mo = new MutationObserver(() => {
-      if (handover(true)) mo.disconnect();
-    });
-    mo.observe(document.body, { childList: true, subtree: true });
-    return () => mo.disconnect();
-  }, [active]);
+  const save = useCallback(
+    (id: string, changes: Record<string, string>) => {
+      const patch = patchFromChanges(changes);
+      const before = getPatches().get(id);
+      const merged: FieldPatch = { ...before?.patch, ...patch };
+      setPatches(new Map(getPatches()).set(id, { patch: merged, savedAt: null }));
 
-  // 服务端那份还没到就要退出：Esc = 取消；点空白 = 存了再退（跟 ClickOutsideDeselect 同一个规矩）。
-  // 已经在别的单的分配态里时，那一单的 ClickOutsideDeselect 也会处理这一下，两边都是退出，不冲突
+      const prev = saving.current.get(id) ?? Promise.resolve();
+      const run = prev
+        .catch(() => {})
+        .then(async () => {
+          const res = await fetch("/admin/overview/save-field", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...changes, order_id: id }),
+            // 存的时候人可能已经点去别的页了，请求照样送到
+            keepalive: true,
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok || typeof body.at !== "number") throw new Error(body.error ?? `HTTP ${res.status}`);
+          return body.at as number;
+        });
+      saving.current.set(id, run);
+      run
+        .then((at) => {
+          const cur = getPatches().get(id);
+          if (cur) setPatches(new Map(getPatches()).set(id, { ...cur, savedAt: at }));
+          // 后台刷新一次跟库对齐（别人改的也一起拿回来）。transition：不打断正在做的事
+          startTransition(() => router.refresh());
+        })
+        .catch((err: any) => {
+          // 撤回：色块回到存之前的样子
+          const next = new Map(getPatches());
+          if (before) next.set(id, before);
+          else next.delete(id);
+          setPatches(next);
+          // 手上没在编辑别的单，就重新打开这一单、把刚才打的字填回去；正在编辑别的单就只提示
+          if (!activeRef.current && editorsRef.current[id]) {
+            select(id);
+            setDraft({ id, changes });
+          }
+          setToast(`没存上：${err?.message ?? err}`);
+        })
+        .finally(() => {
+          if (saving.current.get(id) === run) saving.current.delete(id);
+        });
+    },
+    [router, select]
+  );
+
+  const exit = useCallback(
+    (mode: ExitMode) => {
+      const id = activeRef.current;
+      if (!id) return;
+      const changes =
+        mode === "save"
+          ? collectChangedEdits(document.querySelector(`[data-assign-editor="${CSS.escape(id)}"]`))
+          : {};
+      // 编辑框撤掉和色块画成新值（save 里第一件事就是把补丁记上）要在同一次 flushSync 里：
+      // 分开的话编辑框没了、色块还是旧值，中间差一轮（实测量到过）
+      flushSync(() => {
+        setActive(null);
+        setDraft(null);
+        setInstantSelection(null);
+        if (Object.keys(changes).length > 0) save(id, changes);
+      });
+      setUrl(null);
+    },
+    [save, setUrl]
+  );
+
+  // 多选、删单要求退出时找这儿
+  // （它们多半是在自己的 useEffect 里调的，exit 里有 flushSync，在 effect 里直接 flush 会被
+  // React 报错 —— 挪到微任务里，effect 跑完马上就执行）
   useEffect(() => {
-    if (!active) return;
-    const id = active;
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      setActive(null);
-      router.push(exitHref);
-    }
-    function onClick(e: MouseEvent) {
-      const t = e.target as HTMLElement;
-      if (document.body.dataset.resizingOrder) return;
-      if (t.closest(`[data-assign-editor="${CSS.escape(id)}"]`)) return;
-      // 链接（别的单、导航栏）、表单控件、资源面板、浮动条：各有各的去处，不在这儿退出
-      if (t.closest("a, button, select, input, form, #resource-panel, [data-assign-bar], [aria-hidden]")) return;
-      const ours = document.querySelector(`[data-assign-editor="${CSS.escape(id)}"][data-instant]`);
-      const payload = collectChangedEdits(ours);
-      setActive(null);
-      const exit = () => {
-        router.push(exitHref);
-        router.refresh();
-      };
-      if (Object.keys(payload).length === 0) return exit();
-      fetch("/admin/overview/save-field", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, order_id: id }),
-      }).then(exit, exit);
-    }
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("click", onClick);
+    registerExitHandler((mode) => queueMicrotask(() => exit(mode)));
+    return () => registerExitHandler(null);
+  }, [exit]);
+
+  // 挂上之前一直听服务端的 ?assign=（资源清单 SSR 用）；挂上以后选中归这里管。
+  // data-overview-ready：页面能点了（这之前点色块是浏览器原生的整页跳转）—— e2e 等它再点，
+  // CI 机器慢，不等的话点在 hydration 之前，测的就不是这套逻辑
+  useEffect(() => {
+    if (!activeRef.current) setInstantSelection(null);
+    document.body.dataset.overviewReady = "1";
     return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("click", onClick);
+      setInstantSelection(null);
+      delete document.body.dataset.overviewReady;
     };
-  }, [active, exitHref, router]);
+  }, []);
 
-  const d = active && snapshot?.orderId === active ? snapshot : null;
-  // 浮动条「打名字分配」的候选：跟服务端同一个算法，点哪单算哪单
-  // 数据跟资源清单共用一份（ResourcePanel 登记在 assignSelection 里），不另传
+  // 地址栏上的 ?assign= 是别人改的（打开页面就带着、建完新单跳过来）：选中它
+  const urlAssign = searchParams.get("assign");
+  useEffect(() => {
+    if (!urlAssign) {
+      // 筛选、排序这些导航会把 assign 冲掉（服务端画的表单不知道现在选中了谁）：
+      // 还在编辑就把它补回地址栏，不当成退出
+      if (activeRef.current) setUrl(activeRef.current);
+      return;
+    }
+    if (urlAssign === activeRef.current || !editors[urlAssign]) return;
+    // 微任务：同上，effect 里不能直接 flushSync
+    queueMicrotask(() => {
+      if (urlAssign === activeRef.current) return;
+      exit("save");
+      select(urlAssign);
+    });
+  }, [urlAssign, editors, exit, select, setUrl]);
+
+  // 进 / 出 / 退出时的各种点击
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (document.body.dataset.resizingOrder) return;
+      const t = e.target as HTMLElement;
+      const orderLink = t.closest?.("a[data-order-id]") as HTMLElement | null;
+      if (orderLink) {
+        // 修饰键 / 中键：新标签页打开、多选（BulkSelect），这里不管
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+        // **捕获阶段拦掉导航**：next/link 看到 defaultPrevented 就不跳。必须在捕获阶段 ——
+        // 冒泡阶段轮到这里时 React 已经替链接 router.push 了（CLAUDE.md 返点页那条记着）
+        e.preventDefault();
+        const id = orderLink.dataset.orderId!;
+        if (id === activeRef.current || !editorsRef.current[id]) return;
+        exit("save");
+        select(id);
+        return;
+      }
+      if (!activeRef.current) return;
+      if (t.closest("[data-assign-editor]")) return;
+      const link = t.closest("a") as HTMLAnchorElement | null;
+      const bar = t.closest("[data-assign-bar]");
+      if (bar) {
+        // 浮动条上的链接就是「完成」
+        if (link) {
+          e.preventDefault();
+          exit("save");
+        }
+        return;
+      }
+      // 资源清单里的东西（配这单、排序、显示全部）各有各的去处，还在编辑
+      if (t.closest("#resource-panel")) return;
+      // 别的链接（侧边栏去别的页）：存了照常跳，请求是 keepalive 的
+      if (link) return exit("save");
+      if (t.closest("button, select, input, textarea, form, label, [aria-hidden], [data-bulk-bar]")) return;
+      // 点在空白处：退出并存
+      exit("save");
+    }
+    function onSubmit(e: SubmitEvent) {
+      // 编辑框里回车：存了退出。拦在捕获阶段，不让 OptimisticEditForm 自己去存再整页跳转
+      const form = e.target as HTMLElement;
+      if (!activeRef.current || !form.closest?.("[data-assign-editor]")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      exit("save");
+    }
+    function onKey(e: KeyboardEvent) {
+      // Esc 是真取消：不存，退回编辑前的样子
+      if (e.key === "Escape" && activeRef.current) exit("discard");
+    }
+    document.addEventListener("click", onClick, true);
+    document.addEventListener("submit", onSubmit, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      document.removeEventListener("submit", onSubmit, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [exit, select]);
+
+  // 服务端数据追上来了（存完之后才开始查库的那次渲染到了）：撤掉先画上去的新值
+  useEffect(() => {
+    const check = () => {
+      const pending = getPatches();
+      if (pending.size === 0) return;
+      const raw = document.querySelector<HTMLElement>("[data-rendered-at]")?.dataset.renderedAt;
+      const done = settledPatches(pending, raw ? Number(raw) : null);
+      if (done.length === 0) return;
+      const next = new Map(pending);
+      done.forEach((id) => next.delete(id));
+      setPatches(next);
+    };
+    check();
+    const mo = new MutationObserver(check);
+    // childList 也看：main 万一整个换了新节点，属性变化收不到
+    mo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-rendered-at"] });
+    return () => mo.disconnect();
+  }, []);
+
+  // 「上一次」那几单：选中这一单配的资源，上一次分别用在哪一单（lib/previousUse.ts）
+  useEffect(() => {
+    const data = getPanelData();
+    const order = active && data?.orders[active];
+    setPreviousUse(
+      order
+        ? previousOrdersFor(order.id, order.demandDays, order.assignedResourceIds, new Map(Object.entries(data!.usesByResource)))
+        : new Set()
+    );
+  }, [active, editors]);
+
+  // 浮动条「打名字分配」的候选：跟资源清单同一份数据、同一个算法（lib/assignPanel.ts）。
+  // editors 变了 = 服务端数据刷新了，候选跟着重算
   const candidates = useMemo(() => {
     const data = getPanelData();
-    const order = d && data?.orders[d.orderId];
+    const order = active && data?.orders[active];
     return order ? nameCandidates(order, data!.allResources, data!.bookedDays, data!.history) : [];
-  }, [d]);
-  if (!d) return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, editors]);
+
+  // 存不上重新打开时，把刚才打的字填回去（data-original 还是库里的值，退出时照样算「改过」）
+  useLayoutEffect(() => {
+    if (!draft || draft.id !== active) return;
+    const ed = document.querySelector(`[data-assign-editor="${CSS.escape(draft.id)}"]`);
+    if (!ed) return;
+    for (const [name, value] of Object.entries(draft.changes)) {
+      const input = ed.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${CSS.escape(name)}"]:not([type="hidden"])`);
+      if (!input) continue;
+      const proto = input instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }, [draft, active]);
+
+  // 选中那一单的数据：服务端最新的那份，盖上还在后台存的改动
+  const live = active ? editors[active] : null;
+  if (live) lastData.current = live;
+  const base = active ? live ?? (lastData.current?.orderId === active ? lastData.current : null) : null;
+  const pending = active ? getPatches().get(active) : undefined;
+  const d = base && pending ? applyPatchToEditor(base, pending.patch) : base;
+
+  const toastEl = toast ? <ErrorToast message={toast} onClose={() => setToast(null)} /> : null;
+  if (!d) return toastEl;
   const grid = document.querySelector(`[data-band-grid="${d.band}"]`);
-  if (!grid) return null;
+  if (!grid) return toastEl;
   // id 是 UUID，过一道白名单再拼进选择器
   const safeId = /^[A-Za-z0-9-]+$/.test(d.orderId) ? d.orderId : null;
+  // 库里的值变了（刷新回来的，比如拖边改了天数、金额跟着变）就重新挂载编辑框：
+  // 输入框是 defaultValue，不重挂的话还显示旧值
+  const editorKey = [d.orderId, d.customerName, d.location, d.status, d.note, d.amount, d.maleCount, d.femaleCount].join("|");
 
   return (
     <>
-      {/* 原来那段普通态藏起来（只藏放编辑控件的那一段；别的段照常显示、跟着亮光圈）。
-          注入 CSS 规则而不是改节点：跟节点生死无关，active 一清就撤。
-          必须走 dangerouslySetInnerHTML，见 CLAUDE.md */}
+      {toastEl}
+      {/* 原来那段普通态藏起来（只藏放编辑控件的那一段；别的段 OrderBlock 自己画成空框、亮选中光圈）。
+          注入 CSS 规则而不是改节点：跟节点生死无关，active 一清就撤。必须走 dangerouslySetInnerHTML，见 CLAUDE.md */}
       {safeId && (
         <style
           dangerouslySetInnerHTML={{
@@ -179,75 +348,19 @@ export default function InstantAssign({
         />
       )}
       {createPortal(
-        <AssignEditor d={d} timeline={bandDays[d.band] ?? []} exitHref={exitHref} instant />,
+        <AssignEditor key={editorKey} d={d} timeline={bandDays[d.band] ?? []} exitHref={exitHref} />,
         grid
       )}
-      {/* 顶上浮动条，跟服务端那条同一个组件 */}
       <AssigningBar
+        key={d.orderId}
         orderId={d.orderId}
         label={[d.customerName, d.location].filter(Boolean).join(" · ")}
         note={d.note}
         candidates={candidates}
         deleteAction={deleteAction}
         exitHref={exitHref}
-        instant
+        onDelete={() => exit("discard")}
       />
     </>
   );
-}
-
-/**
- * 当场画的那份里打的字，搬到服务端那份上：只搬改过的（值跟 data-original 不一样），
- * 正在打字的那个框把焦点和光标位置也搬过去 —— 不然接上那一刻光标丢了，字打一半断掉
- */
-function moveEdits(from: Element, to: Element) {
-  const focused = document.activeElement as HTMLInputElement | HTMLSelectElement | null;
-  const focusName = focused && from.contains(focused) ? focused.getAttribute("name") : null;
-  let caret: [number | null, number | null] = [null, null];
-  try {
-    if (focused instanceof HTMLInputElement) caret = [focused.selectionStart, focused.selectionEnd];
-  } catch {
-    // number 输入框不让读光标位置
-  }
-
-  from.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input[name], select[name]").forEach((src) => {
-    if (src.type === "hidden") return;
-    const name = src.getAttribute("name")!;
-    if (src.value === (src.dataset.original ?? "")) return;
-    const dst = to.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${CSS.escape(name)}"]:not([type="hidden"])`);
-    if (!dst) return;
-    // 直接改 .value 的话 React 不认（它记着上一次的值），走原生 setter 再补事件
-    const proto = dst instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(dst, src.value);
-    dst.dispatchEvent(new Event("input", { bubbles: true }));
-    dst.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-
-  if (focusName) {
-    const dst = to.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${CSS.escape(focusName)}"]:not([type="hidden"])`);
-    dst?.focus();
-    if (dst instanceof HTMLInputElement && caret[0] !== null) {
-      try {
-        dst.setSelectionRange(caret[0], caret[1]);
-      } catch {
-        // number 输入框不支持 setSelectionRange
-      }
-    }
-  }
-}
-
-/** 浮动条里打了一半的字（打名字分配、备注）：按顺序一一对应搬过去，焦点也搬 */
-function moveBarEdits(from: Element, to: Element) {
-  const src = [...from.querySelectorAll<HTMLInputElement>("input:not([type=hidden])")];
-  const dst = [...to.querySelectorAll<HTMLInputElement>("input:not([type=hidden])")];
-  const focusedIdx = src.findIndex((el) => el === document.activeElement);
-  src.forEach((el, i) => {
-    const target = dst[i];
-    // 不能拿 defaultValue 判断「打没打过字」：受控输入框（打名字分配那个）React 会把
-    // value 同步到 defaultValue 上，永远相等。跟服务端那条比，不一样就搬
-    if (!target || el.value === target.value) return;
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(target, el.value);
-    target.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  if (focusedIdx >= 0) dst[focusedIdx]?.focus();
 }

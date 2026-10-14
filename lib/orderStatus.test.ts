@@ -25,7 +25,7 @@ describe("statusOptions", () => {
   it("认不出来的状态要补在最前面，且 value 跟库里一模一样", () => {
     // 这一条盯的是真出过的事故：refunded 被删掉之后，那一单的 select
     // 匹配不上任何 option，浏览器把 value 落到第一项，
-    // ClickOutsideDeselect 的「只存改过的」判断反而恒成立，
+    // 退出时「只存改过的」判断（editorFields.ts）反而恒成立，
     // 点一下别处就把「待处理」悄悄写进了库。
     const opts = statusOptions("refunded");
     expect(opts[0]).toEqual({ value: "refunded", label: "refunded" });

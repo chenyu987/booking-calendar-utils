@@ -9,7 +9,7 @@ import { useState } from "react";
 // 初始值，所以跳页面不会丢、首屏也不会闪一下再收起。不走 Server Action——
 // 收起纯粹是界面状态，绕服务端等于每点一次都重渲染整棵树。
 //
-// id 必须留在最外层：ClickOutsideDeselect 靠 #resource-panel 判断"点在面板里
+// id 必须留在最外层：InstantAssign 靠 #resource-panel 判断"点在面板里
 // 不算点到外面"，不然点筛选、点收起按钮都会把分配模式弹出去。
 export default function CollapsibleResourcePanel({
   initialCollapsed,

@@ -22,6 +22,7 @@ import {
   itemConflictReason,
 } from "@/lib/resourceStatus";
 import { recommendationsFor, resourceOpenFor, type PanelOrder } from "@/lib/assignPanel";
+import type { ResourceUse } from "@/lib/previousUse";
 import { inputStyle, selectStyle, buttonStyle, linkButtonStyle } from "@/lib/adminStyles";
 
 // 排期总览左边的资源清单。
@@ -69,6 +70,7 @@ export default function ResourcePanel({
   bookedDays,
   serverAssigningId,
   orders,
+  usesByResource,
   today,
   initialCollapsed,
   filtersCollapsed,
@@ -105,6 +107,8 @@ export default function ResourcePanel({
   serverAssigningId: string | null;
   /** 每一单算资源清单要的那几样（lib/assignPanel.ts），选中哪单取哪单 */
   orders: Record<string, PanelOrder>;
+  /** 每个资源用在了哪几单：选中一单时「上一次」那一单亮一圈（InstantAssign 现算） */
+  usesByResource: Record<string, ResourceUse[]>;
   /** 今天，服务端给的（客户端自己算会跟服务端差一天，CLAUDE.md「今天是哪天」） */
   today: string;
   initialCollapsed: boolean;
@@ -113,7 +117,7 @@ export default function ResourcePanel({
   // 选中的是哪一单：当场选的优先（点了就换，不等服务端），没有就是 ?assign= 那一单
   const selectedId = useAssignSelection(serverAssigningId);
   // 浮动条（InstantAssign）点下去时来取这一份，见 assignSelection.ts
-  publishPanelData({ orders, allResources, bookedDays, history: assignHistory });
+  publishPanelData({ orders, allResources, bookedDays, history: assignHistory, usesByResource });
   const byId = new Map(allResources.map((s: any) => [s.id, s]));
   const resources = resourceIds.map((id) => byId.get(id)).filter(Boolean) as any[];
   const assigningOrder = selectedId ? orders[selectedId] ?? null : null;

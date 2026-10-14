@@ -16,12 +16,15 @@ export default function DeleteOrderButton({
   style,
   /** 按钮文字。默认是那个红叉；浮动条上地方够，写成「删除这单」更清楚 */
   label = "×",
+  onStart,
 }: {
   orderId: string;
   deleteAction: (formData: FormData) => Promise<void>;
   exitHref: string;
   style?: React.CSSProperties;
   label?: string;
+  /** 确认删除的那一刻（分配态退出、**不存**改动：单子都要没了，存了也会报错） */
+  onStart?: () => void;
 }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
@@ -40,6 +43,7 @@ export default function DeleteOrderButton({
     if (!confirm("确定删除这个订单？配的资源、收款记录会一起删掉，不能撤销。")) return;
 
     setDeleting(true);
+    onStart?.();
     setBlocksHidden(true);
     router.push(exitHref);
 

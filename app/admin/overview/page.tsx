@@ -13,18 +13,16 @@ import {
 } from "@/lib/admins";
 import { addContact, loadAdmins } from "@/lib/personContacts";
 import AdminSwitcher from "./AdminSwitcher";
-import ClickOutsideDeselect from "./ClickOutsideDeselect";
 import ZoomableCalendar from "./ZoomableCalendar";
 import ResizableOrderBlock from "./ResizableOrderBlock";
 import OptimisticEditForm from "./OptimisticEditForm";
 import NewOrderSelector from "./NewOrderSelector";
-import AssigningBar from "./AssigningBar";
 import DragAssign from "./DragAssign";
 import OptimisticAssign from "./OptimisticAssign";
-import AssignEditor, { type EditorData } from "./AssignEditor";
+import type { EditorData } from "./AssignEditor";
 import OrderBlock from "./OrderBlock";
 import ResourcePanel from "./ResourcePanel";
-import { nameCandidates, type PanelOrder } from "@/lib/assignPanel";
+import type { PanelOrder } from "@/lib/assignPanel";
 import InstantAssign, { type InstantEditors } from "./InstantAssign";
 import {
   BLOCK_BASE_STYLE,
@@ -68,7 +66,7 @@ import {
   resolveTimelineEnd,
   ordersAfterEnd,
 } from "@/lib/timelineStart";
-import { previousOrdersFor, type ResourceUse } from "@/lib/previousUse";
+import type { ResourceUse } from "@/lib/previousUse";
 import { findClashes, indexClashes, clashKey } from "@/lib/doubleBooking";
 import { getOverviewStart, getOverviewEnd, getOverviewBandDays, getPrimaryAdminId } from "@/lib/appSettings";
 import { adminColor, effectiveAdminId, orderFrame } from "@/lib/orderFrame";
@@ -331,6 +329,8 @@ export default async function OverviewPage({
   const currentSeason = seasonOf(todayForSeason);
   const season: Season = parseSeasonKey(searchParams.season) ?? currentSeason;
   const isCurrentSeason = season.key === currentSeason.key;
+  // 开始查库之前的服务端时间（见 <main data-rendered-at>）
+  const renderedAt = Date.now();
 
   const [
     { data: orders, error },
@@ -728,18 +728,6 @@ export default async function OverviewPage({
     ? computeNeed(assigningOrder, assignedTo.get((assigningOrder as any).id) ?? [])
     : null;
 
-  // 正在配的这一单，配上的这几个资源「上一次分别用在哪一单」—— 把那几单轻轻点亮。
-  // 分配不是孤立的决定：同一个资源上一单去哪儿了、结没结清，都影响这一单怎么排。
-  // 以前得自己在日历上找，现在配上就自动亮出来
-  const previousUseOrders = assigningOrder
-    ? previousOrdersFor(
-        (assigningOrder as any).id,
-        (assigningOrder as any).demand_days ?? [],
-        (assignedTo.get((assigningOrder as any).id) ?? []).map((sp: any) => sp.id),
-        usesByResource
-      )
-    : new Set<string>();
-
   // 左边资源清单（客户端组件）要的：每一单算一份「缺几张、配了哪几张、哪几天、哪个地点」，
   // 选中哪单取哪单。Map 传不到客户端，换成普通对象
   const panelOrders: Record<string, PanelOrder> = {};
@@ -759,13 +747,9 @@ export default async function OverviewPage({
   }
   const bookedDaysRec = Object.fromEntries(bookedDays);
   const bookingsByResourceRec = Object.fromEntries(bookingsByResource);
-
-  // 顶上那条浮动条里「输入物主名字分配」的候选。用的是 allResources 不是筛选后的 resources：
-  // 打名字本来就是绕开左边筛选的快捷方式。判断在 lib/assignPanel.ts（资源清单也用它），
-  // 能不能配还是服务端说了算（route.ts 会再校验一遍）
-  const assignableByName = assigningOrder
-    ? nameCandidates(panelOrders[(assigningOrder as any).id], allResources ?? [], bookedDaysRec, assignHistory)
-    : [];
+  // 每个资源用在了哪几单：选中一单时，它配的资源「上一次」用在哪一单要亮一圈（lib/previousUse.ts）。
+  // 原来服务端按 ?assign= 算好，现在选中是客户端的事，这份数据交给客户端现算
+  const usesByResourceRec = Object.fromEntries(usesByResource);
 
   // 今天这季是默认，不写进 URL；认不出来的 season 参数也不往下传
   const seasonParam = isCurrentSeason ? "" : season.key;
@@ -801,7 +785,9 @@ export default async function OverviewPage({
   const instantEditors: InstantEditors = {};
 
   return (
-    <main>
+    // data-rendered-at：这一次渲染开始查库时的服务端时间。退出分配态时先画上去的新值，
+    // 等到「存完之后才开始查库」的那次渲染到了才撤（blockPatch.ts 的 settledPatches）
+    <main data-rendered-at={renderedAt}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" }}>
         <h1 style={pageTitleStyle}>排期总览</h1>
         <AdminSwitcher admins={admins} currentId={currentAdmin?.id ?? null} />
@@ -960,6 +946,7 @@ export default async function OverviewPage({
             // 选中哪一单不再由服务端算好：清单搬到了客户端，点一单当场就换（ResourcePanel.tsx）
             serverAssigningId={assigningOrder ? (assigningOrder as any).id : null}
             orders={panelOrders}
+            usesByResource={usesByResourceRec}
             today={today}
           />
         }
@@ -1296,9 +1283,7 @@ export default async function OverviewPage({
                   const badLocation = isUnknownLocation(o.location);
                   const locationHint = badLocation ? locationHintFor(o.location!) : "";
                   const need = computeNeed(o, cards);
-                  const isAssigning = searchParams.assign === o.id;
                   // 正在配的这一单用的资源，上一次是在这一单上用的
-                  const isPreviousUse = previousUseOrders.has(o.id);
                   // 分配模式里那几个输入框用的是 defaultValue（不受控），React 只在挂载时读一次；
                   // 撤销分配、拖拽改天数这些操作会在"还留在分配模式"的情况下改掉 o 的字段，
                   // 光 router.refresh() 拿到新数据不够——同一个 key 下 React 不会重新套 defaultValue，
@@ -1338,8 +1323,9 @@ export default async function OverviewPage({
                     const frame = orderFrame({
                       statusBorder: c.border,
                       adminColor: providerColor,
-                      assigning: isAssigning,
-                      previousUse: isPreviousUse,
+                      // 选中、「上一单」是客户端的事，OrderBlock 自己按客户端状态再算一遍边框光圈；
+                      // 这里只给分配态编辑框的样式（editorData.style）打底
+                      assigning: false,
                     });
                     const blockStyle = {
                       gridRow: bandLane + 2,
@@ -1362,7 +1348,6 @@ export default async function OverviewPage({
                       `分配 ${formatNeed(need)}（${formatGap(need)}）`,
                       ...(note ? [`备注：${note}`] : []),
                       ...(badLocation ? [`⚠ ${locationHint}`] : []),
-                      ...(isPreviousUse ? ["↑ 正在配的那一单，用的资源上次就是排在这儿"] : []),
                       ...cards
                         .map((s: any) => clashIndex.get(clashKey(o.id, s.id))?.[0])
                         .filter(Boolean)
@@ -1428,12 +1413,13 @@ export default async function OverviewPage({
                           cardBorder: c.border,
                         }
                       : null;
-                    if (editorData && !isAssigning) {
+                    if (editorData) {
                       instantEditors[o.id] = { ...editorData, band: bandIdx };
                     }
 
-                    if (!isAssigning) {
-                      // 普通态色块长什么样只在 OrderBlock 里（客户端组件），这儿只给数据
+                    {
+                      // 普通态色块长什么样只在 OrderBlock 里（客户端组件），这儿只给数据。
+                      // 进出分配态全在浏览器里（InstantAssign），服务端永远画普通态
                       return (
                         <OrderBlock
                           key={segKey}
@@ -1441,14 +1427,10 @@ export default async function OverviewPage({
                             orderId: o.id,
                             orderStart: orderStartDay(o) ?? "",
                             href: qs({ assign: o.id }),
-                            style: {
-                              gridRow: blockStyle.gridRow,
-                              gridColumn: blockStyle.gridColumn,
-                              background: blockStyle.background,
-                              border: blockStyle.border,
-                              boxShadow: blockStyle.boxShadow,
-                              color: blockStyle.color,
-                            },
+                            gridRow: blockStyle.gridRow,
+                            gridColumn: blockStyle.gridColumn,
+                            status: o.status,
+                            adminColor: providerColor,
                             title: blockTitle,
                             // 点下去那一刻，客户端要立刻拿它拼出分配浮动条的标题 ——
                             // 从色块的文字里猜太脆，直接把服务端用的那份原样带上
@@ -1486,30 +1468,6 @@ export default async function OverviewPage({
                       );
                     }
 
-                    // 分配模式下这个单子的其它色块（不连续的、或者被段边界切开的那几截）：
-                    // 只跟着高亮，编辑控件不重复放，不然页面上会有多个 assign-active-block
-                    if (!showEdit) {
-                      return (
-                        <div
-                          key={segKey}
-                          data-order-id={o.id}
-                          data-order-start={orderStartDay(o) ?? ""}
-                          style={blockStyle}
-                          title={blockTitle}
-                        />
-                      );
-                    }
-
-                    // 分配模式：点名字那行退出，已配的资源直接在色块里叉掉；左右边框可以拖，改这一段的起止日期。
-                    // 长什么样只在 AssignEditor 里（点下去当场画的 InstantAssign 也用它）
-                    return (
-                      <AssignEditor
-                        key={segKey}
-                        d={editorData!}
-                        timeline={band.days}
-                        exitHref={qs({ assign: "" })}
-                      />
-                    );
                   });
                 })}
               </div>
@@ -1517,8 +1475,8 @@ export default async function OverviewPage({
         )}
       </ZoomableCalendar>
 
-      {/* 点色块当场就是分配态：先在同一个格子里画上同一个编辑框，能直接打字，
-          服务端那一份到了再把打的字搬过去。**必须写在 ZoomableCalendar 后面** ——
+      {/* 分配态（编辑一单）全在浏览器里：点色块当场画编辑框、资源清单、浮动条，
+          退出当场画回普通态、后台存。**必须写在 ZoomableCalendar 后面** ——
           instantEditors 是上面画日历时一单一单收进来的 */}
       <InstantAssign
         editors={instantEditors}
@@ -1528,28 +1486,6 @@ export default async function OverviewPage({
         deleteAction={deleteOrder}
       />
 
-      {assigningOrder && (
-        <AssigningBar
-          orderId={(assigningOrder as any).id}
-          note={noteByOrder.get((assigningOrder as any).id) ?? ""}
-          candidates={assignableByName}
-          label={[
-            displayName((assigningOrder as any).customers),
-            (assigningOrder as any).location,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-          deleteAction={deleteOrder}
-          exitHref={qs({ assign: "" })}
-        />
-      )}
-
-      {assigningOrder && (
-        <ClickOutsideDeselect
-          exitHref={qs({ assign: "" })}
-          orderId={(assigningOrder as any).id}
-        />
-      )}
     </main>
   );
 }

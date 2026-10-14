@@ -8,6 +8,7 @@ import { computeTotalFromPerDay } from "@/lib/pricing";
 import { parseCount } from "@/lib/party";
 import LocationInput from "@/components/LocationInput";
 import { normalizeLocation, sameVenue } from "@/lib/locations";
+import { useAssignSelection } from "./assignSelection";
 
 const GAP = 2;
 const POPUP_WIDTH = 260;
@@ -21,7 +22,7 @@ export default function NewOrderSelector({
   colWidth,
   rowHeight,
   laneCount,
-  assigningOrderId,
+  assigningOrderId: serverAssigningId,
   createOrderAction,
   adminName,
   adminId,
@@ -37,6 +38,9 @@ export default function NewOrderSelector({
   /** 当前身份的 id。新单记到他名下（orders.admin_id），建完要看它跟管理员筛选对不对得上 */
   adminId: string | null;
 }) {
+  // 正在分配的是哪一单：分配态全在浏览器里（InstantAssign），看 assignSelection；
+  // 还没接管之前听服务端给的
+  const assigningOrderId = useAssignSelection(serverAssigningId);
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startIdx: number; row: number } | null>(null);
@@ -177,7 +181,7 @@ export default function NewOrderSelector({
 
   function handleMouseDown(e: React.MouseEvent) {
     if (popupOpen) return;
-    // 现在还有另一张单子在分配模式里：这一下点击只负责把它点掉（ClickOutsideDeselect 管），
+    // 现在还有另一张单子在分配模式里：这一下点击只负责把它点掉（InstantAssign 管退出），
     // 不在这个位置立刻开新选框。松手之后分配模式退出了，下一次点击才真正开始拖新选框。
     if (assigningOrderId) return;
     const idx = dayIndexAt(e.clientX);

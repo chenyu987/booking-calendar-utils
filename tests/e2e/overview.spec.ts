@@ -25,6 +25,9 @@ async function gotoOverview(page: Page, qs = "", admin: string | null = "admin-a
   }
   await page.goto(overview(qs));
   await page.locator("[data-order-id]").first().waitFor();
+  // 等到页面能点（InstantAssign 挂上了）：之前点色块是浏览器原生的整页跳转，测的不是分配态那套。
+  // CI 机器慢，不等这一下就会点在 hydration 之前（降速 6 倍跑抓到的）
+  await page.locator("body[data-overview-ready]").waitFor({ state: "attached" });
 }
 
 /**
@@ -35,7 +38,11 @@ async function gotoOverview(page: Page, qs = "", admin: string | null = "admin-a
  */
 async function anchors(page: Page, orderId: string) {
   return page.evaluate((id) => {
-    const block = document.querySelector(`[data-order-id="${id}"]`);
+    // 分配态时量**看得见的那一块**（编辑框所在的那个色块）。普通态那段这时候藏在底下、
+    // 不放内容，按 id 取第一个会量到它，一个锚点都量不到
+    const block =
+      document.querySelector(`[data-assign-editor="${id}"]`)?.parentElement?.closest(`[data-order-id="${id}"]`) ??
+      document.querySelector(`[data-order-id="${id}"]`);
     if (!block) throw new Error(`找不到色块 ${id}`);
     // 记宽度是为了认出「这个锚点这会儿根本没渲染」：色块窄到 180px 以下时
     // $ 会被容器查询藏掉（两个状态都藏），藏起来的元素 Range 量出来是 0×0 在原点。
@@ -191,109 +198,136 @@ test.describe("点下去要立刻有反应", () => {
   });
 });
 
-test.describe("点一下当场就能编辑（不等整页渲染）", () => {
-  // 进分配态要整页回服务端（真数据一季 1800 单，2026-10-14 实测 1.2~1.4 秒）。
-  // InstantAssign 在点击的同一帧就在同一个格子里画上同一个编辑框（AssignEditor），
-  // 服务端那份到了再把打的字搬过去。
+test.describe("进出分配态全在浏览器里：不回服务端，当场完成", () => {
+  // 原来进 / 出分配态各是一次服务端导航（真数据一季 1800 单，一次一两秒）。现在 InstantAssign
+  // 在浏览器里画编辑框、资源清单、浮动条；退出时色块先画成新值，写库在后台，存不上撤回。
 
-  /** 点一下，**同一帧**里读：当场画的那份编辑框在不在、里面每个元素的位置 */
-  async function clickAndMeasure(page: Page, id: string) {
-    return page.evaluate((id) => {
-      document.querySelector<HTMLElement>(`a[data-order-id="${id}"][data-edit-seg]`)!.click();
-      const ed = document.querySelector(`[data-assign-editor="${id}"][data-instant]`);
-      return {
-        present: !!ed,
-        typeable: !!ed?.querySelector('input[name="customer_name"]'),
-        rects: ed ? [...ed.querySelectorAll("*")].map((e) => { const r = e.getBoundingClientRect(); return [e.tagName, +r.x.toFixed(2), +r.y.toFixed(2), +r.width.toFixed(2), +r.height.toFixed(2)]; }) : [],
-      };
-    }, id);
-  }
+  const editor = (page: Page, id: string) => page.locator(`[data-assign-editor="${id}"]`);
+  const block = (page: Page, id: string) => page.locator(`a[data-order-id="${id}"][data-edit-seg]`);
 
-  test("点一下，同一帧色块里就是能打字的编辑框", async ({ page }) => {
+  test("点一下：同一帧就是能打字的编辑框、左边清单换成这一单、顶上是能打字的浮动条", async ({ page }) => {
     await gotoOverview(page);
-    const got = await clickAndMeasure(page, MAIN);
-    expect(got).toMatchObject({ present: true, typeable: true });
-  });
-
-  test("**当场画的和服务端画的，里面每个元素的位置一模一样**", async ({ page }) => {
-    await gotoOverview(page);
-    const instant = await clickAndMeasure(page, MAIN);
-    const server = page.locator(`[data-assign-editor="${MAIN}"]:not([data-instant])`);
-    await server.waitFor();
-    // 接上之后当场画的那份撤掉了
-    await expect(page.locator(`[data-assign-editor="${MAIN}"][data-instant]`)).toHaveCount(0);
-    const real = await server.evaluate((ed) =>
-      [...ed.querySelectorAll("*")].map((e) => { const r = e.getBoundingClientRect(); return [e.tagName, +r.x.toFixed(2), +r.y.toFixed(2), +r.width.toFixed(2), +r.height.toFixed(2)]; })
-    );
-    expect(instant.rects.length).toBeGreaterThan(10);
-    expect(real).toEqual(instant.rects);
-  });
-
-  test("服务端那份回来之前打的字：接上之后还在，光标也还在那个框里", async ({ page }) => {
-    await gotoOverview(page);
-    await page.evaluate((id) => {
-      document.querySelector<HTMLElement>(`a[data-order-id="${id}"][data-edit-seg]`)!.click();
-      const input = document.querySelector<HTMLInputElement>(`[data-assign-editor="${id}"][data-instant] input[name="customer_name"]`)!;
-      input.focus();
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "改过的名字");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    }, MAIN);
-    const server = page.locator(`[data-assign-editor="${MAIN}"]:not([data-instant])`);
-    await server.waitFor();
-    await expect(page.locator(`[data-assign-editor="${MAIN}"][data-instant]`)).toHaveCount(0);
-    const nameInput = server.locator('input[name="customer_name"]');
-    await expect(nameInput).toHaveValue("改过的名字");
-    await expect(nameInput).toBeFocused();
-  });
-});
-
-test.describe("点一下，左边资源清单和顶上浮动条也当场就是这一单的", () => {
-  // 资源清单搬到了客户端（ResourcePanel），选中哪单看 assignSelection；浮动条 InstantAssign
-  // 当场画一份。原来这两样要等整页渲染回来（一秒多）
-
-  test("同一帧：左边清单换成这一单（已配的资源打勾），顶上是能打字的真浮动条", async ({ page }) => {
-    await gotoOverview(page);
-    const before = await page.locator('[data-resource-id="s-female"]').innerText();
-    expect(before).not.toContain("已配给这单");
+    expect(await page.locator('[data-resource-id="s-female"]').innerText()).not.toContain("已配给这单");
     const got = await page.evaluate((id) => {
       document.querySelector<HTMLElement>(`a[data-order-id="${id}"][data-edit-seg]`)!.click();
-      const bar = document.querySelector(`[data-assign-bar="${id}"][data-instant]`);
+      // 同一帧内读
+      const bar = document.querySelector(`[data-assign-bar="${id}"]`);
       return {
+        typeable: !!document.querySelector(`[data-assign-editor="${id}"] input[name="customer_name"]`),
         assignedTick: document.querySelector('[data-resource-id="s-female"]')!.textContent!.includes("已配给这单"),
-        bar: !!bar,
         barTypeable: !!bar?.querySelector("input:not([type=hidden])"),
+        url: new URL(location.href).searchParams.get("assign"),
       };
     }, MAIN);
-    expect(got).toEqual({ assignedTick: true, bar: true, barTypeable: true });
+    expect(got).toEqual({ typeable: true, assignedTick: true, barTypeable: true, url: MAIN });
   });
 
-  test("**当场画的清单，跟服务端那份回来之后的清单，一字不差**", async ({ page }) => {
+  test("**点一下不发请求**：进分配态不回服务端", async ({ page }) => {
     await gotoOverview(page);
-    const instant = await page.evaluate((id) => {
-      document.querySelector<HTMLElement>(`a[data-order-id="${id}"][data-edit-seg]`)!.click();
-      return document.getElementById("resource-panel")!.innerText;
-    }, MAIN);
-    await page.locator(`[data-assign-editor="${MAIN}"]:not([data-instant])`).waitFor();
-    await expect(page.locator("[data-assign-bar][data-instant]")).toHaveCount(0);
-    const settled = await page.locator("#resource-panel").innerText();
-    expect(instant).toContain("已配给这单");
-    expect(settled).toBe(instant);
+    const requests: string[] = [];
+    page.on("request", (r) => {
+      // 只数这一下点击可能引起的：导航（不是预取的），或者 URL 上带着这一单的。
+      // 侧边栏「排期总览」那个链接加载完会自己预取一次（next-router-prefetch，不带 assign），
+      // CI 机器慢的时候正好落在这段时间里 —— 跟点色块无关，不算（降速 4 倍跑抓到的）
+      const prefetch = r.headers()["next-router-prefetch"] === "1";
+      if (r.url().includes("/admin/overview") && (!prefetch || r.url().includes("assign="))) {
+        requests.push(r.url());
+      }
+    });
+    await block(page, MAIN).click();
+    await editor(page, MAIN).waitFor();
+    await page.waitForTimeout(500);
+    expect(requests).toEqual([]);
   });
 
-  test("浮动条里打了一半的名字：服务端那条接上之后还在，焦点也在", async ({ page }) => {
+  test("改了名字、点空白退出：编辑框当场没了、色块当场是新名字；后台真存进去了", async ({ page }) => {
     await gotoOverview(page);
-    await page.evaluate((id) => {
-      document.querySelector<HTMLElement>(`a[data-order-id="${id}"][data-edit-seg]`)!.click();
-      const input = document.querySelector<HTMLInputElement>(`[data-assign-bar="${id}"][data-instant] input:not([type=hidden])`)!;
-      input.focus();
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "jack");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    }, MAIN);
-    await page.locator(`[data-assign-bar="${MAIN}"]:not([data-instant])`).waitFor();
-    await expect(page.locator("[data-assign-bar][data-instant]")).toHaveCount(0);
-    const input = page.locator(`[data-assign-bar="${MAIN}"] input:not([type=hidden])`).first();
-    await expect(input).toHaveValue("jack");
-    await expect(input).toBeFocused();
+    // 后台存故意拖 3 秒：「当场」要证明的是**不等**存完、不等刷新。不拖的话本地存得太快，
+    // 撤掉「先画上去」那层（blockPatch）这条照样绿 —— 等于没测
+    await page.route("**/admin/overview/save-field", async (r) => {
+      await new Promise((res) => setTimeout(res, 3000));
+      await r.continue();
+    });
+    await block(page, SHORT_NAME).click();
+    await editor(page, SHORT_NAME).locator('input[name="customer_name"]').fill("xhs改");
+    await page.locator("h1").click(); // 空白处
+    // 当场：存还在路上（拖着 3 秒），编辑框已经没了、色块已经是新名字
+    await expect(editor(page, SHORT_NAME)).toHaveCount(0, { timeout: 500 });
+    await expect(block(page, SHORT_NAME)).toContainText("xhs改", { timeout: 500 });
+    await page.unroute("**/admin/overview/save-field");
+    expect(new URL(page.url()).searchParams.get("assign")).toBeNull();
+    // 后台存进去了：重新打开页面，服务端画出来的就是新名字
+    await expect.poll(async () => {
+      await gotoOverview(page);
+      return block(page, SHORT_NAME).innerText();
+    }).toContain("xhs改");
+    // 改回去，别影响后面的测试（走浮动条上的「完成」退出，顺便验这条路）
+    await block(page, SHORT_NAME).click();
+    await editor(page, SHORT_NAME).locator('input[name="customer_name"]').fill("xhs");
+    await page.locator(`[data-assign-bar="${SHORT_NAME}"] a`, { hasText: "完成" }).click();
+    await expect(editor(page, SHORT_NAME)).toHaveCount(0);
+    await expect.poll(async () => {
+      await gotoOverview(page);
+      return block(page, SHORT_NAME).innerText();
+    }).not.toContain("xhs改");
+  });
+
+  test("Esc：不存，回到原样", async ({ page }) => {
+    await gotoOverview(page);
+    await block(page, SHORT_NAME).click();
+    await editor(page, SHORT_NAME).locator('input[name="customer_name"]').fill("不该存");
+    await page.keyboard.press("Escape");
+    await expect(editor(page, SHORT_NAME)).toHaveCount(0);
+    await expect(block(page, SHORT_NAME)).not.toContainText("不该存");
+    await gotoOverview(page);
+    await expect(block(page, SHORT_NAME)).not.toContainText("不该存");
+  });
+
+  test("**存不上：撤回原样、重新打开编辑框（框里是刚才打的）、说出原因** —— 不能让人以为存好了", async ({ page }) => {
+    await gotoOverview(page);
+    await page.route("**/admin/overview/save-field", (r) =>
+      r.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "模拟：数据库出错" }) })
+    );
+    await block(page, SHORT_NAME).click();
+    await editor(page, SHORT_NAME).locator('input[name="customer_name"]').fill("存不上的名字");
+    await page.locator("h1").click();
+    await expect(page.getByText("没存上：模拟：数据库出错")).toBeVisible();
+    await expect(editor(page, SHORT_NAME).locator('input[name="customer_name"]')).toHaveValue("存不上的名字");
+    // 底下那段普通态（藏着的）已经撤回原名
+    await expect(block(page, SHORT_NAME)).not.toContainText("存不上的名字");
+    await page.unroute("**/admin/overview/save-field");
+    await page.keyboard.press("Escape");
+    await gotoOverview(page);
+    await expect(block(page, SHORT_NAME)).not.toContainText("存不上的名字");
+  });
+
+  test("编辑 A 的时候点 B：A 改的存了，B 当场打开", async ({ page }) => {
+    await gotoOverview(page);
+    await block(page, SHORT_NAME).click();
+    await editor(page, SHORT_NAME).locator('input[name="customer_name"]').fill("xhs切换");
+    await block(page, MAIN).click();
+    await expect(editor(page, MAIN)).toHaveCount(1);
+    await expect(editor(page, SHORT_NAME)).toHaveCount(0);
+    await expect(block(page, SHORT_NAME)).toContainText("xhs切换");
+    await expect.poll(async () => {
+      await gotoOverview(page);
+      return block(page, SHORT_NAME).innerText();
+    }).toContain("xhs切换");
+    // 改回去
+    await block(page, SHORT_NAME).click();
+    await editor(page, SHORT_NAME).locator('input[name="customer_name"]').fill("xhs");
+    await page.keyboard.press("Enter");
+    await expect(editor(page, SHORT_NAME)).toHaveCount(0);
+    await expect.poll(async () => {
+      await gotoOverview(page);
+      return block(page, SHORT_NAME).innerText();
+    }).not.toContain("xhs切换");
+  });
+
+  test("带着 ?assign= 打开（刷新、分享的链接）：直接就是这一单的分配态", async ({ page }) => {
+    await gotoOverview(page, `?assign=${MAIN}`);
+    await expect(editor(page, MAIN).locator('input[name="customer_name"]')).toBeVisible();
+    await expect(page.locator(`[data-assign-bar="${MAIN}"]`)).toBeVisible();
   });
 });
 

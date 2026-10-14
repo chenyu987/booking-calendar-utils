@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import { BLOCK_BASE_STYLE, COUNT_BOX, COUNT_GAP, MONEY_SLOT } from "./blockGeometry";
+import { statusColor } from "@/lib/orderStatus";
+import { orderFrame } from "@/lib/orderFrame";
+import { useIsPreviousUse, useIsSelected, usePatch } from "./assignSelection";
+import { applyPatchToBlock } from "./blockPatch";
 
 // 排期总览：普通态的订单色块（点它进分配态）。
 //
@@ -26,8 +30,12 @@ export type BlockData = {
   orderId: string;
   orderStart: string;
   href: string;
-  /** 外层样式里每一单不一样的那部分（位置、底色、边框、光圈、文字色）；其余在 BLOCK_BASE_STYLE */
-  style: React.CSSProperties;
+  gridRow: number;
+  gridColumn: string;
+  /** 状态：底色、文字色、边框色都从它算（lib/orderStatus.ts），退出时改了状态当场换色 */
+  status: string;
+  /** 非主要管理员的单，边框是这个颜色（lib/orderFrame.ts）；null = 跟状态色 */
+  adminColor: string | null;
   title: string;
   /** 抢画分配浮动条用的标题（OptimisticAssign） */
   label: string;
@@ -51,7 +59,36 @@ export type BlockData = {
   cards: BlockCard[];
 };
 
-export default function OrderBlock({ d }: { d: BlockData }) {
+export default function OrderBlock({ d: server }: { d: BlockData }) {
+  // 选中 / 「上一次」/ 退出时改过还在存的字段 —— 全是客户端状态（assignSelection.ts），
+  // 每个色块只订阅跟自己有关的那一个布尔 / 那一份，别的单变了这块不重画
+  const selected = useIsSelected(server.orderId);
+  const previousUse = useIsPreviousUse(server.orderId);
+  const pending = usePatch(server.orderId);
+  const d = pending ? applyPatchToBlock(server, pending.patch) : server;
+  // 边框和光圈：状态 / 是哪个管理员的 / 选中 / 上一单，四件事一处算（lib/orderFrame.ts），
+  // 分配态（AssignEditor）也从那儿取
+  const c = statusColor(d.status);
+  const frame = orderFrame({
+    statusBorder: c.border,
+    adminColor: d.adminColor,
+    assigning: selected,
+    previousUse,
+  });
+  const style: React.CSSProperties = {
+    gridRow: d.gridRow,
+    gridColumn: d.gridColumn,
+    background: c.bg,
+    // 编辑态**不能**用更粗的边框：2px vs 1px 会把整块内容往下推 1px，进出编辑时所有字都跳一下。
+    // 永远 1px，加粗的观感交给 box-shadow（阴影不参与布局）—— 都在 orderFrame 里
+    border: frame.border,
+    boxShadow: frame.boxShadow,
+    color: c.text,
+  };
+  // 选中时：放编辑控件的那一段被当场画的编辑框盖住（InstantAssign 把它藏起来）；
+  // 别的段（日期不连续、被带子切开的）只跟着亮框、不放内容 —— 跟原来服务端画的分配态一样，
+  // 不然页面上一单的名字会出现好几遍，哪个是能改的看不出来
+  const showDetail = d.showDetail && !selected;
   return (
     <Link
       data-order-id={d.orderId}
@@ -65,9 +102,12 @@ export default function OrderBlock({ d }: { d: BlockData }) {
       data-edit-seg={d.editSeg ? "1" : undefined}
       data-order-label={d.label}
       href={d.href}
+      // 不预取：点色块不导航（InstantAssign 在浏览器里进分配态），预取一次就是白让服务端
+      // 整页渲染一遍 —— 1800 个色块，鼠标扫过去一路都在预取（e2e「点一下不发请求」抓到的）
+      prefetch={false}
       style={{
         ...BLOCK_BASE_STYLE,
-        ...d.style,
+        ...style,
         textDecoration: "none",
         display: "flex",
         flexDirection: "column",
@@ -75,7 +115,7 @@ export default function OrderBlock({ d }: { d: BlockData }) {
       }}
       title={d.title}
     >
-      {d.showDetail && (
+      {showDetail && (
         <>
           {/* 第 1 行左边「姓名 · 地点」，右上角放备注（有才显示）：
               金额挪到第 3 行右下角了。格子窄的时候（一天的单子只有

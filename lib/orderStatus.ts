@@ -43,7 +43,7 @@ export function statusColor(status: string) {
 // （删过某个状态、或者别处直接写进库的），要为它单独补一条。
 //
 // 为什么必须补：`<select defaultValue={o.status}>` 匹配不上任何 option 时，
-// 浏览器会把 `select.value` 落到第一项。而 ClickOutsideDeselect 判断「这个字段
+// 浏览器会把 `select.value` 落到第一项。而退出分配态时（editorFields.ts 的 collectChangedEdits）判断「这个字段
 // 改没改」用的是 `value !== data-original` —— 补不上 option，这个判断就**反过来
 // 恒成立**，点一下别处就把第一项悄悄写进库，没人碰过那个下拉框。
 // 2026-09-13 真出过：删掉 refunded 之后，那一单自己变成了「待处理」。
