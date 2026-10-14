@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseCustomerEdit } from "./customerEdit";
+import { parseCustomerEdit, customerRowAfterEdit } from "./customerEdit";
 
 const TODAY = "2026-10-03";
 const form = (fields: Record<string, string>) => (k: string) => fields[k] ?? null;
@@ -54,5 +54,26 @@ describe("parseCustomerEdit：Customer 编辑的服务端校验", () => {
   it("生日、邮箱、电话都可以留空", () => {
     const r = parseCustomerEdit(form({ ...ok, date_of_birth: "", email: "", phone_number: "" }), TODAY);
     expect(r).toMatchObject({ values: { date_of_birth: null, email: null, phone_number: null } });
+  });
+});
+
+describe("customerRowAfterEdit：点保存那一下先画成什么样", () => {
+  it("显示的列跟着新值走，空的选填项显示成空串（跟服务端给的同一个形状）", () => {
+    const row = customerRowAfterEdit(
+      { chat_name: "凯文", chat_id: null, phone_number: null, email: null, date_of_birth: null, status: "blacklisted", note: null },
+      ["admin-1"]
+    );
+    expect(row).toMatchObject({ name: "凯文", chatId: "", age: null, status: "blacklisted", note: "", contactIds: ["admin-1"] });
+    expect(row.edit).toEqual({
+      chat_name: "凯文", chat_id: "", phone_number: "", email: "", date_of_birth: "", status: "blacklisted", note: "",
+    });
+  });
+
+  it("年龄从生日现算，不是留着改之前的", () => {
+    const row = customerRowAfterEdit(
+      { chat_name: "a", chat_id: null, phone_number: null, email: null, date_of_birth: "2000-01-01", status: "active", note: null },
+      []
+    );
+    expect(row.age).toBeGreaterThanOrEqual(26);
   });
 });

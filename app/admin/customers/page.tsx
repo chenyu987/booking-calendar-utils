@@ -7,9 +7,9 @@ import { selfName } from "@/lib/person";
 import { todayIso } from "@/lib/dates";
 import { buildFootprints } from "@/lib/footprint";
 import { customerName } from "@/lib/referral";
-import { parseCustomerEdit } from "@/lib/customerEdit";
 import { parseAdminIds } from "@/lib/admins";
 import { loadAdmins, loadPersonContacts, saveContacts } from "@/lib/personContacts";
+import { saveCustomerEdit } from "./saveCustomer";
 import CustomerTable, { ContactCheckboxes, type CustomerRow } from "./CustomerTable";
 import {
   formStyle,
@@ -45,32 +45,15 @@ async function createCustomer(formData: FormData) {
   revalidatePath("/admin/customers");
 }
 
-// 编辑：列表页的老约定，`?edit=<id>` 进编辑态，存完 redirect 回列表退出。
-// 不提供删除 —— 见 lib/customerEdit.ts 开头
+// 编辑：平时是 CustomerTable 在客户端当场切编辑态、后台存（save/route.ts），不走这儿。
+// 这个 Server Action 是 JS 没跑起来时的退路：`?edit=<id>` 进编辑态，存完 redirect 回列表。
+// 校验和写库只有一份，在 saveCustomer.ts。不提供删除 —— 见 lib/customerEdit.ts 开头
 async function updateCustomer(formData: FormData) {
   "use server";
   const id = formData.get("id") as string;
-  const parsed = parseCustomerEdit((k) => formData.get(k) as string | null, todayIso());
-  if ("error" in parsed) {
-    // 原因带回页面显示，停在编辑态
-    redirect(`/admin/customers?edit=${id}&error=${encodeURIComponent(parsed.error)}`);
-  }
-  // 「谁的客人」也先验完再动库：拦住时一个字都不写
-  const contacts = parseAdminIds(formData.getAll("contact"), await loadAdmins());
-  if (!contacts.ok) redirect(`/admin/customers?edit=${id}&error=${encodeURIComponent(contacts.reason)}`);
-  // 编辑的全是人身上的字段（people，0017）—— 这个人要是也是物主，Provider 管理那边跟着变
-  const { error } = await supabase.from("people").update(parsed.values).eq("id", id);
-  if (error) redirect(`/admin/customers?edit=${id}&error=${encodeURIComponent(error.message)}`);
-  try {
-    await saveContacts(id, contacts.ids);
-  } catch (e: any) {
-    redirect(`/admin/customers?edit=${id}&error=${encodeURIComponent(`「谁的客人」没存上：${e.message}`)}`);
-  }
-
-  // 客户名字显示在这些页面上
-  for (const p of ["/admin/customers", "/admin/providers", "/admin/overview", "/admin/orders", "/admin/matches", "/admin/referrals", "/admin/payments"]) {
-    revalidatePath(p);
-  }
+  const result = await saveCustomerEdit(formData);
+  // 原因带回页面显示，停在编辑态
+  if ("error" in result) redirect(`/admin/customers?edit=${id}&error=${encodeURIComponent(result.error)}`);
   // 带上刚存的是谁：服务端发起的跳转会把页面滚回顶上，表格那边看到 saved 就滚回这一行
   redirect(`/admin/customers?saved=${id}`);
 }
@@ -162,6 +145,7 @@ export default async function CustomersAdminPage({
         editError={searchParams.error ?? null}
         savedId={searchParams.saved ?? null}
         updateAction={updateCustomer}
+        today={todayIso()}
         admins={admins}
       />
     </main>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FOOTPRINT_SORTS,
   FOOTPRINT_SORT_LABELS,
@@ -12,8 +12,8 @@ import {
   type FootprintSort,
   type CustomerSeason,
 } from "@/lib/footprint";
-import { CUSTOMER_STATUSES, CUSTOMER_STATUS_LABELS } from "@/lib/customerEdit";
-import { CONTACT_FILTER_NONE, matchesContactFilter, type Admin } from "@/lib/admins";
+import { CUSTOMER_STATUSES, CUSTOMER_STATUS_LABELS, parseCustomerEdit, customerRowAfterEdit } from "@/lib/customerEdit";
+import { CONTACT_FILTER_NONE, matchesContactFilter, parseAdminIds, type Admin } from "@/lib/admins";
 import {
   tableStyle,
   thStyle,
@@ -285,12 +285,17 @@ function EditRow({
   row,
   error,
   action,
+  onSubmit,
+  onCancel,
   colSpan,
   admins,
 }: {
   row: CustomerRow;
   error: string | null;
+  /** JS 没跑起来时的退路（Server Action）。平时走 onSubmit */
   action: (formData: FormData) => Promise<void>;
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+  onCancel: (e: React.MouseEvent<HTMLAnchorElement>) => void;
   colSpan: number;
   admins: Admin[];
 }) {
@@ -342,13 +347,13 @@ function EditRow({
           <FootprintCell r={row} />
         </td>
         <td style={editTd}>
-          <form id={formId} action={action} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+          <form id={formId} action={action} onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
             <input type="hidden" name="id" value={row.id} />
             <button type="submit" style={{ ...buttonStyle, padding: "4px 10px" }}>
               保存
             </button>
             {/* scroll={false}：Next 默认每次跳转都滚回页面顶上，表里几百人，改一个就得重新往下翻 */}
-            <Link href="/admin/customers" scroll={false} style={linkButtonStyle}>
+            <Link href="/admin/customers" scroll={false} onClick={onCancel} style={linkButtonStyle}>
               取消
             </Link>
           </form>
@@ -384,34 +389,169 @@ function matches(value: string, query: string): boolean {
 
 export default function CustomerTable({
   rows,
-  editingId,
-  editError,
+  editingId: initialEditingId,
+  editError: initialEditError,
   savedId,
   updateAction,
   admins,
+  today,
 }: {
   rows: CustomerRow[];
-  /** `?edit=<id>`：这一行显示成编辑表单 */
+  /** `?edit=<id>`：打开页面时这一行就是编辑态（刷新 / 分享链接 / JS 没跑起来时的退路） */
   editingId: string | null;
   editError: string | null;
-  /** `?saved=<id>`：刚存完的那一行，滚回去并闪一下 */
+  /** `?saved=<id>`：刚存完的那一行，滚回去并闪一下（JS 没跑起来、走 Server Action 那条路才有） */
   savedId: string | null;
   updateAction: (formData: FormData) => Promise<void>;
   admins: Admin[];
+  /** 今天，服务端给的（客户端自己算会跟服务端差一天，CLAUDE.md「今天是哪天」） */
+  today: string;
 }) {
+  // ── 编辑：全在客户端，不回服务端 ──────────────────────────────────────────
+  // 进编辑态要的数据（每一行的初始值）本来就在 rows 里，回一趟服务端纯属白等 ——
+  // 这一页渲染一次要好几秒（全量拉订单算足迹）。所以点「编辑」「取消」只是切状态，
+  // 地址栏用 replaceState 跟着变，刷新 / 分享链接照旧。
+  // 点「保存」：先用同一份校验（lib/customerEdit.ts）当场验，验过了这一行**当场**画成新值、
+  // 退出编辑态，真正写库在后台（save/route.ts）。存不上就撤回原值、重新打开编辑态把原因
+  // 写出来 —— 不能让人以为存好了。
+  const [editingId, setEditingId] = useState<string | null>(initialEditingId);
+  const [editError, setEditError] = useState<string | null>(initialEditError);
+  useEffect(() => {
+    setEditingId(initialEditingId);
+    setEditError(initialEditError);
+  }, [initialEditingId, initialEditError]);
+  // 点了保存、先画上去的新值：id → 这一行要盖掉的字段
+  const [patches, setPatches] = useState<ReadonlyMap<string, Partial<CustomerRow>>>(new Map());
+  // 存不上、重新打开编辑态时表单里放**刚才打的**，不是库里的 —— 不然打的字白打
+  const [draft, setDraft] = useState<{ id: string; edit: CustomerRow["edit"]; contactIds: string[] } | null>(null);
+  // 还在后台存的行；同一行连着存两次要排队，不然后发的可能先到，库里留下的是前一次的
+  const pending = useRef(new Map<string, Promise<unknown>>());
+
+  // 服务端数据换了（比如新增了一个人，整页重新渲染）：存完了的补丁撤掉，以库里为准；还在存的留着
+  useEffect(() => {
+    setPatches((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Map([...prev].filter(([id]) => pending.current.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [rows]);
+
+  // 后台还在存的时候关页面 / 刷新：拦一下。站内跳到别的页不用拦 —— 请求是 keepalive 的，照样送到
+  useEffect(() => {
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (pending.current.size === 0) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, []);
+
+  const setUrl = (id: string | null) =>
+    window.history.replaceState(null, "", id ? `/admin/customers?edit=${id}` : "/admin/customers");
+
+  // ⌘ / 中键是「新标签页打开」，交给链接自己，这一页什么都不动
+  const isPlainClick = (e: React.MouseEvent) =>
+    !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0);
+
+  function startEdit(e: React.MouseEvent<HTMLAnchorElement>, id: string) {
+    if (!isPlainClick(e)) return;
+    // next/link 看到 defaultPrevented 就不导航（处理器挂在链接自己身上，不是外层，冒泡阶段就够）
+    e.preventDefault();
+    setEditingId(id);
+    setEditError(null);
+    setDraft(null);
+    setUrl(id);
+  }
+
+  function cancelEdit(e: React.MouseEvent<HTMLAnchorElement>) {
+    if (!isPlainClick(e)) return;
+    e.preventDefault();
+    setEditingId(null);
+    setEditError(null);
+    setDraft(null);
+    setUrl(null);
+  }
+
+  function saveEdit(e: React.FormEvent<HTMLFormElement>, row: CustomerRow) {
+    e.preventDefault();
+    // 挂在这张表单上的输入框（form 属性）也会被收进来，跟原来提交给 Server Action 的是同一份
+    const fd = new FormData(e.currentTarget);
+    const parsed = parseCustomerEdit((k) => fd.get(k) as string | null, today);
+    if ("error" in parsed) return setEditError(parsed.error);
+    const contacts = parseAdminIds(fd.getAll("contact"), admins);
+    if (!contacts.ok) return setEditError(contacts.reason);
+
+    const id = row.id;
+    const before = patches.get(id);
+    const patch = customerRowAfterEdit(parsed.values, contacts.ids);
+    setPatches((prev) => new Map(prev).set(id, patch));
+    setEditingId(null);
+    setEditError(null);
+    setDraft(null);
+    setUrl(null);
+    flash(id);
+
+    const prevSave = pending.current.get(id) ?? Promise.resolve();
+    const save = prevSave
+      .catch(() => {})
+      .then(async () => {
+        const res = await fetch("/admin/customers/save", { method: "POST", body: fd, keepalive: true });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? `HTTP ${res.status}`);
+        }
+      });
+    pending.current.set(id, save);
+    save
+      .catch((err: any) => {
+        // 撤回：这一行回到存之前的样子，重新打开编辑态，表单里是刚才打的，并说出为什么
+        setPatches((prev) => {
+          const next = new Map(prev);
+          if (before) next.set(id, before);
+          else next.delete(id);
+          return next;
+        });
+        setDraft({ id, edit: patch.edit, contactIds: contacts.ids });
+        setEditingId(id);
+        setEditError(err?.message ?? String(err));
+        setUrl(id);
+        requestAnimationFrame(() =>
+          document.getElementById(`customer-${id}`)?.scrollIntoView({ block: "center" })
+        );
+      })
+      .finally(() => {
+        if (pending.current.get(id) === save) pending.current.delete(id);
+      });
+  }
+
+  // 先画上去的新值盖在服务端那份上。筛选、排序、计数都看这一份，存完立刻按新值筛
+  const view = useMemo(
+    () => (patches.size === 0 ? rows : rows.map((r) => (patches.has(r.id) ? { ...r, ...patches.get(r.id) } : r))),
+    [rows, patches]
+  );
+
   // 保存 / 保存出错都是服务端 redirect 回来的，Next 会把页面滚回顶上（点「编辑」「取消」的
   // 链接可以 scroll={false}，服务端跳转没这个选项）。所以落地后自己滚回那一行
   const [flashId, setFlashId] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 闪一下是 React 状态（行的背景色），不是直接改 DOM，不用操心撤（CLAUDE.md「命令式改了 DOM」那条）
+  function flash(id: string) {
+    setFlashId(id);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlashId(null), 2000);
+  }
+  useEffect(() => () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+  }, []);
   useEffect(() => {
-    const target = savedId ?? (editError ? editingId : null);
+    const target = savedId ?? (initialEditError ? initialEditingId : null);
     if (!target) return;
     document.getElementById(`customer-${target}`)?.scrollIntoView({ block: "center" });
-    if (!savedId) return;
-    // 闪一下是 React 状态（行的背景色），不是直接改 DOM，不用操心撤（CLAUDE.md「命令式改了 DOM」那条）
-    setFlashId(savedId);
-    const t = setTimeout(() => setFlashId(null), 2000);
-    return () => clearTimeout(t);
-  }, [savedId, editingId, editError]);
+    if (savedId) flash(savedId);
+    // 只在服务端跳转回来时跑（Server Action 那条退路），客户端切编辑态不该滚动
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedId, initialEditingId, initialEditError]);
 
   const [name, setName] = useState("");
   const [chat, setChat] = useState("");
@@ -428,21 +568,21 @@ export default function CustomerTable({
   const [sort, setSort] = useState<FootprintSort>("default");
 
   const statuses = useMemo(
-    () => [...new Set(rows.map((r) => r.status).filter(Boolean))].sort(),
-    [rows]
+    () => [...new Set(view.map((r) => r.status).filter(Boolean))].sort(),
+    [view]
   );
   // 季筛选的选项：表里实际出现过的季，新的在前
   const seasonOptions = useMemo(() => {
     const byKey = new Map<string, CustomerSeason>();
-    for (const r of rows) for (const s of r.seasons) if (!byKey.has(s.key)) byKey.set(s.key, s);
+    for (const r of view) for (const s of r.seasons) if (!byKey.has(s.key)) byKey.set(s.key, s);
     return [...byKey.values()].sort((a, b) => b.start.localeCompare(a.start));
-  }, [rows]);
+  }, [view]);
 
   const filtered = useMemo(() => {
     const min = ageMin.trim() === "" ? null : Number(ageMin);
     const max = ageMax.trim() === "" ? null : Number(ageMax);
 
-    const kept = rows.filter((r) => {
+    const kept = view.filter((r) => {
       // 正在编辑的那一行不受筛选影响，不然改着改着被筛掉了
       if (r.id === editingId) return true;
       // 昵称、称呼都能搜
@@ -465,7 +605,7 @@ export default function CustomerTable({
       return true;
     });
     return sortByFootprint(kept, sort);
-  }, [rows, editingId, name, chat, referrer, footprint, status, contact, season, ageMin, ageMax, sort]);
+  }, [view, editingId, name, chat, referrer, footprint, status, contact, season, ageMin, ageMax, sort]);
 
   const hasFilter =
     name || chat || referrer || footprint || status || contact || season || ageMin || ageMax;
@@ -650,11 +790,14 @@ export default function CustomerTable({
         <tbody>
           {filtered.map((r) => {
             if (r.id === editingId) {
+              const row = draft?.id === r.id ? { ...r, edit: draft.edit, contactIds: draft.contactIds } : r;
               return <EditRow
                   key={r.id}
-                  row={r}
+                  row={row}
                   error={editError}
                   action={updateAction}
+                  onSubmit={(e) => saveEdit(e, r)}
+                  onCancel={cancelEdit}
                   colSpan={10}
                   admins={admins}
                 />;
@@ -692,7 +835,12 @@ export default function CustomerTable({
                   <FootprintCell r={r} />
                 </td>
                 <td style={tdStyle}>
-                  <Link href={`/admin/customers?edit=${r.id}`} scroll={false} style={linkButtonStyle}>
+                  <Link
+                    href={`/admin/customers?edit=${r.id}`}
+                    scroll={false}
+                    onClick={(e) => startEdit(e, r.id)}
+                    style={linkButtonStyle}
+                  >
                     编辑
                   </Link>
                 </td>
