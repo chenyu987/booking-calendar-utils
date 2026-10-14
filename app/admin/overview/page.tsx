@@ -22,6 +22,7 @@ import AssigningBar from "./AssigningBar";
 import DragAssign from "./DragAssign";
 import OptimisticAssign from "./OptimisticAssign";
 import AssignEditor, { type EditorData } from "./AssignEditor";
+import OrderBlock from "./OrderBlock";
 import ResourcePanel from "./ResourcePanel";
 import { nameCandidates, type PanelOrder } from "@/lib/assignPanel";
 import InstantAssign, { type InstantEditors } from "./InstantAssign";
@@ -1432,197 +1433,56 @@ export default async function OverviewPage({
                     }
 
                     if (!isAssigning) {
+                      // 普通态色块长什么样只在 OrderBlock 里（客户端组件），这儿只给数据
                       return (
-                        <Link
+                        <OrderBlock
                           key={segKey}
-                          data-order-id={o.id}
-                          data-order-start={orderStartDay(o) ?? ""}
-                          // 点下去那一刻，客户端要立刻拿它拼出分配浮动条的标题 ——
-                          // 从色块的文字里猜太脆，直接把服务端用的那份原样带上
-                          // 抢画那条假条要照着它决定放不放备注框 —— 真条只在
-                          // 「这单还没备注」时才有那个框，不跟着的话接管那一刻整条会横着跳
-                          data-order-has-note={note ? "1" : undefined}
-                          // 放编辑控件的那一段：点下去当场画分配态时，藏的是这一段（InstantAssign）
-                          data-edit-seg={showEdit ? "1" : undefined}
-                          data-order-label={[displayName(o.customers), o.location]
-                            .filter(Boolean)
-                            .join(" · ")}
-                          href={qs({ assign: o.id })}
-                          style={{
-                            ...blockStyle,
-                            textDecoration: "none",
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 2,
+                          d={{
+                            orderId: o.id,
+                            orderStart: orderStartDay(o) ?? "",
+                            href: qs({ assign: o.id }),
+                            style: {
+                              gridRow: blockStyle.gridRow,
+                              gridColumn: blockStyle.gridColumn,
+                              background: blockStyle.background,
+                              border: blockStyle.border,
+                              boxShadow: blockStyle.boxShadow,
+                              color: blockStyle.color,
+                            },
+                            title: blockTitle,
+                            // 点下去那一刻，客户端要立刻拿它拼出分配浮动条的标题 ——
+                            // 从色块的文字里猜太脆，直接把服务端用的那份原样带上
+                            label: [displayName(o.customers), o.location].filter(Boolean).join(" · "),
+                            showDetail,
+                            editSeg: showEdit,
+                            customerName: displayName(o.customers),
+                            location: o.location ?? null,
+                            locationHint,
+                            badLocation,
+                            note,
+                            amount: o.amount ?? null,
+                            need: {
+                              maleNeeded: need.maleNeeded,
+                              femaleNeeded: need.femaleNeeded,
+                              maleFilled: need.maleFilled,
+                              femaleFilled: need.femaleFilled,
+                              isComplete: need.isComplete,
+                            },
+                            // 只有放摘要的那一段才画资源，别的段不带这份数据
+                            cards: showDetail
+                              ? cards.map((s: any) => {
+                                  const clash = clashIndex.get(clashKey(o.id, s.id));
+                                  return {
+                                    id: s.id,
+                                    label: holderLabels.get(s.holder_name ?? "") ?? s.holder_name,
+                                    clashTitle: clash
+                                      ? `⚠ ${s.holder_name} 在 ${clash[0].days.join("、")} 同时配给了「${orderNameById.get(clash[0].otherOrderId) ?? "另一单"}」`
+                                      : "",
+                                  };
+                                })
+                              : [],
                           }}
-                          title={blockTitle}
-                        >
-                          {showDetail && (
-                            <>
-                              {/* 第 1 行左边「姓名 · 地点」，右上角放备注（有才显示）：
-                                  金额挪到第 3 行右下角了。格子窄的时候（一天的单子只有
-                                  一列宽）两边都截断，备注最多占一半，剩下的留给名字。 */}
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "baseline",
-                                  gap: 4,
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    whiteSpace: "nowrap",
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    fontWeight: 500,
-                                    minWidth: 0,
-                                  }}
-                                >
-                                  {displayName(o.customers)}
-                                  {o.location ? (
-                                    <span
-                                      title={locationHint || undefined}
-                                      style={
-                                        badLocation
-                                          ? {
-                                              fontWeight: 500,
-                                              color: "var(--danger)",
-                                              textDecoration: "underline wavy var(--danger)",
-                                              textUnderlineOffset: 2,
-                                            }
-                                          : { fontWeight: 400, opacity: 0.7 }
-                                      }
-                                    >
-                                      {` · ${o.location}`}
-                                    </span>
-                                  ) : null}
-                                </span>
-                                {/* 弹簧：把右边那一组顶到右边。**两个状态都放这一个**，
-                                    位置就只由「右边那组各自多宽」决定 —— 分配态中间多出来
-                                    一个状态框时，弹簧自己缩掉，备注和金额一像素都不挪 */}
-                                <span style={{ flex: "1 1 0", minWidth: 0 }} />
-                                {note ? (
-                                  <span
-                                    style={{
-                                      maxWidth: "50%",
-                                      whiteSpace: "nowrap",
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                      fontSize: 11,
-                                      fontWeight: 400,
-                                      opacity: 0.75,
-                                    }}
-                                  >
-                                    {note}
-                                  </span>
-                                ) : null}
-                                {/* 金额挪到右上角。$ 用跟分配态同一个 class：
-                                    色块窄到一定程度时两边一起藏，不然进出编辑一个有一个没有 */}
-                                <span style={MONEY_SLOT}>
-                                  <span className="assign-money-sign">$</span>
-                                  {o.amount ?? "?"}
-                                </span>
-                              </div>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "baseline",
-                                  gap: 4,
-                                  fontSize: 11,
-                                  overflow: "hidden",
-                                }}
-                              >
-                                <span
-                                  data-need="1"
-                                  style={{
-                                    fontWeight: 500,
-                                    color: need.isComplete ? "var(--ok)" : "var(--warn)",
-                                    whiteSpace: "nowrap",
-                                    // **不许被压。**「要几个资源、配了几张」是这一格里
-                                    // 最该先看见的东西。挤不下时该让的是右边的物主名字，
-                                    // 不是把「女1/1」截成「女…」——那等于把最关键的信息砍了。
-                                    // 分配态那边本来就是 flexShrink:0，这边跟上
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  {/* 不用 formatNeed 拼字符串：分母要单独套进 COUNT_BOX，
-                                      跟分配态那个输入框占一样宽，进出编辑这行才不动 */}
-                                  {need.maleNeeded === 0 && need.femaleNeeded === 0 ? (
-                                    "-"
-                                  ) : (
-                                    <>
-                                      {need.maleNeeded > 0 && (
-                                        <>
-                                          男{need.maleFilled}/
-                                          <span style={COUNT_BOX}>{need.maleNeeded}</span>
-                                        </>
-                                      )}
-                                      {need.femaleNeeded > 0 && (
-                                        <span
-                                          style={{
-                                            // 跟分配态那个 flex gap 同一个数
-                                            marginLeft: need.maleNeeded > 0 ? COUNT_GAP : 0,
-                                          }}
-                                        >
-                                          女{need.femaleFilled}/
-                                          <span style={COUNT_BOX}>{need.femaleNeeded}</span>
-                                        </span>
-                                      )}
-                                    </>
-                                  )}
-                                </span>
-                              <div
-                                style={{
-                                  // 靠右：跟分配态那一份同一个锚。左边留给「男x/x 女x/x」
-                                  marginLeft: "auto",
-                                  minWidth: 0,
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  fontSize: 11,
-                                  opacity: 0.85,
-                                }}
-                              >
-                                {cards.length > 0
-                                  ? cards.map((s: any, i: number) => {
-                                      const clash = clashIndex.get(clashKey(o.id, s.id));
-                                      return (
-                                        <span
-                                          key={s.id}
-                                          // 给几何测试当锚点：原来量的是「♀」那个字符，
-                                          // 符号去掉之后得有别的东西钉住「卡片这一段挪没挪」
-                                          data-card="1"
-                                          // 冲突的资源标红：这个资源同一天还配在别的单上，
-                                          // 核验那儿只有一个人能过，必须有人去改
-                                          style={
-                                            clash
-                                              ? {
-                                                  color: "var(--danger)",
-                                                  fontWeight: 600,
-                                                  textDecoration:
-                                                    "underline wavy var(--danger)",
-                                                  textUnderlineOffset: 2,
-                                                }
-                                              : undefined
-                                          }
-                                          title={
-                                            clash
-                                              ? `⚠ ${s.holder_name} 在 ${clash[0].days.join("、")} 同时配给了「${orderNameById.get(clash[0].otherOrderId) ?? "另一单"}」`
-                                              : undefined
-                                          }
-                                        >
-                                          {i > 0 ? " " : ""}
-                                          {holderLabels.get(s.holder_name ?? "") ??
-                                            s.holder_name}
-                                        </span>
-                                      );
-                                    })
-                                  : "未分配"}
-                              </div>
-                              </div>
-                            </>
-                          )}
-                        </Link>
+                        />
                       );
                     }
 
