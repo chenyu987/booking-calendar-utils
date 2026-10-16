@@ -122,7 +122,7 @@ function ResourceEditForm({
 
         <label style={labelStyle}>
           类型
-          <select name="item_type" defaultValue={s.item_type ?? "beta"} style={inputStyle}>
+          <select name="item_type" defaultValue={s.item_type ?? "alpha"} style={inputStyle}>
             <option value="beta">Beta</option>
             <option value="alpha">Alpha</option>
           </select>

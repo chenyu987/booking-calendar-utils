@@ -90,7 +90,7 @@ export default async function ProviderListingPage({
         action={submitListing}
         style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 16 }}
       >
-        <select name="item_type" required style={inputStyle} defaultValue="beta">
+        <select name="item_type" required style={inputStyle} defaultValue="alpha">
           <option value="beta">Beta</option>
           <option value="alpha">Alpha</option>
         </select>

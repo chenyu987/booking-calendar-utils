@@ -245,7 +245,7 @@ export default async function ResourcesAdminPage({
             </option>
           ))}
         </select>
-        <select name="item_type" style={selectStyle} defaultValue="beta">
+        <select name="item_type" style={selectStyle} defaultValue="alpha">
           <option value="beta">beta</option>
           <option value="alpha">alpha</option>
         </select>
@@ -415,7 +415,7 @@ export default async function ResourcesAdminPage({
             <div style={{ ...cellStyle, width: 70 }}>
               <select
                 name="item_type"
-                defaultValue={s.item_type ?? "beta"}
+                defaultValue={s.item_type ?? "alpha"}
                 style={{ ...selectStyle, width: "100%" }}
               >
                 <option value="beta">beta</option>
