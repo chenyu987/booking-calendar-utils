@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { LOCATION_OPTIONS } from "@/lib/locations";
+import { LOCATION_OPTIONS, type ItemType } from "@/lib/locations";
 
 /**
  * 填地点名的输入框，**打字之后才给建议**。
@@ -21,20 +21,24 @@ import { LOCATION_OPTIONS } from "@/lib/locations";
  *
  * 受控（value + onChange）和非受控（defaultValue）两种都支持 ——
  * 建单弹窗是受控的，其它几处是表单里的非受控输入。
+ *
+ * `item` 给了就只提示那一边的地点（排期总览的「Alpha / Beta」开关）。只管提示，
+ * 打了另一边的地点名照样能打进去 —— 拦不拦是调用方的事。
  */
 export default function LocationInput({
   value,
   defaultValue,
   onChange,
   className,
+  item,
   ...rest
-}: React.InputHTMLAttributes<HTMLInputElement>) {
+}: React.InputHTMLAttributes<HTMLInputElement> & { item?: ItemType | "" }) {
   const listId = `location-${useId()}`;
   const [inner, setInner] = useState(String(defaultValue ?? ""));
   const current = value !== undefined ? String(value) : inner;
 
   const typed = current.trim().toLowerCase();
-  const options = typed ? pickOptions(typed) : [];
+  const options = typed ? pickOptions(typed, item || null) : [];
 
   return (
     <>
@@ -71,12 +75,13 @@ function words(hint: string): string[] {
     .filter(Boolean);
 }
 
-function pickOptions(typed: string) {
+function pickOptions(typed: string, item: ItemType | null) {
+  const pool = item ? LOCATION_OPTIONS.filter((m) => m.item === item) : LOCATION_OPTIONS;
   // 库里的写法从头对上的排最前 —— 那是我们自己天天打的那个词
-  const byValue = LOCATION_OPTIONS.filter((m) => m.value.startsWith(typed));
+  const byValue = pool.filter((m) => m.value.startsWith(typed));
   const seen = new Set(byValue.map((m) => m.value));
   // 其次是全称/区域里某个词从头对上的
-  const byHint = LOCATION_OPTIONS.filter(
+  const byHint = pool.filter(
     (m) => !seen.has(m.value) && words(m.hint).some((w) => w.startsWith(typed))
   );
   return [...byValue, ...byHint].slice(0, 8);

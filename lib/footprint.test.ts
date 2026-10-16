@@ -129,12 +129,12 @@ describe("orderSegments", () => {
     const segs = orderSegments({
       customer_id: "r1",
       demand_days: ["2026-01-24", "2026-01-25", "2026-01-27"],
-      location: "thredbo",
+      location: "locdm",
       status: "complete",
     });
     expect(segs.map((s) => s.label)).toEqual([
-      "1/24~1/25 thredbo",
-      "1/27 thredbo",
+      "1/24~1/25 locdm",
+      "1/27 locdm",
     ]);
   });
 
@@ -198,7 +198,7 @@ describe("buildFootprints", () => {
     {
       customer_id: "r2",
       demand_days: ["2026-01-05"],
-      location: "buller",
+      location: "locdn",
       status: "cancelled",
     },
   ];

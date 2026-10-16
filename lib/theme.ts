@@ -103,6 +103,9 @@ const TOKENS: Record<string, [string, string]> = {
   "admin-2": ["#6fb0a6", "#4e8f86"],
   "admin-3": ["#c4a07a", "#9a7b5a"],
   "admin-4": ["#8d97a8", "#7a8496"],
+  /** Beta 地点的单子的边框（不分管理员，压过上面那几个），见 lib/orderFrame.ts 的 frameColor。
+   *  比管理员那几个饱和：满屏 Alpha 单里要一眼挑出 Beta 的。青色避开了蓝（选中）和 admin-2 的灰绿 */
+  "beta": ["#14a7c0", "#33b9cf"],
   "notice-bg": ["#fdf3e3", "#2e2617"],
   "notice-border": ["#e9c893", "#5a482a"],
   "danger-soft-bg": ["#fff4e5", "#332a1a"],

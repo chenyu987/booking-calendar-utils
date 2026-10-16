@@ -9,6 +9,7 @@ import { parseCount } from "@/lib/party";
 import LocationInput from "@/components/LocationInput";
 import { normalizeLocation, sameVenue } from "@/lib/locations";
 import { useAssignSelection } from "./assignSelection";
+import { itemModeLocationBlock, type ItemMode } from "@/lib/itemMode";
 
 const GAP = 2;
 const POPUP_WIDTH = 260;
@@ -26,6 +27,7 @@ export default function NewOrderSelector({
   createOrderAction,
   adminName,
   adminId,
+  itemMode,
 }: {
   timeline: string[];
   colWidth: number;
@@ -37,6 +39,8 @@ export default function NewOrderSelector({
   adminName: string | null;
   /** 当前身份的 id。新单记到他名下（orders.admin_id），建完要看它跟管理员筛选对不对得上 */
   adminId: string | null;
+  /** 标题旁边「全部 / Alpha / Beta」开关（lib/itemMode.ts）：地点名只提示这一边的，填了另一边的不让建 */
+  itemMode: ItemMode;
 }) {
   // 正在分配的是哪一单：分配态全在浏览器里（InstantAssign），看 assignSelection；
   // 还没接管之前听服务端给的
@@ -330,7 +334,7 @@ export default function NewOrderSelector({
       ? "结束日期比开始日期早"
       : !name.trim()
         ? "填一下客人的昵称"
-        : "";
+        : (itemModeLocationBlock(location, itemMode) ?? "");
   const formInvalid = submitting || blockedBy !== "";
 
   const lo = selection ? Math.min(selection.start, selection.end) : 0;
@@ -544,6 +548,7 @@ export default function NewOrderSelector({
           <div style={{ display: "flex", gap: 10 }}>
                   <LocationInput
               placeholder="去哪个地点（选填）"
+              item={itemMode}
               value={location}
               onChange={(e) => setLocation(e.target.value)}
               style={{ flex: 1, minWidth: 0, fontSize: 13, padding: "6px 8px", color: "var(--text)" }}

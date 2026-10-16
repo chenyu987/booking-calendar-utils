@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { adminColor, effectiveAdminId, orderFrame } from "./orderFrame";
+import { BETA_FRAME_COLOR, adminColor, effectiveAdminId, frameColor, orderFrame } from "./orderFrame";
 
 const ADMINS = [
   { id: "admin1", name: "Admin1" },
@@ -92,5 +92,20 @@ describe("色块的边框和光圈", () => {
       orderFrame({ statusBorder: STATUS, adminColor: "var(--admin-1)", assigning: false, previousUse: true })
         .boxShadow
     ).toBe("0 0 0 2px var(--prev-use)");
+  });
+});
+
+describe("Beta 的单一个颜色", () => {
+  it("Beta 地点的单不管是谁的都是 Beta 色，压过管理员的颜色", () => {
+    expect(frameColor("locbp", "admin1", ADMINS, "admin2")).toBe(BETA_FRAME_COLOR);
+    expect(frameColor("Loccw", "admin2", ADMINS, "admin2")).toBe(BETA_FRAME_COLOR);
+    expect(frameColor("locdm", null, ADMINS, null)).toBe(BETA_FRAME_COLOR);
+  });
+
+  it("Alpha 的地点、认不出来的地点照旧按管理员", () => {
+    expect(frameColor("locaa", "admin1", ADMINS, "admin2")).toBe("var(--admin-1)");
+    expect(frameColor("locaa", "admin2", ADMINS, "admin2")).toBeNull();
+    expect(frameColor("111", "admin1", ADMINS, "admin2")).toBe("var(--admin-1)");
+    expect(frameColor("brighton", "admin2", ADMINS, "admin2")).toBeNull();
   });
 });

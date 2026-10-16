@@ -1,4 +1,5 @@
 import type { Admin } from "@/lib/admins";
+import { requiredItem } from "@/lib/locations";
 
 // 排期总览一个色块的**边框和光圈**：唯一出处。
 //
@@ -8,6 +9,8 @@ import type { Admin } from "@/lib/admins";
 //
 // 这一格同时要表达三件事，各走各的通道，互不覆盖：
 //   - 订单状态 → 底色 + 同色系的细边（statusBorder）
+//   - Beta 的单 → 边框一律 --beta（2026-10-16 定的：是谁建的不重要，Beta 的单都一个颜色），
+//     压过管理员的颜色。走的是同一个通道（frameColor），所以选中时照样加重
 //   - 是哪个管理员的 → **只有非主要管理员才上色**：只把 1px 边框换成他的颜色（柔和色）。
 //     主要管理员（大多数单子都是他的）保持原样 —— 满屏只有少数单子带颜色，
 //     一眼就分得出哪些不是他的。原来还往里叠一层同色细线、看着像 2px，太扎眼（2026-10-08 去掉）
@@ -36,6 +39,24 @@ export function adminColor(adminId: string | null, admins: Admin[], primaryId: s
   const i = others.findIndex((a) => a.id === adminId);
   if (i === -1) return null;
   return `var(--admin-${(i % ADMIN_COLOR_COUNT) + 1})`;
+}
+
+/** Beta 单子的边框色。token 在 lib/theme.ts */
+export const BETA_FRAME_COLOR = "var(--beta)";
+
+/**
+ * 色块边框换成什么颜色：Beta 地点的单 → BETA_FRAME_COLOR，不看是谁的；
+ * 其余照旧按管理员（adminColor）。都不用换 → null。
+ * 地点认不出来的（requiredItem 是 null）不算 Beta，走管理员那条
+ */
+export function frameColor(
+  location: string | null | undefined,
+  adminId: string | null,
+  admins: Admin[],
+  primaryId: string | null
+): string | null {
+  if (requiredItem(location) === "beta") return BETA_FRAME_COLOR;
+  return adminColor(adminId, admins, primaryId);
 }
 
 export function orderFrame({

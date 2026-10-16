@@ -13,6 +13,13 @@ import {
 } from "@/lib/admins";
 import { addContact, loadAdmins } from "@/lib/personContacts";
 import AdminSwitcher from "./AdminSwitcher";
+import ItemModeSwitcher from "./ItemModeSwitcher";
+import {
+  ITEM_MODE_COOKIE,
+  orderInItemMode,
+  parseItemMode,
+  resourceInItemMode,
+} from "@/lib/itemMode";
 import ZoomableCalendar from "./ZoomableCalendar";
 import ResizableOrderBlock from "./ResizableOrderBlock";
 import OptimisticEditForm from "./OptimisticEditForm";
@@ -69,7 +76,7 @@ import {
 import type { ResourceUse } from "@/lib/previousUse";
 import { findClashes, indexClashes, clashKey } from "@/lib/doubleBooking";
 import { getOverviewStart, getOverviewEnd, getOverviewBandDays, getPrimaryAdminId } from "@/lib/appSettings";
-import { adminColor, effectiveAdminId, orderFrame } from "@/lib/orderFrame";
+import { BETA_FRAME_COLOR, adminColor, effectiveAdminId, frameColor, orderFrame } from "@/lib/orderFrame";
 import DayNote from "./DayNote";
 import { readNoteText } from "@/lib/orderNote";
 import {
@@ -291,7 +298,7 @@ async function deleteOrder(formData: FormData) {
 // 顶上那三个订单筛选（区域 / 地点 / 状态）共用一套尺寸 —— 宽度写死，
 // 不让下拉框跟着最长选项撑开。同一个宽度只许有这一份（CLAUDE.md：
 // 「第二份数字和第二份样式是同一个 bug」）。
-// 110px 是量出来的：最长的那条默认值「RegionE」在 12px 下约 70px，
+// 110px 是量出来的：最长的那条默认值「RegionH」在 12px 下约 70px，
 // 加箭头和内边距还剩十几 px 余量 —— 留够余量，不是「刚好够」。
 const FILTER_SELECT_WIDTH = 110;
 const filterSelectStyle: React.CSSProperties = {
@@ -385,6 +392,8 @@ export default async function OverviewPage({
   // 主要管理员：没写是谁的单子算他的，他的单不上色（lib/orderFrame.ts）
   const primaryAdminId = resolvePrimaryAdmin(primaryAdminRaw, admins);
   const currentAdmin = resolveAdmin(cookies().get(ADMIN_COOKIE)?.value, admins);
+  // 标题旁边「全部 / Alpha / Beta」开关：单子、资源清单、建单的地点名提示一起跟着它（lib/itemMode.ts）
+  const itemMode = parseItemMode(cookies().get(ITEM_MODE_COOKIE)?.value);
 
   const noteByDay = new Map<string, string>(
     (dayNotes ?? []).map((n: any) => [n.day, n.note])
@@ -507,7 +516,10 @@ export default async function OverviewPage({
     (allResources ?? []).map((s: any) => s.holder_name ?? "")
   );
 
-  const resources = (allResources ?? []).filter((s: any) => {
+  // 开关切到 Alpha / Beta 时，资源清单和分配候选只剩这一边的资源。
+  // 上面的 holderLabels 照旧用全部的资源算（撞名跟开关无关），色块上「配了谁」走 resourceById 也不受影响
+  const modeResources = (allResources ?? []).filter((s: any) => resourceInItemMode(s.item_type, itemMode));
+  const resources = modeResources.filter((s: any) => {
     if (f.item && s.item_type !== f.item) return false;
     if (f.gender && s.holder_gender !== f.gender) return false;
     if (f.sstatus !== "all" && s.status !== f.sstatus) return false;
@@ -529,7 +541,7 @@ export default async function OverviewPage({
   const hasFilter = Boolean(
     f.item || f.gender || f.q || f.sregion || f.smtn || f.sstatus !== "active"
   );
-  const resourceTotal = (allResources ?? []).length;
+  const resourceTotal = modeResources.length;
 
   // 按区域 / 具体的地点筛订单。
   //
@@ -555,6 +567,8 @@ export default async function OverviewPage({
     orderFilter.region || orderFilter.mtn || orderFilter.status || orderFilter.admin
   );
   const matchesOrderFilter = (o: any) => {
+    // 「全部 / Alpha / Beta」开关：日历和统计一起跟着它，跟状态、管理员筛选一样
+    if (!orderInItemMode(o.location, itemMode)) return false;
     if (orderFilter.status && o.status !== orderFilter.status) return false;
     // 比的是算出来的归属：没写是谁的算主要管理员的
     if (!matchesOrderAdmin(effectiveAdminId(o.admin_id, primaryAdminId), orderFilter.admin)) return false;
@@ -936,7 +950,7 @@ export default async function OverviewPage({
             initialCollapsed={cookies().get("resource_panel_collapsed")?.value === "1"}
             // 筛选默认收起：平时都是直接看资源列表，筛选是偶尔为之
             filtersCollapsed={cookies().get("resource_filters_collapsed")?.value !== "0"}
-            allResources={allResources ?? []}
+            allResources={modeResources}
             resourceIds={resources.map((s: any) => s.id)}
             filters={f}
             hasFilter={hasFilter}
@@ -967,6 +981,9 @@ export default async function OverviewPage({
         {/* 按区域 / 具体的地点筛订单。用 GET 表单不用 useState —— 跟这个项目里
             其它筛选一个路子，筛选状态留在 URL 上，刷新和分享链接都还在。
             选完自动提交（onChange 交给 FilterAutoSubmit，跟资源筛选共用）。 */}
+        {/* 外面再包一层同样 gap 的 flex：类型开关在表单外面（见下），不包的话它跟前面那排下拉
+            之间隔的是外层的大间距，看着像另一组 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <FilterForm action="/admin/overview" style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {/* 看哪一季。放最前面：它决定读哪批数据，后面几个筛选都是在这一季里面再筛。
               今天这季的选项值是空的 —— 默认那档不写进 URL（FilterForm 会剔掉空值） */}
@@ -1028,7 +1045,9 @@ export default async function OverviewPage({
           >
             <option value="">全部地点</option>
             {LOCATION_OPTIONS.filter(
-              (m) => !orderFilter.region || m.region === orderFilter.region
+              (m) =>
+                (!orderFilter.region || m.region === orderFilter.region) &&
+                (!itemMode || m.item === itemMode)
             ).map((m) => (
               <option key={m.value} value={m.value} title={m.hint}>
                 {m.label}
@@ -1077,6 +1096,9 @@ export default async function OverviewPage({
             </Link>
           )}
         </FilterForm>
+        {/* 「全部 / Alpha / Beta」开关。存 cookie 不走 URL，所以放在表单外面（见 ItemModeSwitcher） */}
+        <ItemModeSwitcher mode={itemMode} style={filterSelectStyle} />
+        </div>
         {/* 有单子被挡在起点前面就说一声，并给一条改设置的路。
             悄悄少几个单子，比日历难看多了 */}
         {/* 设置是侧边栏里的弹框，不是页面（/admin/settings 只剩一条数据接口，
@@ -1140,6 +1162,20 @@ export default async function OverviewPage({
                 </span>
               );
             })}
+          {/* Beta 的单不分管理员一个颜色（lib/orderFrame.ts 的 frameColor） */}
+          <span
+            data-beta-legend
+            style={{
+              fontSize: 12,
+              padding: "3px 8px",
+              borderRadius: 4,
+              border: `1px solid ${BETA_FRAME_COLOR}`,
+              boxShadow: `inset 0 0 0 1px ${BETA_FRAME_COLOR}`,
+              color: "var(--text-muted)",
+            }}
+          >
+            Beta 的单
+          </span>
           {primaryAdminId && (
             <span style={{ fontSize: 11, color: "var(--text-faint)", alignSelf: "center", whiteSpace: "nowrap" }}>
               其余是 {admins.find((a) => a.id === primaryAdminId)?.name} 的
@@ -1195,6 +1231,7 @@ export default async function OverviewPage({
                   createOrderAction={createQuickOrder}
                   adminName={currentAdmin?.name ?? null}
                   adminId={currentAdmin?.id ?? null}
+                  itemMode={itemMode}
                 />
                 {/* peak date 的整列底色。单独铺一层是因为日期条只有表头那一格，
                     往下滚就看不出这一列是不是 peak 了。gridRow 1/-1 铺满整段，
@@ -1313,9 +1350,10 @@ export default async function OverviewPage({
                     const showDetail = seg[0] === firstDayInBand;
                     const showEdit = seg[0] === firstDayOverall;
                     const c = statusColor(o.status);
-                    // 边框和光圈：状态 / 是哪个管理员的 / 选中 / 上一单，四件事一处算（lib/orderFrame.ts）。
+                    // 边框和光圈：状态 / Beta 单或是哪个管理员的 / 选中 / 上一单，一处算（lib/orderFrame.ts）。
                     // 分配态那份（ResizableOrderBlock）也从这里取，不另写
-                    const providerColor = adminColor(
+                    const providerColor = frameColor(
+                      o.location,
                       effectiveAdminId(o.admin_id, primaryAdminId),
                       admins,
                       primaryAdminId
