@@ -566,15 +566,20 @@ test.describe("建单弹窗的人数框", () => {
     expect(lists.filter(Boolean), "人数框还挂着 datalist，Chrome 会给它画一个 ▾").toEqual([]);
   });
 
-  test("「创建」是灰的时候，要说出为什么", async ({ page }) => {
+  test("只差昵称时不多写一行提示，点「创建」由 required 拦住", async ({ page }) => {
     await openPopup(page);
     const create = page.getByRole("button", { name: "创建" });
-    await expect(create).toBeDisabled();
-    // 不说理由的灰按钮，会让人把上一个动作（刚在人数框里打的字）当成原因
-    await expect(page.getByText("填一下客人的昵称")).toBeVisible();
+    // 只差昵称的时候不灰、也不写一行「填一下客人的昵称」：框就在正上方空着
+    await expect(create).toBeEnabled();
+    await expect(page.getByText("填一下客人的昵称")).toHaveCount(0);
+    // 点了也建不出来：required 拦着，弹框还开着
+    await create.click();
+    await expect(page.locator('[data-new-order-popup="true"]')).toBeVisible();
+    expect(
+      await page.getByPlaceholder("客人昵称").evaluate((el) => (el as HTMLInputElement).validity.valueMissing)
+    ).toBe(true);
 
     await page.getByPlaceholder("客人昵称").fill("测试客户");
-    await expect(page.getByText("填一下客人的昵称")).toHaveCount(0);
     await expect(create).toBeEnabled();
     // 能建的时候那个位置说「记到谁名下」—— 切错了身份，点「创建」之前还看得见
     await expect(page.getByText("客人记到 Admin1 名下")).toBeVisible();
