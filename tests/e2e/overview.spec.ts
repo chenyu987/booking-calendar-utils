@@ -668,9 +668,8 @@ test.describe("按管理员筛 / 管理员的边框颜色", () => {
     expect(plain.border).not.toBe(toRgb(admin1Color));
     expect(plain.shadow).not.toContain("inset");
 
-    // 图例只列 Admin1，再说一句其余是谁的
+    // 图例只列 Admin1
     await expect(page.locator("[data-admin-legend]")).toHaveText(["Admin1 的单"]);
-    await expect(page.getByText("其余是 admin2 的")).toBeVisible();
 
     // 选中 Admin1 的单：颜色还在，而且加重了（往里叠一层）
     await gotoOverview(page, `?assign=${MAIN}`);

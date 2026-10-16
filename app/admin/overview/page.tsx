@@ -1139,8 +1139,7 @@ export default async function OverviewPage({
               </span>
             );
           })}
-          {/* 管理员的边框颜色图例：只列**非主要管理员**（只有他们的单上色），
-              再说一句「其余是谁的」—— 不然满屏没颜色的单子，看不出那代表主要管理员 */}
+          {/* 管理员的边框颜色图例：只列**非主要管理员**（只有他们的单上色） */}
           {admins
             .filter((a) => a.id !== primaryAdminId)
             .map((a) => {
@@ -1175,25 +1174,6 @@ export default async function OverviewPage({
             }}
           >
             Beta 的单
-          </span>
-          {primaryAdminId && (
-            <span style={{ fontSize: 11, color: "var(--text-faint)", alignSelf: "center", whiteSpace: "nowrap" }}>
-              其余是 {admins.find((a) => a.id === primaryAdminId)?.name} 的
-            </span>
-          )}
-          {/* 「按住 ⌘ 点多个单子可以一起改状态」这件事原来没有任何提示 ——
-              手势藏着，用的人自然以为功能没了。挨着状态图例放，因为这一排
-              讲的正是状态 */}
-          <span
-            style={{
-              fontSize: 11,
-              color: "var(--text-faint)",
-              alignSelf: "center",
-              whiteSpace: "nowrap",
-            }}
-            title="按住 ⌘（Windows 上是 Ctrl）点几个单子，或者按住 Shift 点头尾连选，顶上会出来「状态改为」那一条"
-          >
-            ⌘/Shift + 点 = 多选改状态
           </span>
         </div>
           </>
