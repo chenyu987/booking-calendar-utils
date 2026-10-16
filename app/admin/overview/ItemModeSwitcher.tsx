@@ -3,15 +3,15 @@
 import { useRouter } from "next/navigation";
 import { ITEM_MODE_COOKIE, type ItemMode } from "@/lib/itemMode";
 
-// 筛选那一排最后「全部类型 / 只看 Alpha / 只看 Beta」那个开关（规则在 lib/itemMode.ts）。
+// 筛选那一排最后「全部类型 / Alpha / Beta」那个开关（规则在 lib/itemMode.ts）。
 //
 // 长得跟旁边几个筛选一样，但**不在那个 FilterForm 里**：那几个走 URL，这个存 cookie、
 // 每台电脑各记各的（跟「当前身份」一个做法）—— 放进表单的话改它会顺手把表单提交一次。
 // 切完 router.refresh()：哪些单子、哪些资源要画出来是服务端按 cookie 筛的，换的是盘子本身
 const OPTIONS: { value: ItemMode; label: string }[] = [
   { value: "", label: "全部类型" },
-  { value: "alpha", label: "只看 Alpha" },
-  { value: "beta", label: "只看 Beta" },
+  { value: "alpha", label: "Alpha" },
+  { value: "beta", label: "Beta" },
 ];
 
 export default function ItemModeSwitcher({
