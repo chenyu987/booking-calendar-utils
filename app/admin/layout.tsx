@@ -21,18 +21,20 @@ const navItems = [
   { href: "/admin/history", label: "改动记录" },
 ];
 
-export default function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function AdminLayout(
+  {
+    children,
+  }: {
+    children: React.ReactNode;
+  }
+) {
   // 侧边栏宽度存 cookie，服务端读出来当初始值，所以跳页面不会丢、首屏不会闪。
-  // Next 14.2 的 cookies() 是同步的（15 开始变 Promise，又一个不能升级的理由）。
-  const initialWidth = parseNavWidth(cookies().get("admin_nav_width")?.value);
-  const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
+  const jar = await cookies();
+  const initialWidth = parseNavWidth(jar.get("admin_nav_width")?.value);
+  const theme = parseTheme(jar.get(THEME_COOKIE)?.value);
   // 「对外页面」那道帘子的宽度。跟排期总览共用同一个 cookie —— 对人来说那就是
   // 同一道帘子，在总览拖宽了、切到 Order 页还该是那么宽
-  const railWidth = clampRailWidth(Number(cookies().get("overview_rail_width")?.value));
+  const railWidth = clampRailWidth(Number(jar.get("overview_rail_width")?.value));
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>

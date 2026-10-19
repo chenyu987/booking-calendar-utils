@@ -6,14 +6,16 @@ export const metadata = {
   description: "订单管理 MVP",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function RootLayout(
+  {
+    children,
+  }: {
+    children: React.ReactNode;
+  }
+) {
   // 服务端就把选好的主题写进 <html>：放到客户端再挂的话，首屏会先按亮色画一遍
   // 再刷成暗色，闪一下。没选过就不写这个属性，交给 prefers-color-scheme
-  const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
+  const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
 
   return (
     <html

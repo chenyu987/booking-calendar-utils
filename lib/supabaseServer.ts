@@ -7,6 +7,8 @@ import { paginatingFetch } from "./fetchAllRows";
 // 但「当前访问者是谁」存在 cookie 里，服务端必须**按请求**读 cookie 才知道，
 // 单例做不到 —— 所以客户这边每个请求现造一个。
 export function createSupabaseServerClient() {
+  // Next 15 起 cookies() 是 Promise。在 getAll / setAll 里面 await，
+  // 这个函数本身就还是同步的，调用它的十来处不用改
   const cookieStore = cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL as string,
@@ -15,11 +17,12 @@ export function createSupabaseServerClient() {
       // 物主页也要查整季的单和分配，一样会碰到 1000 行上限（lib/fetchAllRows.ts）
       global: { fetch: paginatingFetch((input, init) => fetch(input, { ...init, cache: "no-store" })) },
       cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: (toSet) => {
+        getAll: async () => (await cookieStore).getAll(),
+        setAll: async (toSet) => {
+          const store = await cookieStore;
           try {
             for (const { name, value, options } of toSet) {
-              cookieStore.set(name, value, options);
+              store.set(name, value, options);
             }
           } catch {
             // Server Component 里不允许写 cookie（只有 Route Handler 和 Server Action 能）。

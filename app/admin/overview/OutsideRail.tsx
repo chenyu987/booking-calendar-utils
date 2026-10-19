@@ -35,7 +35,7 @@ export default function OutsideRail({
   /** 这一栏拖到多宽（0 = 完全收起）。服务端读 cookie 当初始值，首屏不会闪 */
   initialWidth: number;
   /** 外面拿去量「工具栏能占到哪儿」 */
-  containerRef?: React.RefObject<HTMLDivElement>;
+  containerRef?: React.RefObject<HTMLDivElement | null>;
   /** 拖动中：只改画出来的宽度，不打服务端 */
   onPreview: (days: number) => void;
   /** 松手：写 cookie + 让服务端按新天数重新切段 */

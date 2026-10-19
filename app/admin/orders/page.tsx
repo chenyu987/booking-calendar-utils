@@ -119,23 +119,24 @@ async function deleteOrder(formData: FormData) {
   revalidatePath("/");
 }
 
-export default async function OrdersAdminPage({
-  searchParams,
-}: {
-  // 逐列筛选全走 URL 参数，跟 ?edit= 一个路子：能收藏、能分享、刷新不丢
-  searchParams: {
-    edit?: string;
-    customer?: string;
-    location?: string;
-    party?: string;
-    from?: string;
-    to?: string;
-    min?: string;
-    max?: string;
-    assign?: string;
-    status?: string;
-  };
-}) {
+export default async function OrdersAdminPage(
+  props: {
+    // 逐列筛选全走 URL 参数，跟 ?edit= 一个路子：能收藏、能分享、刷新不丢
+    searchParams: Promise<{
+      edit?: string;
+      customer?: string;
+      location?: string;
+      party?: string;
+      from?: string;
+      to?: string;
+      min?: string;
+      max?: string;
+      assign?: string;
+      status?: string;
+    }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const [
     { data: orders, error },
     { data: customers },

@@ -53,13 +53,13 @@ const noStoreFetch: typeof fetch =(input, init) => fetch(input, { ...init, cache
  */
 const withActorHeaders =
   (f: typeof fetch): typeof fetch =>
-  (input, init) => {
+  async (input, init) => {
     const method = (init?.method ?? "GET").toUpperCase();
     if (method === "GET" || method === "HEAD") return f(input, init);
     let adminId: string | null = null;
     let authUid: string | null = null;
     try {
-      const h = headers();
+      const h = await headers();
       adminId = h.get(ADMIN_ID_HEADER);
       authUid = h.get(AUTH_UID_HEADER);
     } catch {

@@ -87,7 +87,7 @@ async function sendReset(formData: FormData) {
   const email = ((formData.get("email") as string) ?? "").trim();
   if (!email) redirect(loginPath(role, "mode=forgot&error=empty"));
 
-  const host = headers().get("host");
+  const host = (await headers()).get("host");
   const proto = host?.startsWith("localhost") ? "http" : "https";
 
   const supabase = createSupabaseServerClient();
@@ -106,11 +106,12 @@ async function sendReset(formData: FormData) {
   redirect(loginPath(role, "mode=forgot&sent=1"));
 }
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: { as?: string; mode?: string; error?: string; sent?: string };
-}) {
+export default async function LoginPage(
+  props: {
+    searchParams: Promise<{ as?: string; mode?: string; error?: string; sent?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const role: Role = parseRole(searchParams.as);
   const isProvider = role === "provider";
   const isSignup = searchParams.mode === "signup";

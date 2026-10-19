@@ -56,11 +56,12 @@ async function submitListing(formData: FormData) {
   redirect("/provider?listed=1");
 }
 
-export default async function ProviderListingPage({
-  searchParams,
-}: {
-  searchParams: { error?: string };
-}) {
+export default async function ProviderListingPage(
+  props: {
+    searchParams: Promise<{ error?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const user = await getSessionUser();
   if (!user) redirect("/login?as=provider");
   const providerId = await claimProvider(user.id, user.email ?? null);

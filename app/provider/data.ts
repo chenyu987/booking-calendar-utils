@@ -46,8 +46,8 @@ export async function bookedDaysFor(
 //
 // cookie 的名字在 lib/providerView.ts —— 写它的是客户端组件，而这个文件带着 next/headers
 
-export function readViewSettings(): { bandDays: number; start: string } {
-  const jar = cookies();
+export async function readViewSettings(): Promise<{ bandDays: number; start: string }> {
+  const jar = await cookies();
   const raw = jar.get(VIEW_COOKIES.start)?.value ?? "";
   return {
     bandDays: clampProviderBandDays(jar.get(VIEW_COOKIES.bandDays)?.value ?? PROVIDER_BAND_DAYS_DEFAULT),

@@ -57,11 +57,12 @@ async function submitRequest(formData: FormData) {
   redirect("/customer?created=1");
 }
 
-export default async function CustomerRequestPage({
-  searchParams,
-}: {
-  searchParams: { error?: string };
-}) {
+export default async function CustomerRequestPage(
+  props: {
+    searchParams: Promise<{ error?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const customerId = await claimCustomer(user.id, user.email ?? null);

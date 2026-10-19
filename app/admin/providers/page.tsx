@@ -89,11 +89,12 @@ async function deleteProvider(formData: FormData) {
   revalidatePath("/admin/overview");
 }
 
-export default async function ProvidersAdminPage({
-  searchParams,
-}: {
-  searchParams: { edit?: string };
-}) {
+export default async function ProvidersAdminPage(
+  props: {
+    searchParams: Promise<{ edit?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const { data: providers, error } = await supabase
     .from("providers")
     .select(`*, ${PERSON_SPREAD}`)

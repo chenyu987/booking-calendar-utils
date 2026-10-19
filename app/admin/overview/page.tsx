@@ -210,7 +210,7 @@ async function createQuickOrder(formData: FormData) {
   // 当前身份（标题旁边那个下拉；没切过就是登录的那个人，middleware 定的）：这单的客人记成这个管理员的
   // （= 哪个账号加的，以后找人知道用谁的号）。id 得在库里真有这个人，
   // 不然记下的归属指向一个不存在的管理员。**跟找客人那条查询并排跑**，不多等一个来回
-  const adminId = currentAdminId() ?? "";
+  const adminId = (await currentAdminId()) ?? "";
   const findAdmin = async () => {
     if (!adminId) return null;
     const { data } = await supabase.from("admins").select("id").eq("id", adminId).maybeSingle();
@@ -310,28 +310,29 @@ const filterSelectStyle: React.CSSProperties = {
   textOverflow: "ellipsis",
 };
 
-export default async function OverviewPage({
-  searchParams,
-}: {
-  searchParams: {
-    item?: string;
-    gender?: string;
-    sstatus?: string;
-    q?: string;
-    assign?: string;
-    allcards?: string;
-    region?: string;
-    mtn?: string;
-    ostatus?: string;
-    /** 按「这一单是哪个管理员的」筛：管理员 id，或 none = 没标的 */
-    oadmin?: string;
-    sregion?: string;
-    smtn?: string;
-    ssort?: string;
-    /** 看哪一季（lib/season.ts 的 key，25-26-na）。不写 = 今天所在的那季 */
-    season?: string;
-  };
-}) {
+export default async function OverviewPage(
+  props: {
+    searchParams: Promise<{
+      item?: string;
+      gender?: string;
+      sstatus?: string;
+      q?: string;
+      assign?: string;
+      allcards?: string;
+      region?: string;
+      mtn?: string;
+      ostatus?: string;
+      /** 按「这一单是哪个管理员的」筛：管理员 id，或 none = 没标的 */
+      oadmin?: string;
+      sregion?: string;
+      smtn?: string;
+      ssort?: string;
+      /** 看哪一季（lib/season.ts 的 key，25-26-na）。不写 = 今天所在的那季 */
+      season?: string;
+    }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const todayForSeason = todayIso();
   const currentSeason = seasonOf(todayForSeason);
   const season: Season = parseSeasonKey(searchParams.season) ?? currentSeason;
@@ -391,9 +392,9 @@ export default async function OverviewPage({
   ]);
   // 主要管理员：没写是谁的单子算他的，他的单不上色（lib/orderFrame.ts）
   const primaryAdminId = resolvePrimaryAdmin(primaryAdminRaw, admins);
-  const currentAdmin = resolveAdmin(currentAdminId() ?? undefined, admins);
+  const currentAdmin = resolveAdmin((await currentAdminId()) ?? undefined, admins);
   // 标题旁边「全部 / Alpha / Beta」开关：单子、资源清单、建单的地点名提示一起跟着它（lib/itemMode.ts）
-  const itemMode = parseItemMode(cookies().get(ITEM_MODE_COOKIE)?.value);
+  const itemMode = parseItemMode((await cookies()).get(ITEM_MODE_COOKIE)?.value);
 
   const noteByDay = new Map<string, string>(
     (dayNotes ?? []).map((n: any) => [n.day, n.note])
@@ -923,7 +924,7 @@ export default async function OverviewPage({
       <ZoomableCalendar
         bandDays={DAYS_PER_BAND}
         railWidth={clampRailWidth(
-          Number(cookies().get("overview_rail_width")?.value ?? NaN)
+          Number((await cookies()).get("overview_rail_width")?.value ?? NaN)
         )}
         panel={
           <ResourcePanel
@@ -947,9 +948,9 @@ export default async function OverviewPage({
               ) as Record<ResourceSort, string>
             }
             // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
-            initialCollapsed={cookies().get("resource_panel_collapsed")?.value === "1"}
+            initialCollapsed={(await cookies()).get("resource_panel_collapsed")?.value === "1"}
             // 筛选默认收起：平时都是直接看资源列表，筛选是偶尔为之
-            filtersCollapsed={cookies().get("resource_filters_collapsed")?.value !== "0"}
+            filtersCollapsed={(await cookies()).get("resource_filters_collapsed")?.value !== "0"}
             allResources={modeResources}
             resourceIds={resources.map((s: any) => s.id)}
             filters={f}

@@ -477,11 +477,12 @@ function PayPanel({
   );
 }
 
-export default async function ReferralsAdminPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | undefined>;
-}) {
+export default async function ReferralsAdminPage(
+  props: {
+    searchParams: Promise<Record<string, string | undefined>>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const [{ data: customers, error }, { data: orders }, { data: payouts }, defaultRate] =
     await Promise.all([
       supabase

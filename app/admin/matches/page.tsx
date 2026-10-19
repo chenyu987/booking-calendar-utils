@@ -220,12 +220,13 @@ async function updateMatchStatus(formData: FormData) {
   revalidatePath("/");
 }
 
-export default async function MatchesAdminPage({
-  searchParams,
-}: {
-  // 排序走 URL 参数，跟 admin 那几个列表页的筛选一个路子：能收藏、刷新不丢
-  searchParams: Record<string, string | undefined>;
-}) {
+export default async function MatchesAdminPage(
+  props: {
+    // 排序走 URL 参数，跟 admin 那几个列表页的筛选一个路子：能收藏、刷新不丢
+    searchParams: Promise<Record<string, string | undefined>>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const sort = parseMatchSort(searchParams.sort);
   const filters = parseMatchFilters(searchParams);
   const view = parseMatchView(searchParams.group);

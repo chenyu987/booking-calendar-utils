@@ -49,17 +49,18 @@ async function saveProfile(formData: FormData) {
 // 刻意不显示的东西：别人的订单、配到哪个资源、持有人是谁。物品是登记了使用人的，
 // 持有人姓名/性别/生日属于物主的隐私，客户这边一个字都不该出现 —— 所以这里
 // 根本不去查 resources 和 order_assignments，不是查了再藏。
-export default async function CustomerHomePage({
-  searchParams,
-}: {
-  searchParams: {
-    created?: string;
-    saved?: string;
-    edit?: string;
-    error?: string;
-    next?: string;
-  };
-}) {
+export default async function CustomerHomePage(
+  props: {
+    searchParams: Promise<{
+      created?: string;
+      saved?: string;
+      edit?: string;
+      error?: string;
+      next?: string;
+    }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const user = await getSessionUser();
   if (!user) redirect("/login");
 

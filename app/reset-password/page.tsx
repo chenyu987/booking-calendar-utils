@@ -26,11 +26,12 @@ async function updatePassword(formData: FormData) {
   redirect(`${homeFor(role)}?pwchanged=1`);
 }
 
-export default async function ResetPasswordPage({
-  searchParams,
-}: {
-  searchParams: { as?: string; error?: string };
-}) {
+export default async function ResetPasswordPage(
+  props: {
+    searchParams: Promise<{ as?: string; error?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const role: Role = parseRole(searchParams.as);
 
   // 没 session 说明链接过期了、或者有人直接手输了这个地址

@@ -32,11 +32,12 @@ export const dynamic = "force-dynamic";
 
 // 改动记录（迁移 0025）。库里每一次增删改都由 trigger 记一条，这一页只读。
 // 筛选全走 URL 参数：table / who / about（只看跟某个人、某一单、某个资源有关的）/ before（翻页）
-export default async function HistoryPage({
-  searchParams,
-}: {
-  searchParams: { table?: string; who?: string; about?: string; before?: string };
-}) {
+export default async function HistoryPage(
+  props: {
+    searchParams: Promise<{ table?: string; who?: string; about?: string; before?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const admins = await loadAdmins();
   const table = parseTable(searchParams.table);
   const who = parseWho(searchParams.who, admins.map((a) => a.id));

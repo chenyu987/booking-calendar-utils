@@ -41,11 +41,12 @@ async function signIn(formData: FormData) {
   redirect(next);
 }
 
-export default async function AdminLoginPage({
-  searchParams,
-}: {
-  searchParams: { next?: string; error?: string };
-}) {
+export default async function AdminLoginPage(
+  props: {
+    searchParams: Promise<{ next?: string; error?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const next = safeAdminNext(searchParams.next);
 
   // 已经是登录着的管理员就别停在这儿

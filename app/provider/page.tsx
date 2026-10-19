@@ -49,24 +49,25 @@ const ERROR_TEXT: Record<string, string> = {
 //
 // **刻意不显示客户是谁。** 物主看得到「9/10~9/12 已排」，但看不到姓名和联系方式 ——
 // 那是客户的隐私，也是平台作为中间人的价值。跟客户那边看不到持有人是谁对称。
-export default async function ProviderHomePage({
-  searchParams,
-}: {
-  searchParams: {
-    listed?: string;
-    edit?: string;
-    saved?: string;
-    deleted?: string;
-    delete?: string;
-    error?: string;
-    card?: string;
-    view?: string;
-    region?: string;
-    mtn?: string;
-    /** 刚提完意向：把「我提过的意向」那块展开，让人看见它确实落进去了 */
-    proposed?: string;
-  };
-}) {
+export default async function ProviderHomePage(
+  props: {
+    searchParams: Promise<{
+      listed?: string;
+      edit?: string;
+      saved?: string;
+      deleted?: string;
+      delete?: string;
+      error?: string;
+      card?: string;
+      view?: string;
+      region?: string;
+      mtn?: string;
+      /** 刚提完意向：把「我提过的意向」那块展开，让人看见它确实落进去了 */
+      proposed?: string;
+    }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const user = await getSessionUser();
   if (!user) redirect("/login?as=provider");
 
@@ -141,8 +142,8 @@ export default async function ProviderHomePage({
     ? (searchParams.card as string)
     : "";
 
-  const viewSettings = readViewSettings();
-  const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
+  const viewSettings = (await readViewSettings());
+  const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
   const region = searchParams.region ?? "";
   const mtn = searchParams.mtn ?? "";
 

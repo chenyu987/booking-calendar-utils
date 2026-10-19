@@ -58,11 +58,12 @@ async function updateCustomer(formData: FormData) {
   redirect(`/admin/customers?saved=${id}`);
 }
 
-export default async function CustomersAdminPage({
-  searchParams,
-}: {
-  searchParams: { edit?: string; error?: string; saved?: string };
-}) {
+export default async function CustomersAdminPage(
+  props: {
+    searchParams: Promise<{ edit?: string; error?: string; saved?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const [{ data: customers, error }, { data: orders }, admins, contactsByPerson] = await Promise.all([
     supabase
       .from("customers")

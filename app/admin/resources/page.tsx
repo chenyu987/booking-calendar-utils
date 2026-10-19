@@ -153,26 +153,27 @@ const filterInputStyle = {
   fontSize: 12,
 };
 
-export default async function ResourcesAdminPage({
-  searchParams,
-}: {
-  // 逐列筛选走 URL 参数，跟 ?edit= 一个路子：能收藏、能分享、刷新不丢
-  searchParams: {
-    edit?: string;
-    provider?: string;
-    item?: string;
-    holder?: string;
-    gender?: string;
-    agemin?: string;
-    agemax?: string;
-    vfrom?: string;
-    vto?: string;
-    booked?: string;
-    sstatus?: string;
-    /** 删除被拦下时带回来（./actions.ts） */
-    error?: string;
-  };
-}) {
+export default async function ResourcesAdminPage(
+  props: {
+    // 逐列筛选走 URL 参数，跟 ?edit= 一个路子：能收藏、能分享、刷新不丢
+    searchParams: Promise<{
+      edit?: string;
+      provider?: string;
+      item?: string;
+      holder?: string;
+      gender?: string;
+      agemin?: string;
+      agemax?: string;
+      vfrom?: string;
+      vto?: string;
+      booked?: string;
+      sstatus?: string;
+      /** 删除被拦下时带回来（./actions.ts） */
+      error?: string;
+    }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const [{ data: resources, error }, { data: providers }, { data: assignments }] =
     await Promise.all([
       supabase.from("resources").select("*").order("created_at", { ascending: false }),
