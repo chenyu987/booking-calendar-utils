@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { claimFor, homeFor, parseRole } from "@/lib/accountClaim";
+import { publicUrl } from "@/lib/publicUrl";
 
 // 邮件里那条 magic link 点进来落在这里。
 //
@@ -15,18 +16,18 @@ export async function GET(req: NextRequest) {
   // 是带着 error/error_code 回来的，不是「没有 code」。分开处理，否则用户看到的
   // 是「链接不完整」——完全是另一回事，他会以为是我们把链接发坏了。
   if (req.nextUrl.searchParams.get("error")) {
-    return NextResponse.redirect(new URL("/login?error=expired", req.url));
+    return NextResponse.redirect(publicUrl("/login?error=expired", req.headers));
   }
 
   const code = req.nextUrl.searchParams.get("code");
   if (!code) {
-    return NextResponse.redirect(new URL("/login?error=nocode", req.url));
+    return NextResponse.redirect(publicUrl("/login?error=nocode", req.headers));
   }
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
   if (error || !data.user) {
-    return NextResponse.redirect(new URL("/login?error=expired", req.url));
+    return NextResponse.redirect(publicUrl("/login?error=expired", req.headers));
   }
 
   // 角色跟着链接来：物主入口发的信里带 ?as=provider
@@ -41,10 +42,10 @@ export async function GET(req: NextRequest) {
   // 只认站内路径：next 是从 URL 来的，放任它跳外站就是个开放重定向漏洞。
   const next = req.nextUrl.searchParams.get("next");
   if (next && next.startsWith("/") && !next.startsWith("//")) {
-    const target = new URL(next, req.url);
+    const target = publicUrl(next, req.headers);
     if (role === "provider") target.searchParams.set("as", "provider");
     return NextResponse.redirect(target);
   }
 
-  return NextResponse.redirect(new URL(homeFor(role), req.url));
+  return NextResponse.redirect(publicUrl(homeFor(role), req.headers));
 }

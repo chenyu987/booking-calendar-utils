@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { claimFor, homeFor, parseRole, type Role } from "@/lib/accountClaim";
 import BackToHome from "@/components/BackToHome";
+import { publicOrigin } from "@/lib/publicUrl";
 
 export const dynamic = "force-dynamic";
 
@@ -87,13 +88,12 @@ async function sendReset(formData: FormData) {
   const email = ((formData.get("email") as string) ?? "").trim();
   if (!email) redirect(loginPath(role, "mode=forgot&error=empty"));
 
-  const host = (await headers()).get("host");
-  const proto = host?.startsWith("localhost") ? "http" : "https";
+  const origin = publicOrigin(await headers());
 
   const supabase = createSupabaseServerClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     // 邮件里的链接先落 /auth/callback 换 session，再被送去设新密码那一页
-    redirectTo: `${proto}://${host}/auth/callback?as=${role}&next=/reset-password`,
+    redirectTo: `${origin}/auth/callback?as=${role}&next=/reset-password`,
   });
   if (error) {
     console.error("[login] resetPasswordForEmail 失败", error.code, error.message);

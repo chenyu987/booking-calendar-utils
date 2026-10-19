@@ -1,0 +1,13 @@
+# 跟 .gcloudignore 同一份理由：密钥和客人数据不进镜像
+.git
+.env*
+!.env.example
+supabase/seed.sql
+node_modules
+.next
+.next-e2e
+playwright-report
+test-results
+tests
+TASKS.md
+.claude

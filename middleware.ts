@@ -9,6 +9,7 @@ import {
   pickAdminIdentity,
   isAdminPath,
 } from "@/lib/adminAuth";
+import { publicUrl } from "@/lib/publicUrl";
 
 // 每个请求先过这儿：验登录 token，把「是谁」写进请求头往下传（lib/adminAuth.ts 开头有为什么）。
 // /admin 底下没登录管理员账号的，页面跳登录，别的（Server Action、Route Handler）直接 401。
@@ -57,7 +58,7 @@ export async function middleware(req: NextRequest) {
 
   if (isAdminPath(path) && !adminId && !fakeLogin) {
     if (req.method === "GET" || req.method === "HEAD") {
-      const login = new URL("/login/admin", req.url);
+      const login = publicUrl("/login/admin", req.headers);
       login.searchParams.set("next", path + req.nextUrl.search);
       return NextResponse.redirect(login);
     }

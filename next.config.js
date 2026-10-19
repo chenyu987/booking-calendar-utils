@@ -9,6 +9,9 @@ const nextConfig = {
   // CLAUDE.md 里记着这个坑，我自己还是撞了一次，所以从配置上堵掉：
   // 分开之后两边互不相干，一边开着 dev 一边跑浏览器测试也没事。
   distDir: E2E ? ".next-e2e" : ".next",
+  // 部署到 Cloud Run 用（Dockerfile）：构建产物自带 server.js 和用得到的依赖，镜像小、起得快。
+  // 不影响 next dev / next start
+  output: "standalone",
   // E2E 构建里没有真登录（数据库是内存假库），middleware 拿 cookie 冒充管理员（lib/adminAuth.ts）。
   // 写在这儿是**构建时**定死的：正常构建这个值不存在，生产包里根本没有这条路
   env: E2E ? { E2E_FAKE_LOGIN: "1" } : {},
