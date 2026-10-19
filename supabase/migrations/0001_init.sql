@@ -151,7 +151,8 @@ create index on order_assignments (order_id);
 create index on order_assignments (resource_id);
 
 -- OrderNote 订单备注（跟 Order 一对一）
--- 目前还没做录入界面，留着，后面要用来承接「加钱没商量」「受伤退一天」这类信息。
+-- 现在用到的只有 internal_note（排期总览建单 / 编辑时的备注，读写见 lib/orderNote.ts）；
+-- 其余几列还没界面在用，留着承接「加钱没商量」「受伤退一天」这类信息。
 -- 注意：付款方式不放这里，以 payments.method 为准，避免同一件事存两份。
 create table order_notes (
   id uuid primary key default gen_random_uuid(),
