@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { adminIdFromClaims, safeAdminNext } from "@/lib/adminAuth";
+import { adminLogin } from "@/lib/adminLogin";
 import BackToHome from "@/components/BackToHome";
 
 export const dynamic = "force-dynamic";
@@ -15,30 +16,15 @@ export const dynamic = "force-dynamic";
 // 没有「忘记密码」：要发信，内置发信服务额度极小。管理员忘了密码，
 // 重新跑一遍 `npm run admin:user` 设个新的。
 
-function loginPath(extra: Record<string, string>) {
-  const params = new URLSearchParams(extra);
-  const qs = params.toString();
-  return `/login/admin${qs ? `?${qs}` : ""}`;
-}
-
 async function signIn(formData: FormData) {
   "use server";
-  const next = safeAdminNext(formData.get("next") as string);
-  const email = ((formData.get("email") as string) ?? "").trim();
-  const password = (formData.get("password") as string) ?? "";
-  if (!email || !password) redirect(loginPath({ error: "empty", next }));
-
-  const supabase = createSupabaseServerClient();
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error || !data.user) {
-    console.error("[admin login] signInWithPassword 失败", error?.code, error?.message);
-    redirect(loginPath({ error: "badlogin", next }));
-  }
-  if (!adminIdFromClaims(data.user)) {
-    await supabase.auth.signOut();
-    redirect(loginPath({ error: "notadmin", next }));
-  }
-  redirect(next);
+  // 逻辑在 lib/adminLogin.ts（要测：不是管理员就当场退出）
+  const target = await adminLogin(createSupabaseServerClient().auth, {
+    email: (formData.get("email") as string) ?? "",
+    password: (formData.get("password") as string) ?? "",
+    next: formData.get("next") as string,
+  });
+  redirect(target);
 }
 
 export default async function AdminLoginPage(
