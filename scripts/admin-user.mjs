@@ -35,14 +35,21 @@ function readEnvLocal() {
   return out;
 }
 
-/** 不回显地读一行（输密码用） */
+/**
+ * 不回显地读一行（输密码用）。
+ *
+ * 提示语自己先写出去，readline 那边的输出**整个吞掉**。原来是「以提示语开头的才放行」——
+ * 可 readline 每敲一个字会把「提示语 + 已经打的字」整行重画一遍，正好以提示语开头，
+ * 于是密码一个字一个字全显示在屏幕上（2026-10-19 建 admin2 账号时漏出来过）
+ */
 function askHidden(question) {
   return new Promise((resolve) => {
+    // 先建 readline（它把终端切成不回显的 raw 模式），**再**写提示语 —— 反过来的话，
+    // 提示语出来到切模式之间打的字会被终端自己回显
     const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    rl._writeToOutput = (s) => {
-      if (s.startsWith(question)) rl.output.write(s);
-    };
-    rl.question(question, (answer) => {
+    rl._writeToOutput = () => {};
+    process.stdout.write(question);
+    rl.question("", (answer) => {
       rl.close();
       process.stdout.write("\n");
       resolve(answer);
