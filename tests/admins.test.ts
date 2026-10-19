@@ -166,12 +166,12 @@ describe("排期总览建单：把当前管理员补上", () => {
   });
 });
 
-describe("当前身份（cookie）认谁", () => {
-  it("cookie 里的 id 对上一个管理员就是他", () => {
+describe("当前登录的管理员认谁", () => {
+  it("登录账号上的 id 对上一个管理员就是他", () => {
     expect(resolveAdmin("a-admin2", ADMINS)).toMatchObject({ name: "admin2" });
   });
 
-  it("没选过、或者那个管理员不在了，都当没选 —— 不能拿一个不存在的 id 去记归属", () => {
+  it("没有、或者那个管理员不在了，都当没有 —— 不能拿一个不存在的 id 去记归属", () => {
     expect(resolveAdmin(undefined, ADMINS)).toBeNull();
     expect(resolveAdmin("a-gone", ADMINS)).toBeNull();
   });

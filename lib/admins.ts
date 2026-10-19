@@ -1,5 +1,5 @@
 // 管理员（迁移 0018）的纯逻辑：表单值怎么认、改的时候要加哪几条删哪几条、列表怎么筛、
-// 当前身份存在哪个 cookie。
+// 当前身份存在哪个 cookie。登录相关（谁能进后台）在 lib/adminAuth.ts。
 //
 // 每个管理员对应一个加客人用的账号（Admin1 = 私人号，admin2 = 工作号），
 // 所以「这个客人是谁的」跟「哪个号加的」是同一件事。
@@ -13,19 +13,21 @@ export type Admin = { id: string; name: string };
 export const ADMIN_NAME_MAX = 20;
 
 /**
- * 「我现在是哪个管理员」存在这个 cookie 里，**每台电脑各记各的**（跟暗色模式一样）：
- * 你在你电脑上是 Admin1，admin2 在她电脑上是 admin2，互不影响。
- * 存库的话是全局一个值，两个人同时用会互相改掉对方的。
+ * 「我现在以哪个管理员的身份干活」存在这个 cookie 里，**每台电脑各记各的**（跟暗色模式一样）。
  *
- * 这**不是登录**，谁都能切 —— 现在所有能进后台的人本来就能看能改一切。
- * 等接了 admin 登录，身份就该从登录账号来，这个 cookie 退场。
+ * 登录（lib/adminAuth.ts）只管**能不能进后台**；进来以后身份随便切 —— 2026-10-19 用户定的：
+ * 不管哪个管理员登录，都能切成任何一个。没切过（没有这个 cookie）就是登录的那个人。
+ * 改动记录两样都留：x-admin-id 是切到的身份，x-auth-uid 是真正登录的账号。
  */
 export const ADMIN_COOKIE = "admin_id";
 
-/** cookie 里的 id 对应哪个管理员。没选过、或者那个管理员不在了，都是 null */
-export function resolveAdmin(cookieValue: string | undefined, admins: Admin[]): Admin | null {
-  if (!cookieValue) return null;
-  return admins.find((a) => a.id === cookieValue) ?? null;
+/**
+ * 当前身份的 id 对应哪个管理员。没有、或者 admins 那一行已经不在了，都是 null ——
+ * 不能拿一个不存在的 id 去记归属
+ */
+export function resolveAdmin(adminId: string | undefined, admins: Admin[]): Admin | null {
+  if (!adminId) return null;
+  return admins.find((a) => a.id === adminId) ?? null;
 }
 
 /**

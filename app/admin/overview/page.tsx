@@ -4,7 +4,6 @@ import { supabase } from "@/lib/supabase";
 import { createPerson, personSpread } from "@/lib/people";
 import { displayName, formatPerson } from "@/lib/person";
 import {
-  ADMIN_COOKIE,
   CONTACT_FILTER_NONE,
   matchesOrderAdmin,
   parseOrderAdminFilter,
@@ -13,6 +12,7 @@ import {
 } from "@/lib/admins";
 import { addContact, loadAdmins } from "@/lib/personContacts";
 import AdminSwitcher from "./AdminSwitcher";
+import { currentAdminId } from "@/lib/adminSession";
 import ItemModeSwitcher from "./ItemModeSwitcher";
 import {
   ITEM_MODE_COOKIE,
@@ -207,10 +207,10 @@ async function createQuickOrder(formData: FormData) {
   const amount = amountRaw === "" ? null : Number(amountRaw);
 
 
-  // 当前身份（标题旁边那个下拉，存在 cookie 里）：这单的客人记成这个管理员的
-  // （= 哪个账号加的，以后找人知道用谁的号）。cookie 里的 id 得在库里真有这个人，
+  // 当前身份（标题旁边那个下拉；没切过就是登录的那个人，middleware 定的）：这单的客人记成这个管理员的
+  // （= 哪个账号加的，以后找人知道用谁的号）。id 得在库里真有这个人，
   // 不然记下的归属指向一个不存在的管理员。**跟找客人那条查询并排跑**，不多等一个来回
-  const adminId = cookies().get(ADMIN_COOKIE)?.value ?? "";
+  const adminId = currentAdminId() ?? "";
   const findAdmin = async () => {
     if (!adminId) return null;
     const { data } = await supabase.from("admins").select("id").eq("id", adminId).maybeSingle();
@@ -391,7 +391,7 @@ export default async function OverviewPage({
   ]);
   // 主要管理员：没写是谁的单子算他的，他的单不上色（lib/orderFrame.ts）
   const primaryAdminId = resolvePrimaryAdmin(primaryAdminRaw, admins);
-  const currentAdmin = resolveAdmin(cookies().get(ADMIN_COOKIE)?.value, admins);
+  const currentAdmin = resolveAdmin(currentAdminId() ?? undefined, admins);
   // 标题旁边「全部 / Alpha / Beta」开关：单子、资源清单、建单的地点名提示一起跟着它（lib/itemMode.ts）
   const itemMode = parseItemMode(cookies().get(ITEM_MODE_COOKIE)?.value);
 

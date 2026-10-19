@@ -66,6 +66,22 @@ export default function AdminLayout({
         <div style={{ marginBottom: 8, whiteSpace: "nowrap" }}>
           <SettingsTrigger theme={theme} />
         </div>
+        {/* 换管理员 = 退出、换账号登。身份从登录账号来（lib/adminAuth.ts） */}
+        <form action="/auth/signout?as=admin" method="post" style={{ marginBottom: 8, whiteSpace: "nowrap" }}>
+          <button
+            type="submit"
+            style={{
+              padding: 0,
+              border: "none",
+              background: "none",
+              color: "var(--text-muted)",
+              fontSize: 14,
+              cursor: "pointer",
+            }}
+          >
+            退出登录
+          </button>
+        </form>
       </ResizableNav>
       {/* minWidth:0 不能省：flex 子项默认 min-width:auto，不加的话排期总览那个很宽的
           日历会把整个页面撑宽，横向滚动条跑到 body 上——侧边栏和统计区跟着一起滑走。

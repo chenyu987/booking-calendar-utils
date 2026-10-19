@@ -10,6 +10,7 @@
     "test": "vitest run",
     "build:e2e": "E2E=1 next build",
     "test:e2e": "playwright test",
+    "admin:user": "node scripts/admin-user.mjs",
     "try": "node scripts/try.mjs"
   },
   "dependencies": {

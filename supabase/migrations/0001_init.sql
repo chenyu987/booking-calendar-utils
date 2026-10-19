@@ -252,9 +252,10 @@ create table change_log (
 create index on change_log (row_id);
 
 -- 只给读。日志能被随手改掉就不叫日志了 —— 写入只走下面那个 security definer 函数。
--- （RLS 还是全关的，但 RLS 管的是行，这里收的是整张表的写权限，两回事）
+-- （RLS 管的是行，这里收的是整张表的写权限，两回事）
 revoke insert, update, delete, truncate on change_log from anon, authenticated;
 
+-- 「谁」：x-admin-id / x-auth-uid 两个请求头（0026 起，见 0026_rls.sql）
 create function log_change() returns trigger
 language plpgsql
 security definer
@@ -265,7 +266,9 @@ declare
   new_j jsonb := case when tg_op <> 'DELETE' then to_jsonb(new) end;
   row_j jsonb := coalesce(new_j, old_j);
   key text;
+  hdrs jsonb;
   header text;
+  uid_header text;
   actor uuid;
 begin
   -- 什么都没变（或者只动了 updated_at）的 update 不记：upsert 同样的值会走到这儿
@@ -282,11 +285,18 @@ begin
   end if;
 
   -- 不经过 PostgREST（SQL Editor、psql）时这个设置不存在，missing_ok 给 null 或空串
-  header := nullif(current_setting('request.headers', true), '')::jsonb ->> 'x-admin-id';
+  hdrs := nullif(current_setting('request.headers', true), '')::jsonb;
+  header := hdrs ->> 'x-admin-id';
   select id into actor from admins where id::text = header;
+  -- 不是 uuid 的当没有：一个坏头不该让写库失败
+  uid_header := hdrs ->> 'x-auth-uid';
+  if uid_header !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    uid_header := null;
+  end if;
 
   insert into change_log (table_name, row_id, op, old_row, new_row, admin_id, auth_user_id)
-  values (tg_table_name, key, lower(tg_op), old_j, new_j, actor, auth.uid());
+  values (tg_table_name, key, lower(tg_op), old_j, new_j, actor,
+          coalesce(auth.uid(), uid_header::uuid));
   return null;
 end;
 $$;
@@ -325,3 +335,21 @@ create trigger log_change after insert or update on app_settings
 create trigger log_change_delete after delete on app_settings
   for each row when (old.key in ('referral_rate_default', 'primary_admin_id'))
   execute function log_change('key');
+
+-- RLS（0026）：一条策略都不写 = anon / authenticated 全拒，应用走 service key。
+-- 为什么这么做见 0026_rls.sql。**新建表要在这儿加一行**（tests/rls.test.ts 盯着）
+alter table people enable row level security;
+alter table admins enable row level security;
+alter table person_contacts enable row level security;
+alter table customers enable row level security;
+alter table providers enable row level security;
+alter table resources enable row level security;
+alter table orders enable row level security;
+alter table order_assignments enable row level security;
+alter table order_notes enable row level security;
+alter table payments enable row level security;
+alter table referral_payouts enable row level security;
+alter table matches enable row level security;
+alter table day_notes enable row level security;
+alter table app_settings enable row level security;
+alter table change_log enable row level security;

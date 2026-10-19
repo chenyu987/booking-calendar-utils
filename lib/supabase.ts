@@ -1,17 +1,25 @@
 import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
+import { headers } from "next/headers";
 
-import { ADMIN_COOKIE } from "./admins";
+import { ADMIN_ID_HEADER, AUTH_UID_HEADER, isUuid } from "./adminAuth";
 import { paginatingFetch } from "./fetchAllRows";
 
+// **这个 client 用的是 service key，只能在服务端用。**
+//
+// 库开了 RLS（迁移 0026），而且一条策略都没写：浏览器里那把 anon key 什么数据都读不到、
+// 写不了，只剩登录用。所有读写都走这儿 —— service key 不受 RLS 管。
+// 谁能看什么由我们的服务端代码决定：/admin 由 middleware 拦，客户 / 物主页面按登录的人过滤。
+//
+// 不会漏进浏览器包：这个文件 import 了 next/headers（客户端组件 import 它构建直接报错），
+// 变量名也没有 NEXT_PUBLIC_ 前缀（就算被打包，读出来也是 undefined）。
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string;
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseUrl || !serviceKey) {
   // supabase-js 自己抛的错是 "supabaseUrl is required"，不好排查，这里换个说人话的
   throw new Error(
-    "缺少 NEXT_PUBLIC_SUPABASE_URL 或 NEXT_PUBLIC_SUPABASE_ANON_KEY。" +
-      "把 .env.example 复制成 .env.local，去 Supabase 控制台 Project Settings → API 里抄这两个值。"
+    "缺少 NEXT_PUBLIC_SUPABASE_URL 或 SUPABASE_SERVICE_ROLE_KEY。" +
+      "把 .env.example 复制成 .env.local，去 Supabase 控制台 Project Settings → API Keys 里抄。"
   );
 }
 
@@ -30,40 +38,44 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // **这两层都别拆**，也别另建一个不带它们的 client。
 const noStoreFetch: typeof fetch =(input, init) => fetch(input, { ...init, cache: "no-store" });
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
- * 写库时带上「当前身份」（排期总览标题旁边选的那个管理员），给改动记录用：
- * 0025 的 trigger 从 PostgREST 的 `request.headers` 里读 `x-admin-id`。
+ * 写库时带上「是谁改的」，给改动记录用：0025/0026 的 trigger 从 PostgREST 的
+ * `request.headers` 里读 `x-admin-id`（管理员）和 `x-auth-uid`（客户 / 物主的登录账号）。
+ * 这两个头是 middleware 验完登录 token 写进来的（lib/adminAuth.ts），不是浏览器给的。
  *
  * 放在 client 的 fetch 上而不是每个写库的地方各传一遍 —— 入口几十处，漏一处就是一段
- * 「不知道谁改的」。client 是模块级单例，但 fetch 是在请求里调的，`cookies()` 在
- * server action 和 route handler 里都读得到当前这个请求的 cookie。
+ * 「不知道谁改的」。client 是模块级单例，但 fetch 是在请求里调的，`headers()` 在
+ * server action 和 route handler 里都读得到当前这个请求的头。
  *
- * **只碰写请求。** 读请求不需要，而且页面渲染时调 `cookies()` 会把这一页拖成动态渲染 ——
+ * **只碰写请求。** 读请求不需要，而且页面渲染时调 `headers()` 会把这一页拖成动态渲染 ——
  * 写请求只会出现在 action / route 里，没这个顾虑。
- * 不在请求里（脚本、测试）`cookies()` 会抛，那就不带：记录里「谁」是空的，写照常写。
+ * 不在请求里（脚本、测试）`headers()` 会抛，那就不带：记录里「谁」是空的，写照常写。
  */
-const withAdminHeader =
+const withActorHeaders =
   (f: typeof fetch): typeof fetch =>
   (input, init) => {
     const method = (init?.method ?? "GET").toUpperCase();
     if (method === "GET" || method === "HEAD") return f(input, init);
-    let adminId: string | undefined;
+    let adminId: string | null = null;
+    let authUid: string | null = null;
     try {
-      adminId = cookies().get(ADMIN_COOKIE)?.value;
+      const h = headers();
+      adminId = h.get(ADMIN_ID_HEADER);
+      authUid = h.get(AUTH_UID_HEADER);
     } catch {
-      adminId = undefined;
+      // 不在请求里
     }
-    // cookie 是浏览器给的，不是 uuid 就别往请求头里塞（非 ASCII 会让 Headers 直接抛）
-    if (!adminId || !UUID_RE.test(adminId)) return f(input, init);
-    const headers = new Headers(init?.headers);
-    headers.set("x-admin-id", adminId);
-    return f(input, { ...init, headers });
+    if (!isUuid(adminId) && !isUuid(authUid)) return f(input, init);
+    const out = new Headers(init?.headers);
+    if (isUuid(adminId)) out.set(ADMIN_ID_HEADER, adminId);
+    if (isUuid(authUid)) out.set(AUTH_UID_HEADER, authUid);
+    return f(input, { ...init, headers: out });
   };
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(supabaseUrl, serviceKey, {
+  // 服务端单例不该有「登录态」：不存 session、不自己续 token（登录态在 supabaseServer.ts）
+  auth: { persistSession: false, autoRefreshToken: false },
   global: {
-    fetch: paginatingFetch(withAdminHeader(noStoreFetch)),
+    fetch: paginatingFetch(withActorHeaders(noStoreFetch)),
   },
 });
