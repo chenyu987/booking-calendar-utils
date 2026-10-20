@@ -42,7 +42,7 @@ export default function CalendarView({
   function pick(next: number) {
     const n = clampBandDays(next);
     setDays(n);
-    // 写库是「下次打开还是这个视图」用的，当场的重排不依赖它，所以不等、不 refresh。
+    // 写 cookie 是「这台电脑下次打开还是这个视图」用的，当场的重排不依赖它，所以不等、不 refresh。
     // 失败了也不弹什么 —— 最坏的结果是下次打开回到上一个视图
     fetch("/admin/referrals/band-days", {
       method: "POST",

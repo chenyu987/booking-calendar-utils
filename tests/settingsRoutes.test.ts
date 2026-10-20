@@ -15,6 +15,16 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
+// 「每行几天」存 cookie（lib/bandDaysSetting.ts），不进库。这里拿一个内存里的罐子顶掉
+// next/headers：route 写进去的，下一次读得到 —— 跟浏览器带着 cookie 回来一个效果
+let jar: Map<string, string>;
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) => (jar.has(name) ? { name, value: jar.get(name)! } : undefined),
+    set: (name: string, value: string) => void jar.set(name, value),
+  }),
+}));
+
 function seed(tables = {}) {
   fake = createFakeSupabase({ day_notes: [], app_settings: [], ...tables });
   (globalThis as any).__fakeSupabase = fake.client;
@@ -50,6 +60,7 @@ const saveSettings = (body: unknown) =>
 beforeEach(() => {
   vi.resetModules();
   seed();
+  jar = new Map();
 });
 
 describe("这一天的备注", () => {
@@ -93,22 +104,20 @@ describe("这一天的备注", () => {
 describe("每行几天", () => {
   it("存下来的是夹到范围内的值，不是原样", async () => {
     await bandDays({ days: 999 });
-    expect(fake.db.app_settings[0].value).toBe(String(MAX_BAND_DAYS));
+    expect(jar.get("overview_band_days")).toBe(String(MAX_BAND_DAYS));
 
     await bandDays({ days: -5 });
-    expect(fake.db.app_settings[0].value).toBe(String(MIN_BAND_DAYS));
+    expect(jar.get("overview_band_days")).toBe(String(MIN_BAND_DAYS));
   });
 
   it("范围内的原样存", async () => {
     await bandDays({ days: 11 });
-    expect(fake.db.app_settings[0].value).toBe("11");
-    // 一个 key 只有一行，改来改去不会堆出好几行
-    expect(fake.db.app_settings).toHaveLength(1);
+    expect(jar.get("overview_band_days")).toBe("11");
   });
 
   it("小数往下取整，不会存成 10.7 让日历切出半列", async () => {
     await bandDays({ days: 10.7 });
-    expect(fake.db.app_settings[0].value).toBe("10");
+    expect(jar.get("overview_band_days")).toBe("10");
   });
 
   it("不是数字 → 400", async () => {
@@ -118,23 +127,34 @@ describe("每行几天", () => {
       const r = await bandDays({ days });
       expect(r.status, `days=${JSON.stringify(days)}`).toBe(400);
     }
-    expect(fake.db.app_settings).toHaveLength(0);
+    expect(jar.size).toBe(0);
   });
 
   it("数字装在字符串里也认（表单传上来就是字符串）", async () => {
     await bandDays({ days: "14" });
-    expect(fake.db.app_settings[0].value).toBe("14");
+    expect(jar.get("overview_band_days")).toBe("14");
   });
 
-  it("库里没有这条设置时，读出来是默认的四周而不是上限", async () => {
-    const { getOverviewBandDays } = await import("@/lib/appSettings");
-    expect(await getOverviewBandDays()).toBe(DEFAULT_BAND_DAYS);
+  it("**不进库** —— 两个管理员各用各的，存库就互相改对方的", async () => {
+    await bandDays({ days: 14 });
+    expect(fake.db.app_settings).toHaveLength(0);
   });
 
-  it("库里是脏值也不会把日历搞死", async () => {
-    seed({ app_settings: [{ key: "overview_band_days", value: "自由发挥" }] });
-    const { getOverviewBandDays } = await import("@/lib/appSettings");
-    expect(await getOverviewBandDays()).toBe(DEFAULT_BAND_DAYS);
+  it("没设过时，读出来是默认的四周而不是上限", async () => {
+    const { getBandDays } = await import("@/lib/bandDaysSetting");
+    expect(await getBandDays("overview")).toBe(DEFAULT_BAND_DAYS);
+  });
+
+  it("cookie 是脏值也不会把日历搞死", async () => {
+    jar.set("overview_band_days", "自由发挥");
+    const { getBandDays } = await import("@/lib/bandDaysSetting");
+    expect(await getBandDays("overview")).toBe(DEFAULT_BAND_DAYS);
+  });
+
+  it("库里还留着老的那条也不认 —— 读的只有这台电脑的 cookie", async () => {
+    seed({ app_settings: [{ key: "overview_band_days", value: "14" }] });
+    const { getBandDays } = await import("@/lib/bandDaysSetting");
+    expect(await getBandDays("overview")).toBe(DEFAULT_BAND_DAYS);
   });
 });
 
@@ -161,13 +181,9 @@ describe("起始日期这条设置", () => {
 });
 
 describe("设置弹框那条接口", () => {
-  it("读回来的是库里的值", async () => {
-    seed({
-      app_settings: [
-        { key: "overview_start", value: "2026-12-01" },
-        { key: "overview_band_days", value: "14" },
-      ],
-    });
+  it("读回来的是库里的值（每行几天是这台电脑 cookie 里的）", async () => {
+    seed({ app_settings: [{ key: "overview_start", value: "2026-12-01" }] });
+    jar.set("overview_band_days", "14");
     const { GET } = await import("@/app/admin/settings/route");
     const json = await (await GET()).json();
     // referral_rate 没设过 → 回默认 10（百分数，库里存的是 0.1）
@@ -185,7 +201,8 @@ describe("设置弹框那条接口", () => {
     const r = await saveSettings({ overview_start: "2026-12-01", band_days: "14" });
     expect(r.status).toBe(200);
     const rows = Object.fromEntries(fake.db.app_settings.map((x: any) => [x.key, x.value]));
-    expect(rows).toEqual({ overview_start: "2026-12-01", overview_band_days: "14" });
+    expect(rows).toEqual({ overview_start: "2026-12-01" });
+    expect(jar.get("overview_band_days")).toBe("14");
   });
 
   it("起始日期留空 = 清掉这条设置", async () => {
@@ -224,11 +241,12 @@ describe("设置弹框那条接口", () => {
     expect(r.status).toBe(400);
     // 拒了就一项都别存 —— 半存半不存最难查
     expect(fake.db.app_settings).toHaveLength(0);
+    expect(jar.size).toBe(0);
   });
 
   it("每行几天：超范围夹住，坏类型拒掉", async () => {
     await saveSettings({ band_days: 999 });
-    expect(fake.db.app_settings[0].value).toBe(String(MAX_BAND_DAYS));
+    expect(jar.get("overview_band_days")).toBe(String(MAX_BAND_DAYS));
 
     for (const band_days of [null, "", [], {}, true]) {
       expect((await saveSettings({ band_days })).status).toBe(400);
@@ -274,17 +292,17 @@ describe("设置：介绍人返点的全局默认比例", () => {
 
 
 describe("返点日历：拖右边那根条改每行几天", () => {
-  const key = () => fake.db.app_settings.find((x: any) => x.key === "referral_band_days");
+  const key = () => jar.get("referral_band_days");
 
   it("正常存进去", async () => {
     const r = await referralBandDays({ days: 14 });
     expect(r.status).toBe(200);
-    expect(key().value).toBe("14");
+    expect(key()).toBe("14");
   });
 
   it("超范围夹住 —— 拖到头本来就是夹住，两条路行为要一样", async () => {
     await referralBandDays({ days: 999 });
-    expect(key().value).toBe(String(MAX_BAND_DAYS));
+    expect(key()).toBe(String(MAX_BAND_DAYS));
   });
 
   it("**坏类型要拒掉，不能被 Number() 悄悄变成 0 再夹成最窄**", async () => {
@@ -304,7 +322,14 @@ describe("返点日历：拖右边那根条改每行几天", () => {
 
   it("**跟排期总览各存各的** —— 改一张不该动另一张", async () => {
     await referralBandDays({ days: 7 });
-    expect(fake.db.app_settings.find((x: any) => x.key === "overview_band_days")).toBeUndefined();
+    expect(jar.has("overview_band_days")).toBe(false);
+  });
+
+  it("没设过时是返点日历自己的默认 14，cookie 脏了也退回 14 而不是总览的 28", async () => {
+    const { getBandDays } = await import("@/lib/bandDaysSetting");
+    expect(await getBandDays("referral")).toBe(14);
+    jar.set("referral_band_days", "abc");
+    expect(await getBandDays("referral")).toBe(14);
   });
 });
 

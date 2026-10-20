@@ -97,8 +97,8 @@ export default function ZoomableCalendar({
   // 一次重排要跑一整轮查询，每吃掉一列就发一次太浪费。
   function commit(next: number) {
     setPreview(next);
-    // 这个值存库不存 cookie（设置页也要能改它，一个值不能两个地方存）。
-    // 写库那一下不等它 —— 拖完立刻按新的画，落库和重渲染在后台跑
+    // 存 cookie（每台电脑各记各的），但走服务端写 —— 设置弹框改的是同一个值，校验只要一份。
+    // 不等它 —— 拖完立刻按新的画，写 cookie 和重渲染在后台跑
     fetch("/admin/overview/band-days", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

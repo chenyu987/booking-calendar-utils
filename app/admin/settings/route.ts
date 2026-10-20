@@ -5,13 +5,12 @@ import {
   setOverviewStart,
   getOverviewEnd,
   setOverviewEnd,
-  getOverviewBandDays,
-  setOverviewBandDays,
   getReferralRate,
   setReferralRate,
   getPrimaryAdminId,
   setPrimaryAdminId,
 } from "@/lib/appSettings";
+import { getBandDays, setBandDays } from "@/lib/bandDaysSetting";
 import { resolvePrimaryAdmin } from "@/lib/admins";
 import { isIsoDate } from "@/lib/timelineStart";
 import { parseRatePercent } from "@/lib/referral";
@@ -25,7 +24,7 @@ export async function GET() {
   const [start, end, bandDays, rate, admins, primaryRaw] = await Promise.all([
     getOverviewStart(),
     getOverviewEnd(),
-    getOverviewBandDays(),
+    getBandDays("overview"),
     getReferralRate(),
     loadAdmins(),
     getPrimaryAdminId(),
@@ -33,6 +32,7 @@ export async function GET() {
   return NextResponse.json({
     overview_start: start,
     overview_end: end,
+    // 这一项是 cookie 里的（这台电脑的），别的都在库里
     band_days: bandDays,
     // 库里存小数（0.1），界面上填百分数
     referral_rate: Math.round(rate * 10000) / 100,
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
     if (!Number.isFinite(n)) {
       return NextResponse.json({ error: "每行几天不是数字" }, { status: 400 });
     }
-    await setOverviewBandDays(n);
+    await setBandDays("overview", n);
   }
 
   // 介绍人返点的全局默认比例。校验走 lib/referral.ts 的 parseRatePercent

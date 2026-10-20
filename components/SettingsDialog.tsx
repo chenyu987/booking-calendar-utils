@@ -136,7 +136,7 @@ export default function SettingsDialog({
           </button>
         </div>
         <p style={hintStyle}>
-          存在库里，换台机器也一样。缩放、面板收起、右边那一栏拖多宽，那些是各自机器上的习惯，不在这儿。
+          存在库里，换台机器也一样（标了「只存在这台机器上」的除外）。缩放、面板收起、右边那一栏拖多宽，那些是各自机器上的习惯，不在这儿。
         </p>
 
         <section style={sectionStyle}>
@@ -179,7 +179,7 @@ export default function SettingsDialog({
           <div style={labelStyle}>排期总览：每行排几天</div>
           <p style={hintStyle}>
             {MIN_BAND_DAYS}~{MAX_BAND_DAYS} 天。也可以直接在排期总览里拖右边那根竖条改，
-            两边改的是同一个值。
+            两边改的是同一个值。这一项只存在这台机器上。
           </p>
           <input
             key={`days-${data.band_days}`}

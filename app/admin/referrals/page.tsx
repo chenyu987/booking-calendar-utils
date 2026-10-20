@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { personSpread } from "@/lib/people";
 import { DISPLAY_COLUMNS } from "@/lib/person";
-import { getReferralBandDays, getReferralRate, setReferralRate } from "@/lib/appSettings";
+import { getReferralRate, setReferralRate } from "@/lib/appSettings";
+import { getBandDays } from "@/lib/bandDaysSetting";
 import Link from "next/link";
 import { formatDayRanges, todayIso } from "@/lib/dates";
 import { weekBounds } from "@/lib/revenue";
@@ -495,7 +496,7 @@ export default async function ReferralsAdminPage(
       supabase.from("referral_payouts").select("order_id, referrer_id, amount"),
       getReferralRate(),
     ]);
-  const bandDays = await getReferralBandDays();
+  const bandDays = await getBandDays("referral");
 
   const all = (customers ?? []) as ReferralCustomer[];
   const byId = new Map(all.map((r) => [r.id, r]));

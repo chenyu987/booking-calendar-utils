@@ -14,12 +14,8 @@ import { groupMatchesByOrder, parseMatchView, type MatchView } from "@/lib/match
 import { buildMatchBoard, candidateOf } from "@/lib/matchBoard";
 import AutoSubmitForm from "./AutoSubmitForm";
 import { MIN_BAND_DAYS, MAX_BAND_DAYS } from "@/lib/bandDays";
-import {
-  getMatchesBandDays,
-  getMatchesStart,
-  setMatchesBandDays,
-  setMatchesStart,
-} from "@/lib/appSettings";
+import { getMatchesStart, setMatchesStart } from "@/lib/appSettings";
+import { getBandDays, setBandDays } from "@/lib/bandDaysSetting";
 import MatchCalendar from "./MatchCalendar";
 import { DISPLAY_COLUMNS, displayName, formatPerson } from "@/lib/person";
 import { todayIso } from "@/lib/dates";
@@ -100,8 +96,10 @@ async function createMatch(formData: FormData) {
 // 两张表、两种用法，在这儿调一下不该把总览也带着变。
 async function saveCalendarSettings(formData: FormData) {
   "use server";
-  const days = Number(formData.get("band_days"));
-  if (Number.isFinite(days)) await setMatchesBandDays(days);
+  const rawDays = String(formData.get("band_days") ?? "").trim();
+  const days = rawDays === "" ? NaN : Number(rawDays);
+  // 空着不存：Number("") 是 0，会被夹成最窄的 3 天
+  if (Number.isFinite(days)) await setBandDays("matches", days);
   // 留空 = 回到默认起点；填了个不存在的日子也当没填（setOverviewStart 自己会验）
   await setMatchesStart(((formData.get("start") as string) ?? "").trim() || null);
 
@@ -276,9 +274,9 @@ export default async function MatchesAdminPage(
   // 那是从 order_assignments 现算的（CLAUDE.md：能算出来的不存字段），写进 SQL
   // 就得在两处维护同一套算法
   const today = todayIso();
-  // 日历那张每行排几天。用的是排期总览那条设置，设置弹窗里能调
+  // 日历那张每行排几天：这一页自己的，存 cookie，每台电脑各记各的（lib/bandDaysSetting.ts）
   const [bandDays, calendarStart] = calendar
-    ? await Promise.all([getMatchesBandDays(), getMatchesStart()])
+    ? await Promise.all([getBandDays("matches"), getMatchesStart()])
     : [0, null];
   // 落空与否**现算不存**：到了订单开始那天还没被选中就再也用不上了。
   // 在那之前留着当后备 —— 中标的那条可能退单，其余几条随时能顶上去。见 lib/matchStatus.ts

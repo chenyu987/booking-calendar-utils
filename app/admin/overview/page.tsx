@@ -75,7 +75,8 @@ import {
 } from "@/lib/timelineStart";
 import type { ResourceUse } from "@/lib/previousUse";
 import { findClashes, indexClashes, clashKey } from "@/lib/doubleBooking";
-import { getOverviewStart, getOverviewEnd, getOverviewBandDays, getPrimaryAdminId } from "@/lib/appSettings";
+import { getOverviewStart, getOverviewEnd, getPrimaryAdminId } from "@/lib/appSettings";
+import { getBandDays } from "@/lib/bandDaysSetting";
 import { BETA_FRAME_COLOR, adminColor, effectiveAdminId, frameColor, orderFrame } from "@/lib/orderFrame";
 import DayNote from "./DayNote";
 import { readNoteText } from "@/lib/orderNote";
@@ -385,7 +386,8 @@ export default async function OverviewPage(
     // 这一页渲染一次本来就要 0.6~1.3 秒，再串一个来回纯属白等
     getOverviewStart(),
     getOverviewEnd(),
-    getOverviewBandDays(),
+    // 每行几天存 cookie，每台电脑各记各的（lib/bandDaysSetting.ts）
+    getBandDays("overview"),
     // 标题旁边「当前身份」那个下拉的名单（一共几行，跟着并排跑不多等）
     loadAdmins(),
     getPrimaryAdminId(),

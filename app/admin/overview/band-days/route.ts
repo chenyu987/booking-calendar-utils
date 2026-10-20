@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { setOverviewBandDays } from "@/lib/appSettings";
+import { setBandDays } from "@/lib/bandDaysSetting";
 import { clampBandDays } from "@/lib/bandDays";
 
 // 拖右边那根条改「每行几天」时打这里。
 //
-// 这个值以前存 cookie（客户端一行代码就写了），现在存库，所以得走服务端。
+// 存的是 cookie（每台电脑各记各的，见 lib/bandDaysSetting.ts）。还是走服务端写：
+// 设置弹框也改这个值，夹范围、挡坏类型只该有一份。
 // 用 Route Handler 不用 Server Action：跟分配那边同一个理由 —— 写完就返回，
 // 整页重渲染交给客户端的 router.refresh() 在后台跑，不挡着手上的操作。
 export async function POST(req: NextRequest) {
@@ -29,13 +30,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "days 不是数字" }, { status: 400 });
   }
 
-  try {
-    await setOverviewBandDays(clampBandDays(raw));
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message ?? "没存上" }, { status: 500 });
-  }
+  await setBandDays("overview", clampBandDays(raw));
 
   revalidatePath("/admin/overview");
-  revalidatePath("/admin/settings");
   return NextResponse.json({ ok: true });
 }

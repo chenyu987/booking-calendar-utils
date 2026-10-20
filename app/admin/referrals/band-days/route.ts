@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { setReferralBandDays } from "@/lib/appSettings";
+import { setBandDays } from "@/lib/bandDaysSetting";
 import { clampBandDays } from "@/lib/bandDays";
 
 // 拖返点日历右边那根条改「每行几天」时打这里。
 //
-// 跟排期总览那条（app/admin/overview/band-days）是同一个形状，但**各存各的 key** ——
+// 跟排期总览那条（app/admin/overview/band-days）是同一个形状，但**各存各的 cookie** ——
 // 两张不同的表、不同的用法，不该互相牵连。
 //
 // 用 Route Handler 不用 Server Action：写完就返回，整页重渲染交给客户端的
@@ -31,11 +31,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "days 不是数字" }, { status: 400 });
   }
 
-  try {
-    await setReferralBandDays(clampBandDays(raw));
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message ?? "没存上" }, { status: 500 });
-  }
+  await setBandDays("referral", clampBandDays(raw));
 
   revalidatePath("/admin/referrals");
   return NextResponse.json({ ok: true });
