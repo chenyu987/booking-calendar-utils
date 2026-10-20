@@ -97,7 +97,6 @@ export default function AssigningBar({
         <DeleteOrderButton
           orderId={orderId}
           deleteAction={deleteAction}
-          exitHref={exitHref}
           onStart={onDelete}
           style={{
             width: "auto",

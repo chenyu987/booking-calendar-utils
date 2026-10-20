@@ -130,6 +130,17 @@ export const SEED = {
       male_count: 1,
       female_count: 0,
     },
+    // 只给「删单」那条测试删的：删了就没了，别的测试别用它
+    {
+      id: "ord-doomed",
+      customer_id: "r-short",
+      location: "locbl",
+      amount: 50,
+      status: "created",
+      demand_days: [orderDay(12)],
+      male_count: 1,
+      female_count: 0,
+    },
   ],
   order_assignments: [
     // 主角只配了女资源：男资源那个缺口留着，jordan 才会以「候选」身份出现在

@@ -917,3 +917,21 @@ test.describe("推荐分配", () => {
     ).toHaveCount(0);
   });
 });
+
+test.describe("删单", () => {
+  // 2026-10-20 线上抓到：点「删除这单」→ 色块当场藏掉、看着删了，一刷新又回来。
+  // 删除按钮先 router.push 退出分配态、紧跟着调 Server Action，Action 被 Next 的路由队列丢了，
+  // 删除请求根本没发到服务器。界面上什么都不报 —— 只有刷新一下才看得出来，所以这条测试要刷新
+  test("删掉的单子刷新之后不会回来", async ({ page }) => {
+    await gotoOverview(page);
+    page.on("dialog", (d) => d.accept());
+    await page.locator('a[data-order-id="ord-doomed"]').first().click();
+    const deleted = page.waitForResponse(
+      (r) => r.request().method() === "POST" && !!r.request().headers()["next-action"]
+    );
+    await page.getByText("删除这单").click();
+    await deleted;
+    await gotoOverview(page);
+    await expect(page.locator('[data-order-id="ord-doomed"]')).toHaveCount(0);
+  });
+});

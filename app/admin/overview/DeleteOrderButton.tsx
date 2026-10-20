@@ -12,7 +12,6 @@ import { useRouter } from "next/navigation";
 export default function DeleteOrderButton({
   orderId,
   deleteAction,
-  exitHref,
   style,
   /** 按钮文字。默认是那个红叉；浮动条上地方够，写成「删除这单」更清楚 */
   label = "×",
@@ -20,7 +19,6 @@ export default function DeleteOrderButton({
 }: {
   orderId: string;
   deleteAction: (formData: FormData) => Promise<void>;
-  exitHref: string;
   style?: React.CSSProperties;
   label?: string;
   /** 确认删除的那一刻（分配态退出、**不存**改动：单子都要没了，存了也会报错） */
@@ -45,7 +43,9 @@ export default function DeleteOrderButton({
     setDeleting(true);
     onStart?.();
     setBlocksHidden(true);
-    router.push(exitHref);
+    // 退出分配态由 onStart 在浏览器里做完（InstantAssign 的 exit），这里**不能再 router.push**：
+    // 导航和紧跟着的 Server Action 挤在一起，Action 被 Next 的路由队列丢掉，删除请求根本没发出去
+    // —— 色块当场藏了、看着删掉了，一刷新又回来（2026-10-20 线上抓到的）
 
     const fd = new FormData();
     fd.set("order_id", orderId);
