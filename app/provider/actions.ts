@@ -8,6 +8,7 @@ import { claimProvider } from "@/lib/accountClaim";
 import { validateResourceEdit, deleteBlockReason } from "@/lib/resourceEdit";
 import { type Period, periodsFromFormData, serializeValidity } from "@/lib/validity";
 import { cookies } from "next/headers";
+import { addressFromFormData } from "@/lib/address";
 
 import { bookedDaysFor } from "./data";
 import { clampProviderBandDays } from "@/lib/providerBoard";
@@ -116,6 +117,8 @@ export async function saveContact(formData: FormData) {
   // 物主自己填的是账号（0020）—— 管理员拿它加好友。昵称是加了之后在后台填的
   const chat = text(formData, "chat_id");
   if (!chat) redirect("/provider?edit=contact&error=chat");
+  const parsed = addressFromFormData(formData);
+  if ("error" in parsed) redirect("/provider?edit=contact&error=country");
 
   // 联系方式是人身上的（people），不在 providers 这张身份表上（0017）
   const { error } = await supabase
@@ -124,6 +127,7 @@ export async function saveContact(formData: FormData) {
       first_name: text(formData, "first_name") || null,
       chat_id: chat,
       phone_number: text(formData, "phone_number") || null,
+      ...parsed.address,
     })
     .eq("id", providerId);
   if (error) redirect("/provider?edit=contact&error=save");

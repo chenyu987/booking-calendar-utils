@@ -48,6 +48,13 @@ export type PersonFields = {
   date_of_birth?: string | null;
   email?: string | null;
   phone_number?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  region?: string | null;
+  postal_code?: string | null;
+  /** ISO 3166 两位大写（US / CA / AU），库里有 check */
+  country?: string | null;
   status?: string;
   note?: string | null;
   auth_user_id?: string | null;

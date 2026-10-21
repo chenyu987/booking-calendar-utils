@@ -6,6 +6,7 @@ import { claimProvider } from "@/lib/accountClaim";
 import { formatDayRanges, todayIso } from "@/lib/dates";
 import { formatParty } from "@/lib/party";
 import { RESOURCE_EDIT_ERRORS } from "@/lib/resourceEdit";
+import { ADDRESS_COLUMNS } from "@/lib/address";
 import { matchDisplay, isOpenMatch, isStaleMatch } from "@/lib/matchStatus";
 import { firstDay } from "@/lib/matchSort";
 import {
@@ -31,6 +32,7 @@ const ERROR_TEXT: Record<string, string> = {
   ...RESOURCE_EDIT_ERRORS,
   save: "没存上，再试一次。",
   chat: "账号得填 —— 我们是通过聊天联系你的。",
+  country: "国家请从下拉里选。",
   hasBookings:
     "这个资源已经排出去了，删不了 —— 删掉会把分配记录一起带走，订单那边还显示配好了资源。不想再出租的话改成「暂停」或「已下架」。",
   notmine: "那个资源不是你的。",
@@ -86,7 +88,7 @@ export default async function ProviderHomePage(
   const [{ data: me }, { data: resources }] = await Promise.all([
     supabase
       .from("people")
-      .select("first_name, last_name, chat_name, phone_number, chat_id")
+      .select(`first_name, last_name, chat_name, phone_number, chat_id, ${ADDRESS_COLUMNS}`)
       .eq("id", providerId)
       .maybeSingle(),
     supabase

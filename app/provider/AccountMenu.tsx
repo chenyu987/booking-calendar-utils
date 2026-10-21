@@ -4,6 +4,8 @@ import ThemeToggle from "./ThemeToggle";
 import ViewSettings from "./ViewSettings";
 import type { Theme } from "@/lib/theme";
 import { selfDisplayName } from "@/lib/person";
+import { formatAddress } from "@/lib/address";
+import AddressFields from "@/app/AddressFields";
 
 // 右上角的账号菜单。**联系方式从主体挪进来了** —— 它是账号设置，不是物主每次
 // 进来要看的东西，跟「有哪些需求」抢同一层视觉重量纯属浪费。
@@ -90,6 +92,7 @@ export default function AccountMenu({
                 style={inputStyle}
               />
             </label>
+            <AddressFields value={me} inputStyle={inputStyle} labelStyle={labelStyle} layout="stack" />
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button type="submit" style={buttonStyle}>
                 保存
@@ -104,6 +107,7 @@ export default function AccountMenu({
             <dl style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.9 }}>
               <Row label="账号" value={me?.chat_id} warn={noChat} />
               <Row label="手机号" value={me?.phone_number} />
+              <Row label="地址" value={formatAddress(me)} />
             </dl>
             {/* 「改联系方式」挨着它要改的那两行 —— 原来在最底下跟「退出」并排，
                 离得远不说，还容易看成一类东西（一个是改资料，一个是走人） */}

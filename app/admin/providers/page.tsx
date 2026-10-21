@@ -2,7 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
-import { createPerson, PERSON_SPREAD } from "@/lib/people";
+import { createPerson, PERSON_COLUMNS, personSpread } from "@/lib/people";
+import { ADDRESS_COLUMNS, addressFromFormData, formatAddress } from "@/lib/address";
+import AddressFields from "@/app/AddressFields";
 import { calcAge } from "@/lib/age";
 import { selfName } from "@/lib/person";
 import {
@@ -46,6 +48,8 @@ async function updateProvider(formData: FormData) {
   // 不碰称呼（first/last name）：那是注册用户自己填的，后台不改（0020）
   const chatName = (formData.get("chat_name") as string)?.trim();
   if (!chatName) throw new Error("昵称必填");
+  const parsed = addressFromFormData(formData);
+  if ("error" in parsed) throw new Error("国家只能从下拉里选");
   const { error } = await supabase
     .from("people")
     .update({
@@ -55,6 +59,7 @@ async function updateProvider(formData: FormData) {
       date_of_birth: (formData.get("date_of_birth") as string) || null,
       status: formData.get("status") as string,
       note: (formData.get("note") as string)?.trim() || null,
+      ...parsed.address,
     })
     .eq("id", formData.get("id") as string);
   if (error) throw new Error(error.message);
@@ -97,7 +102,8 @@ export default async function ProvidersAdminPage(
   const searchParams = await props.searchParams;
   const { data: providers, error } = await supabase
     .from("providers")
-    .select(`*, ${PERSON_SPREAD}`)
+    // 地址（0028）不在 PERSON_COLUMNS 里（那个每次查人都带），这一页要用就点名带上
+    .select(`*, ${personSpread(`${PERSON_COLUMNS}, ${ADDRESS_COLUMNS}` as const)}`)
     .order("created_at", { ascending: false });
 
   const editingId = searchParams.edit;
@@ -129,13 +135,15 @@ export default async function ProvidersAdminPage(
         <div style={{ ...cellStyle, width: 120 }}>生日</div>
         <div style={{ ...cellStyle, width: 50 }}>年龄</div>
         <div style={{ ...cellStyle, width: 100 }}>状态</div>
+        <div style={{ ...cellStyle, flex: 1.6 }}>地址</div>
         <div style={{ ...cellStyle, flex: 1 }}>备注</div>
         <div style={{ ...cellStyle, width: 120 }}>操作</div>
       </div>
 
       {providers?.map((o) =>
         o.id === editingId ? (
-          <form key={o.id} action={updateProvider} style={rowStyle}>
+          // flexWrap：第一行跟普通态一列一列对齐，地址太长塞不进一格，单独折到第二行
+          <form key={o.id} action={updateProvider} style={{ ...rowStyle, flexWrap: "wrap" }}>
             <input type="hidden" name="id" value={o.id} />
             <div style={{ ...cellStyle, flex: 1.4 }}>
               <input
@@ -181,6 +189,7 @@ export default async function ProvidersAdminPage(
                 <option value="blacklisted">blacklisted</option>
               </select>
             </div>
+            <div style={{ ...cellStyle, flex: 1.6, color: "var(--text-faint)" }}>↓ 下面一行</div>
             <div style={{ ...cellStyle, flex: 1 }}>
               <input
                 name="note"
@@ -195,6 +204,10 @@ export default async function ProvidersAdminPage(
               <Link href="/admin/providers" style={linkButtonStyle}>
                 取消
               </Link>
+            </div>
+            <div style={{ flexBasis: "100%", minWidth: 0, display: "flex", gap: 6, alignItems: "center" }}>
+              <span style={{ ...cellStyle, color: "var(--text-muted)", flexShrink: 0 }}>地址</span>
+              <AddressFields value={o} inputStyle={inputStyle} layout="row" />
             </div>
           </form>
         ) : (
@@ -213,6 +226,12 @@ export default async function ProvidersAdminPage(
               {calcAge(o.date_of_birth) ?? "-"}
             </div>
             <div style={{ ...cellStyle, width: 100 }}>{o.status}</div>
+            <div
+              style={{ ...cellStyle, flex: 1.6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              title={formatAddress(o) ?? undefined}
+            >
+              {formatAddress(o) ?? "-"}
+            </div>
             <div style={{ ...cellStyle, flex: 1 }}>{o.note ?? "-"}</div>
             <div style={{ ...cellStyle, width: 120, display: "flex", gap: 10 }}>
               <Link href={`/admin/providers?edit=${o.id}`} style={linkButtonStyle}>

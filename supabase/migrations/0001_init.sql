@@ -18,6 +18,15 @@ create table people (
   date_of_birth date,
   email text,
   phone_number text,
+  -- 地址（0028），全部选填。拆成几列是为了以后按城市 / 邮编统计。
+  -- region = 州 / 省；postal_code 是 text（加拿大带空格、美国有前导 0）；
+  -- country 是 ISO 两位大写，约束住免得「USA」「美国」算成两个国家
+  address_line1 text,
+  address_line2 text,
+  city text,
+  region text,
+  postal_code text,
+  country text check (country ~ '^[A-Z]{2}$'),
   status text not null default 'active',
   note text,
   -- 登录后对应的 Supabase Auth 用户。unique：一个登录账号只对应一个人，
