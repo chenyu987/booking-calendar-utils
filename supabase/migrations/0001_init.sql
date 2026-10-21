@@ -336,6 +336,10 @@ create trigger log_change_delete after delete on app_settings
   for each row when (old.key in ('referral_rate_default', 'primary_admin_id'))
   execute function log_change('key');
 
+-- 只有 trigger 用得着它，anon / authenticated 不该能经 /rest/v1/rpc 调到（0027）。
+-- Supabase 新建函数默认给这两个角色执行权限，光 revoke from public 不够
+revoke execute on function log_change() from public, anon, authenticated;
+
 -- RLS（0026）：一条策略都不写 = anon / authenticated 全拒，应用走 service key。
 -- 为什么这么做见 0026_rls.sql。**新建表要在这儿加一行**（tests/rls.test.ts 盯着）
 alter table people enable row level security;

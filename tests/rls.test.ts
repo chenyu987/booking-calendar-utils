@@ -27,4 +27,16 @@ describe("RLS", () => {
     const created = files.flatMap((f) => tablesIn(readFileSync(`supabase/migrations/${f}`, "utf8")));
     expect(created.filter((t) => !enabled.has(t))).toEqual([]);
   });
+
+  it("security definer 函数都收回了 anon / authenticated 的执行权限 —— 不收的话没登录也能经 /rest/v1/rpc 调到", () => {
+    const sql = readFileSync("supabase/migrations/0001_init.sql", "utf8");
+    const definers = [...sql.matchAll(/^create (?:or replace )?function (\w+)\(([^)]*)\)[^;]*?security definer/gm)].map(
+      (m) => `${m[1]}(${m[2]})`,
+    );
+    expect(definers.length).toBeGreaterThan(0);
+    const revoked = new Set(
+      [...sql.matchAll(/^revoke execute on function (\w+\([^)]*\)) from public, anon, authenticated;/gm)].map((m) => m[1]),
+    );
+    expect(definers.filter((f) => !revoked.has(f))).toEqual([]);
+  });
 });

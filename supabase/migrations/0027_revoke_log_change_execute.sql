@@ -1,0 +1,12 @@
+-- 收回 anon / authenticated 对 log_change() 的执行权限（0027）。
+--
+-- Supabase 的安全检查（Security Advisor）报：security definer 函数在 public 里，
+-- 没登录的人也能经 /rest/v1/rpc/log_change 调到它。log_change 是 trigger 函数，
+-- 直接调会被 Postgres 拒（trigger functions can only be called as triggers），
+-- 所以实际上打不进来 —— 但它以 provider 身份运行、能往 change_log 写，权限本来就不该敞着。
+--
+-- 收掉之后 trigger 照常触发：Postgres 只在 create trigger 那一刻查 EXECUTE，触发时不查。
+-- 注意 Supabase 新建函数默认就给 anon / authenticated 执行权限（default privileges），
+-- 光 revoke from public 不够，要把两个角色点名写出来。
+-- **以后新写 security definer 函数照这条加一行**（tests/rls.test.ts 盯着）
+revoke execute on function log_change() from public, anon, authenticated;
