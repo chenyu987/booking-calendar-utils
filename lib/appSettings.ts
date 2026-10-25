@@ -22,6 +22,9 @@ export const SETTING_KEYS = {
   referralRate: "referral_rate_default",
   /** 主要管理员（0019）：没写是谁的单子都算他的，他的单色块不上色 */
   primaryAdmin: "primary_admin_id",
+  /** 需求页估总价用的每天单价（美元）。只用来估，不进任何订单 */
+  requestPriceBeta: "request_price_beta",
+  requestPriceAlpha: "request_price_alpha",
 } as const;
 
 async function readSetting(key: string): Promise<string | null> {
@@ -124,3 +127,36 @@ export async function getPrimaryAdminId(): Promise<string | null> {
 export async function setPrimaryAdminId(id: string | null) {
   await writeSetting(SETTING_KEYS.primaryAdmin, id);
 }
+
+// —— 需求页的每天单价 ——
+//
+// 两个管理员看到的估价该一样，所以放库里不放 cookie。只用来在需求页上估个总价、排个序，
+// 不写进任何订单 —— 真报价还是建单时自己填（lib/pricing.ts）。
+
+export type RequestPrices = { beta: number | null; alpha: number | null };
+
+export const REQUEST_PRICE_MAX = 10000;
+
+/** 表单里填的单价：空 = 不设；负数、太大、不是数都当不设（不报错，估价那一列空着就看得出来） */
+export function parseRequestPrice(raw: unknown): number | null {
+  const s = String(raw ?? "").trim().replace(/^\$/, "");
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 && n <= REQUEST_PRICE_MAX ? Math.round(n * 100) / 100 : null;
+}
+
+export async function getRequestPrices(): Promise<RequestPrices> {
+  const [beta, alpha] = await Promise.all([
+    readSetting(SETTING_KEYS.requestPriceBeta),
+    readSetting(SETTING_KEYS.requestPriceAlpha),
+  ]);
+  return { beta: parseRequestPrice(beta), alpha: parseRequestPrice(alpha) };
+}
+
+export async function setRequestPrices(prices: RequestPrices) {
+  await Promise.all([
+    writeSetting(SETTING_KEYS.requestPriceBeta, prices.beta === null ? null : String(prices.beta)),
+    writeSetting(SETTING_KEYS.requestPriceAlpha, prices.alpha === null ? null : String(prices.alpha)),
+  ]);
+}
+

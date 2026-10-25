@@ -242,10 +242,21 @@ create table app_settings (
 insert into app_settings (key, value)
 select 'primary_admin_id', id::text from admins where name = 'admin2';
 
+create table chat_groups (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique check (btrim(name) <> ''),
+  active boolean not null default true,
+  note text,
+  created_at timestamptz not null default now()
+);
+
 create table chat_requests (
   id uuid primary key default gen_random_uuid(),
   dedup_key text not null unique,
   group_name text not null,
+  -- 挂到哪个群（0030）。group_name 是抓的那一刻群叫什么
+  -- 群删了需求留着（0031）：group_id 置空，group_name 还在
+  group_id uuid references chat_groups (id) on delete set null,
   sender text not null,
   item_type text not null default 'unknown' check (item_type in ('alpha', 'beta', 'unknown')),
   location text,
@@ -254,6 +265,7 @@ create table chat_requests (
   female int not null default 0 check (female >= 0),
   quote text not null,
   sent_at text,
+  sent_time timestamptz,
   extractor_note text,
   captured_at timestamptz,
   screenshot text,
@@ -264,6 +276,7 @@ create table chat_requests (
   created_at timestamptz not null default now()
 );
 create index chat_requests_status_created_idx on chat_requests (status, created_at desc);
+create index chat_requests_group_idx on chat_requests (group_id);
 
 -- 改动记录（0025）。为什么用 trigger、「谁」从哪来，见 0025_change_log.sql 的说明
 create table change_log (
@@ -361,6 +374,8 @@ create trigger log_change after insert or update or delete on day_notes
   for each row execute function log_change('day');
 create trigger log_change after insert or update or delete on chat_requests
   for each row execute function log_change();
+create trigger log_change after insert or update or delete on chat_groups
+  for each row execute function log_change();
 -- app_settings 只记真设置。日历从哪天开始、每行几天这些是「怎么看」，拖一下滑块写一次，
 -- 记进来全是噪音。WHEN 里 insert 不能引用 old、delete 不能引用 new，所以拆成两个
 create trigger log_change after insert or update on app_settings
@@ -392,3 +407,4 @@ alter table day_notes enable row level security;
 alter table app_settings enable row level security;
 alter table change_log enable row level security;
 alter table chat_requests enable row level security;
+alter table chat_groups enable row level security;

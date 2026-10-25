@@ -9,7 +9,7 @@
 //   from(t).select(cols).eq().neq().in().is().ilike().overlaps() → 数组
 //   ….single() / .maybeSingle()     → 单行
 //   from(t).insert(row)            （也能接 .select("id").single() 拿回新行）
-//   from(t).update(patch).eq()
+//   from(t).update(patch).eq() / .in()
 //   from(t).delete().eq().eq()
 //   from(t).upsert(row, { onConflict })
 //
@@ -232,6 +232,10 @@ export function createFakeSupabase(seed: Tables = {}) {
           },
           is(col: string, val: any) {
             filters.push((row) => (val === null ? row[col] == null : row[col] === val));
+            return chain;
+          },
+          in(col: string, vals: any[]) {
+            filters.push((row) => vals.includes(row[col]));
             return chain;
           },
           then: (res: any, rej: any) => Promise.resolve(run()).then(res, rej),
