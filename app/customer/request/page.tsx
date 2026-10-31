@@ -1,61 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
 import { claimCustomer } from "@/lib/accountClaim";
-import { dateRangeToArray } from "@/lib/dates";
 import LocationInput from "@/components/LocationInput";
+import { chatGap } from "@/lib/selfClaim";
+import { submitRequest } from "./actions";
 
 export const dynamic = "force-dynamic";
-
-// 发租借需求。联系方式不在这儿填 —— 那是 /customer 上「个人资料」的事，
-// 同一份信息两个地方能改，早晚对不上。
-//
-// 身份来自登录，**不再来自手机号** —— 以前这个页面是「输谁的手机号就是谁」，
-// 有了 magic link 登录之后那套必须废掉，否则同一个人会在库里裂成两行：
-// 一行挂在他的账号上（/customer 看到的），一行挂在他填的手机号上（这个表单造的）。
-async function submitRequest(formData: FormData) {
-  "use server";
-
-  const user = await getSessionUser();
-  if (!user) redirect("/login");
-  const customerId = await claimCustomer(user.id, user.email ?? null);
-
-  const maleCount = Number(formData.get("male_count") ?? 0);
-  const femaleCount = Number(formData.get("female_count") ?? 0);
-  if (maleCount + femaleCount < 1) {
-    redirect("/customer/request?error=party");
-  }
-
-  const startDate = formData.get("start_date") as string;
-  const endDate = formData.get("end_date") as string;
-  if (!startDate || !endDate || endDate < startDate) {
-    redirect("/customer/request?error=dates");
-  }
-  const demandDays = dateRangeToArray(startDate, endDate);
-
-  // amount 存总价：单价 × 天数 × 人数，跟 admin 那边算法一致
-  const pricePerDay = formData.get("budget") ? Number(formData.get("budget")) : 40;
-  const amount = pricePerDay * demandDays.length * (maleCount + femaleCount);
-
-  const { error: orderError } = await supabase.from("orders").insert({
-    customer_id: customerId,
-    location: ((formData.get("location") as string) ?? "").trim() || null,
-    male_count: maleCount,
-    female_count: femaleCount,
-    amount,
-    demand_days: demandDays,
-    status: "created",
-  });
-  if (orderError) redirect("/customer/request?error=save");
-
-  revalidatePath("/customer");
-  revalidatePath("/admin/overview");
-  revalidatePath("/admin/orders");
-  revalidatePath("/admin/customers");
-  redirect("/customer?created=1");
-}
 
 export default async function CustomerRequestPage(
   props: {
@@ -71,15 +23,16 @@ export default async function CustomerRequestPage(
   // 这里不放输入框，免得同一份信息两个地方能改
   const { data: me } = await supabase
     .from("people")
-    .select("phone_number, chat_id")
+    .select("chat_name, chat_id")
     .eq("id", customerId)
     .maybeSingle();
-  const noContact = !me?.phone_number && !me?.chat_id;
+  const gap = chatGap(me);
 
   const errorText: Record<string, string> = {
     party: "至少要有一个人，男女人数不能都填 0",
     dates: "日期不对：结束日期不能早于开始日期",
     save: "没存上，稍后再试一次",
+    chat: "先填好昵称和账号再发",
   };
 
   return (
@@ -100,10 +53,10 @@ export default async function CustomerRequestPage(
 
       {/* 提醒放在建单这一刻，而不是只在个人资料页上摆着 —— 用户想不起来
           去个人资料，但一定会走这个表单。带 next 回来，填完不用重新找路 */}
-      {noContact && (
+      {gap && (
         <div style={noticeStyle}>
-          <strong>还没留联系方式。</strong>
-          配到资源之后我们要通知你，光有邮箱容易漏 —— 留个聊天或者手机号吧。
+          <strong>还没填{gap}，填好才能发需求。</strong>
+          配到资源之后我们在聊天上找你；以前找我们租过的，也靠昵称对上你以前的记录。
           <div style={{ marginTop: 6 }}>
             <Link
               href="/customer?edit=profile&next=request"
@@ -159,8 +112,13 @@ export default async function CustomerRequestPage(
           总价 = 预算 × 天数 × 人数
         </p>
 
-        <button type="submit" style={buttonStyle}>
-          提交需求
+        {/* 聊天不齐时按钮灰掉（服务端 submitRequest 里还会再拦一次） */}
+        <button
+          type="submit"
+          disabled={!!gap}
+          style={gap ? { ...buttonStyle, opacity: 0.5, cursor: "not-allowed" } : buttonStyle}
+        >
+          {gap ? `先填好${gap}才能提交` : "提交需求"}
         </button>
       </form>
     </main>

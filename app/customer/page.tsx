@@ -9,11 +9,12 @@ import { formatDayRanges } from "@/lib/dates";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
 import { STATUS_LABELS, statusColor } from "@/lib/orderStatus";
+import { chatGap } from "@/lib/selfClaim";
 
 export const dynamic = "force-dynamic";
 
-// 个人资料保存。全部选填 —— 这些是「留个方便联系的方式」，不是注册门槛，
-// 一个都不填也能建单。
+// 个人资料保存。这里全部选填，但**发需求之前昵称和账号必须齐**（lib/selfClaim.ts 的 chatGap，
+// 发需求那边服务端拦）：账号是管理员加好友用的，昵称是跟库里老客人对上用的。
 async function saveProfile(formData: FormData) {
   "use server";
   const user = await getSessionUser();
@@ -28,7 +29,7 @@ async function saveProfile(formData: FormData) {
     .update({
       first_name: text("first_name"),
       phone_number: text("phone_number"),
-      // 自己填的是账号（0020）。昵称是管理员加了好友之后在后台填的
+      chat_name: text("chat_name"),
       chat_id: text("chat_id"),
       // 只存生日，年龄用 calcAge 现算 —— 存死数字明年就错了
       date_of_birth: text("date_of_birth"),
@@ -83,7 +84,9 @@ export default async function CustomerHomePage(
   // 编辑态用 URL 参数切换，不用 useState —— 跟 admin 那几个列表页一个路子
   const editing = searchParams.edit === "profile";
   const age = calcAge(me?.date_of_birth);
-  const noContact = !me?.phone_number && !me?.chat_id;
+  const gap = chatGap(me);
+  // 从发需求那边被送过来的：那边要求聊天齐了才能提交，这里就把两个框标成必填
+  const fromRequest = searchParams.next === "request";
 
   return (
     <main style={{ padding: 24, maxWidth: 560, margin: "0 auto" }}>
@@ -141,8 +144,24 @@ export default async function CustomerHomePage(
               <input name="first_name" defaultValue={me?.first_name ?? ""} style={inputStyle} />
             </label>
             <label style={labelStyle}>
-              账号
-              <input name="chat_id" defaultValue={me?.chat_id ?? ""} style={inputStyle} />
+              昵称{fromRequest && " *"}
+              <input
+                name="chat_name"
+                defaultValue={me?.chat_name ?? ""}
+                required={fromRequest}
+                placeholder="聊天里显示的名字"
+                style={inputStyle}
+              />
+            </label>
+            <label style={labelStyle}>
+              账号{fromRequest && " *"}
+              <input
+                name="chat_id"
+                defaultValue={me?.chat_id ?? ""}
+                required={fromRequest}
+                placeholder="聊天 → 我，名字下面那串"
+                style={inputStyle}
+              />
             </label>
             <label style={labelStyle}>
               手机号
@@ -163,7 +182,8 @@ export default async function CustomerHomePage(
               />
             </label>
             <p style={{ fontSize: 12, color: "var(--text-faint)", margin: 0 }}>
-              全部选填。生日只是方便分配时对得上年龄 —— 物品是登记了使用人的。
+              发需求之前要填好昵称和账号 —— 配到资源我们在聊天上找你，老客人也靠昵称对上以前的记录。
+              生日只是方便分配时对得上年龄 —— 物品是登记了使用人的。
             </p>
             <div style={{ display: "flex", gap: 8 }}>
               <button type="submit" style={buttonStyle}>
@@ -177,15 +197,19 @@ export default async function CustomerHomePage(
         ) : (
           <dl style={{ margin: 0, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.9 }}>
             <Row label="登录邮箱" value={user.email ?? "-"} />
+            <Row label="昵称" value={me?.chat_name} />
             <Row label="账号" value={me?.chat_id} />
             <Row label="手机号" value={me?.phone_number} />
             <Row
               label="生日"
               value={me?.date_of_birth ? `${me.date_of_birth}${age !== null ? `（${age}岁）` : ""}` : null}
             />
-            {noContact && (
+            {gap && (
               <p style={{ fontSize: 12, color: "var(--warn)", margin: "6px 0 0" }}>
-                留个手机号或者聊天吧 —— 配到资源之后我们要能找到你。
+                还没填{gap} —— 发需求之前要填好，配到资源我们在聊天上找你。{" "}
+                <Link href="/customer?edit=profile" style={{ color: "var(--warn)" }}>
+                  去填 →
+                </Link>
               </p>
             )}
           </dl>
@@ -207,14 +231,6 @@ export default async function CustomerHomePage(
       {searchParams.created && (
         <p style={{ color: "var(--ok)", fontSize: 13, margin: "8px 0 0" }}>
           需求提交成功，管理员会帮你匹配物主。
-          {noContact && (
-            <>
-              {" "}
-              <Link href="/customer?edit=profile" style={{ color: "var(--warn)" }}>
-                但你还没留聊天或手机号，配到资源我们不好通知你 —— 现在补一下 →
-              </Link>
-            </>
-          )}
         </p>
       )}
 

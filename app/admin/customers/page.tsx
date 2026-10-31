@@ -10,6 +10,8 @@ import { customerName } from "@/lib/referral";
 import { parseAdminIds } from "@/lib/admins";
 import { loadAdmins, loadPersonContacts, saveContacts } from "@/lib/personContacts";
 import { saveCustomerEdit } from "./saveCustomer";
+import { mergeCustomer } from "./actions";
+import { claimSuggestions } from "@/lib/selfClaim";
 import CustomerTable, { ContactCheckboxes, type CustomerRow } from "./CustomerTable";
 import {
   formStyle,
@@ -60,7 +62,7 @@ async function updateCustomer(formData: FormData) {
 
 export default async function CustomersAdminPage(
   props: {
-    searchParams: Promise<{ edit?: string; error?: string; saved?: string }>;
+    searchParams: Promise<{ edit?: string; error?: string; saved?: string; merge_error?: string }>;
   }
 ) {
   const searchParams = await props.searchParams;
@@ -80,6 +82,9 @@ export default async function CustomersAdminPage(
   // 介绍人：关系存在**被介绍人**这一行上（customers.referred_by），
   // 所以这儿不用再查一次，同一批数据里对一下 id 就有了
   const byId = new Map((customers ?? []).map((r) => [r.id, r]));
+
+  // 自己登录进来、填的昵称对得上一个老客人的（lib/selfClaim.ts）。只提示，管理员点了才合
+  const suggestions = claimSuggestions(customers ?? []);
 
   const rows: CustomerRow[] = (customers ?? []).map((r) => {
     const fp = footprints.get(r.id);
@@ -140,6 +145,43 @@ export default async function CustomersAdminPage(
 
       {error && <p style={{ color: "crimson" }}>{error.message}</p>}
 
+      {searchParams.merge_error && (
+        <p style={{ color: "var(--danger)", fontSize: 13 }}>{searchParams.merge_error}</p>
+      )}
+      {suggestions.length > 0 && (
+        <section style={claimCardStyle}>
+          <h2 style={{ fontSize: 14, margin: "0 0 4px" }}>可能是老客人（{suggestions.length}）</h2>
+          <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "0 0 8px" }}>
+            这些人自己用邮箱登录、新建了账号，填的昵称 / 账号跟一个老客人对上了。确认是同一个人再合并：
+            登录账号挂到老客人身上，新账号下的订单一起挪过去，老客人原有的资料不动。
+            随便谁都能填别人的昵称，所以不自动合。
+          </p>
+          {suggestions.map(({ me, old }) => (
+            <form
+              key={me.id}
+              action={mergeCustomer}
+              style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap", fontSize: 13, padding: "4px 0" }}
+            >
+              <input type="hidden" name="drop" value={me.id} />
+              <input type="hidden" name="keep" value={old.id} />
+              <span>
+                {me.email ?? "（没有邮箱）"} 填的「{me.chat_name || me.chat_id}」
+                {footprints.get(me.id)?.orderCount ? `（新账号下 ${footprints.get(me.id)?.orderCount} 单）` : ""}
+              </span>
+              <span style={{ color: "var(--text-faint)" }}>→</span>
+              <span>
+                老客人 <strong>{old.chat_name || old.chat_id}</strong>
+                {old.phone_number ? ` · ${old.phone_number}` : ""}
+                {` · ${footprints.get(old.id)?.orderCount ?? 0} 单`}
+              </span>
+              <button type="submit" style={{ ...buttonStyle, padding: "2px 10px", fontSize: 12 }}>
+                是同一个人，合并
+              </button>
+            </form>
+          ))}
+        </section>
+      )}
+
       <CustomerTable
         rows={rows}
         editingId={searchParams.edit ?? null}
@@ -152,3 +194,10 @@ export default async function CustomersAdminPage(
     </main>
   );
 }
+
+const claimCardStyle: React.CSSProperties = {
+  border: "1px solid var(--warn)",
+  borderRadius: 6,
+  padding: "10px 12px",
+  margin: "12px 0",
+};

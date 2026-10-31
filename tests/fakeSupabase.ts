@@ -12,6 +12,7 @@
 //   from(t).update(patch).eq() / .in()
 //   from(t).delete().eq().eq()
 //   from(t).upsert(row, { onConflict })
+//   rpc(name, args)                 （只记进 writes，不跑函数）
 //
 // select 里写成 "resources(id, holder_gender)" 的嵌套关系也认，一条 select 里可以有好几个：
 //   · 这一行上有外键列的（order_assignments.resource_id → resources）：多对一，
@@ -267,7 +268,15 @@ export function createFakeSupabase(seed: Tables = {}) {
   }
 
   return {
-    client: { from: (t: string) => builder(t) },
+    client: {
+      from: (t: string) => builder(t),
+      // 库函数（merge_person 这种）只记下调了谁、传了什么，不模拟函数本身 —— 那是 SQL 的事
+      rpc: async (name: string, args: any) => {
+        const message = takeFailure(name);
+        writes.push({ op: "rpc", table: name, payload: args });
+        return { data: null, error: message ? { message } : null };
+      },
+    },
     db,
     writes,
     failNextWriteWith(message: string, onTable?: string) {
