@@ -19,7 +19,7 @@ export function parseTheme(value: string | undefined): Theme | null {
 }
 
 /** token → [亮色, 暗色] */
-const TOKENS: Record<string, [string, string]> = {
+export const TOKENS: Record<string, [string, string]> = {
   // —— 结构 ——
   "bg": ["#ffffff", "#15171c"],
   "surface": ["#ffffff", "#1d2027"],
@@ -103,6 +103,16 @@ const TOKENS: Record<string, [string, string]> = {
   "admin-2": ["#6fb0a6", "#4e8f86"],
   "admin-3": ["#c4a07a", "#9a7b5a"],
   "admin-4": ["#8d97a8", "#7a8496"],
+  // 同一个色系的浅底 + 深字，给「谁的客人」那个小标签用（lib/orderFrame.ts 的 adminTagColors）。
+  // 底色压得很浅（标签挤在表格里，深了一列全是色块），字往深里压，保证认得出字
+  "admin-1-tint": ["#fbeaf2", "#3a2531"],
+  "admin-1-ink": ["#a8456f", "#e3a6c2"],
+  "admin-2-tint": ["#e6f3f1", "#1f3230"],
+  "admin-2-ink": ["#3b7a71", "#8fcbc2"],
+  "admin-3-tint": ["#f6eee4", "#33291f"],
+  "admin-3-ink": ["#86613a", "#d4b48f"],
+  "admin-4-tint": ["#eceef2", "#272b33"],
+  "admin-4-ink": ["#55607a", "#aab3c4"],
   /** Beta 地点的单子的边框（不分管理员，压过上面那几个），见 lib/orderFrame.ts 的 frameColor。
    *  比管理员那几个饱和：满屏 Alpha 单里要一眼挑出 Beta 的。青色避开了蓝（选中）和 admin-2 的灰绿 */
   "beta": ["#14a7c0", "#33b9cf"],

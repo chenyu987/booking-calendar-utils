@@ -63,6 +63,44 @@ export function hasAnyResourceFilter(f: ResourceFilters): boolean {
   return Object.values(f).some((v) => v !== "");
 }
 
+// 字段名 → URL 参数名（parseResourceFilters 的反方向）
+const URL_KEYS: Record<keyof ResourceFilters, string> = {
+  provider: "provider",
+  item: "item",
+  holder: "holder",
+  gender: "gender",
+  ageMin: "agemin",
+  ageMax: "agemax",
+  validFrom: "vfrom",
+  validTo: "vto",
+  booked: "booked",
+  sstatus: "sstatus",
+};
+
+/**
+ * 把筛选拼回查询串（带 `?`，什么都没有就是空串），extra 是额外要带的参数（比如 edit）。
+ * 编辑 / 取消 / 保存都走它：原来这三处写死 `/admin/resources`，筛出一个资源点编辑，
+ * 筛选全丢、回到整张表，得往下翻着找这个资源。空值不拼，跟 FilterForm 一样
+ */
+export function resourceFiltersQuery(f: ResourceFilters, extra: Record<string, string> = {}): string {
+  const params = new URLSearchParams();
+  for (const k of Object.keys(URL_KEYS) as (keyof ResourceFilters)[]) {
+    if (f[k]) params.set(URL_KEYS[k], f[k]);
+  }
+  for (const [k, v] of Object.entries(extra)) if (v) params.set(k, v);
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+/**
+ * 保存后回哪：表单里带回来的查询串**重新按筛选解析一遍再拼**，不原样拼进跳转地址 ——
+ * 那一串是浏览器交上来的，原样用的话改一下就能跳去别的地方。认不出来的参数一律丢掉
+ */
+export function resourceReturnPath(rawQuery: string): string {
+  const sp = Object.fromEntries(new URLSearchParams(rawQuery.replace(/^\?/, "")));
+  return `/admin/resources${resourceFiltersQuery(parseResourceFilters(sp))}`;
+}
+
 export type FilterableResource = {
   providerName: string;
   itemType: string | null;
@@ -75,7 +113,8 @@ export type FilterableResource = {
   status: string;
 };
 
-function contains(haystack: string | null, needle: string): boolean {
+// contains / matchesAge 也给 lib/providerFilter.ts 用（Provider 管理的逐列筛选同一套口径），别再抄一份
+export function contains(haystack: string | null, needle: string): boolean {
   if (!needle) return true;
   return (haystack ?? "").toLowerCase().includes(needle.toLowerCase());
 }
@@ -88,7 +127,7 @@ function toBound(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function matchesAge(age: number | null, min: string, max: string): boolean {
+export function matchesAge(age: number | null, min: string, max: string): boolean {
   const lo = toBound(min);
   const hi = toBound(max);
   if (lo === null && hi === null) return true;

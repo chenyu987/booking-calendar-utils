@@ -1,60 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
 import { claimProvider } from "@/lib/accountClaim";
-import { serializeValidity } from "@/lib/validity";
+import { DATE_INPUT_MAX } from "@/lib/dates";
+import { submitListing } from "./actions";
 
 export const dynamic = "force-dynamic";
-
-// 挂资源。**身份来自登录，不再来自手机号** —— 以前这个页面是「输谁的手机号就是谁」，
-// 跟 /customer/request 犯的是同一个错，一并改掉。
-async function submitListing(formData: FormData) {
-  "use server";
-  const user = await getSessionUser();
-  if (!user) redirect("/login?as=provider");
-  const providerId = await claimProvider(user.id, user.email ?? null);
-
-  // 称呼和联系方式顺手存回这个人身上（people）：认领出来的那行只有邮箱，
-  // 有人要租的时候得能联系到物主。
-  //
-  // **聊天是必填的** —— 通知物主全走聊天，没有聊天这个资源等于挂了也联系不上。
-  // 输入框上有 required，这里再拦一道：那个只挡浏览器。
-  const firstName = ((formData.get("first_name") as string) ?? "").trim();
-  const phone = ((formData.get("phone_number") as string) ?? "").trim();
-  // 自己填的是账号（0020）
-  const chat = ((formData.get("chat_id") as string) ?? "").trim();
-  if (!chat) redirect("/provider/listing?error=chat");
-
-  const profile: Record<string, string> = { chat_id: chat };
-  if (firstName) profile.first_name = firstName;
-  if (phone) profile.phone_number = phone;
-  await supabase.from("people").update(profile).eq("id", providerId);
-
-  const { error: resourceError } = await supabase.from("resources").insert({
-    provider_id: providerId,
-    item_type: formData.get("item_type") as string,
-    holder_name: formData.get("holder_name") as string,
-    holder_gender: formData.get("holder_gender") as string,
-    holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
-    // 有效期两头各自选填，留空 = 这一头不设限（lib/validity.ts）。新挂的资源只有一段
-    validity: serializeValidity([
-      {
-        start: (formData.get("start_date") as string) || null,
-        end: (formData.get("end_date") as string) || null,
-      },
-    ]),
-    status: "active",
-  });
-  if (resourceError) throw new Error(resourceError.message);
-
-  revalidatePath("/provider");
-  revalidatePath("/admin/overview");
-  revalidatePath("/admin/resources");
-  revalidatePath("/admin/providers");
-  redirect("/provider?listed=1");
-}
 
 export default async function ProviderListingPage(
   props: {
@@ -68,7 +20,7 @@ export default async function ProviderListingPage(
 
   const { data: me } = await supabase
     .from("people")
-    .select("first_name, phone_number, chat_id, date_of_birth")
+    .select("first_name, phone_number, chat_name, chat_id, date_of_birth")
     .eq("id", providerId)
     .maybeSingle();
 
@@ -83,7 +35,7 @@ export default async function ProviderListingPage(
       </p>
       {searchParams.error === "chat" && (
         <p style={{ color: "var(--danger)", fontSize: 13 }}>
-          账号得填 —— 我们是通过聊天联系你的。
+          昵称和账号都得填 —— 我们是通过聊天联系你的，以前在我们这儿挂过资源的也靠昵称对上原来的记录。
         </p>
       )}
 
@@ -136,7 +88,7 @@ export default async function ProviderListingPage(
             持有人生日
             <input
               name="holder_date_of_birth"
-              type="date"
+              type="date" max={DATE_INPUT_MAX}
               defaultValue={me?.date_of_birth ?? ""}
               required
               style={inputStyle}
@@ -146,11 +98,11 @@ export default async function ProviderListingPage(
 
         <label style={labelStyle}>
           可用开始日期
-          <input name="start_date" type="date" style={inputStyle} />
+          <input name="start_date" type="date" max={DATE_INPUT_MAX} style={inputStyle} />
         </label>
         <label style={labelStyle}>
           可用结束日期
-          <input name="end_date" type="date" style={inputStyle} />
+          <input name="end_date" type="date" max={DATE_INPUT_MAX} style={inputStyle} />
         </label>
         <p style={{ fontSize: 12, color: "var(--text-faint)", margin: 0, lineHeight: 1.6 }}>
           有效期选填，不填就是这一头不设限 —— 整季通用的资源两个都空着就行。
@@ -168,14 +120,22 @@ export default async function ProviderListingPage(
               style={inputStyle}
             />
             <input
+              name="chat_name"
+              placeholder="昵称 *（聊天里显示的名字）"
+              required
+              defaultValue={me?.chat_name ?? ""}
+              style={inputStyle}
+            />
+            <input
               name="chat_id"
-              placeholder="账号 *"
+              placeholder="账号 *（聊天 → 我，名字下面那串）"
               required
               defaultValue={me?.chat_id ?? ""}
               style={inputStyle}
             />
             <p style={{ fontSize: 12, color: "var(--warn)", margin: 0, lineHeight: 1.6 }}>
-              重要：账号必填 —— 有人要租你的资源，我们是通过聊天联系你的。
+              重要：昵称和账号都必填 —— 有人要租你的资源，我们是通过聊天联系你的；
+              以前在我们这儿挂过资源的，也靠昵称对上原来的记录。
             </p>
             <input
               name="phone_number"

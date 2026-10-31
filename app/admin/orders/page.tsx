@@ -16,6 +16,7 @@ import {
 } from "@/lib/orderFilter";
 import FilterForm from "./FilterForm";
 import {
+  DATE_INPUT_MAX,
   dateRangeToArray,
   parseDaysInput,
   formatDaysInput,
@@ -224,8 +225,8 @@ export default async function OrdersAdminPage(
           title="女几人"
           style={{ ...inputStyle, width: 62 }}
         />
-        <input name="start_date" type="date" required style={inputStyle} />
-        <input name="end_date" type="date" required style={inputStyle} />
+        <input name="start_date" type="date" max={DATE_INPUT_MAX} required style={inputStyle} />
+        <input name="end_date" type="date" max={DATE_INPUT_MAX} required style={inputStyle} />
         <input
           name="price_per_day"
           type="number"
@@ -282,7 +283,7 @@ export default async function OrdersAdminPage(
             {/* 起止两个日期并排一行，中间一个「~」，读起来就是「什么时间到什么时间」 */}
             <div style={{ ...cellStyle, flex: 1.6, display: "flex", alignItems: "center", gap: 4 }}>
               <input
-                type="date"
+                type="date" max={DATE_INPUT_MAX}
                 name="from"
                 defaultValue={filters.from}
                 title="从这天起"
@@ -290,7 +291,7 @@ export default async function OrdersAdminPage(
               />
               <span style={{ color: "var(--text-faint)", flexShrink: 0 }}>~</span>
               <input
-                type="date"
+                type="date" max={DATE_INPUT_MAX}
                 name="to"
                 defaultValue={filters.to}
                 title="到这天止"

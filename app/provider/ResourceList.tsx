@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import Link from "next/link";
-import { formatDayRanges } from "@/lib/dates";
+import { DATE_INPUT_MAX, formatDayRanges } from "@/lib/dates";
 import { formatHolder } from "@/lib/age";
 import {
   RESOURCE_STATUS_LABELS,
@@ -170,6 +170,7 @@ function ResourceEditForm({
           <input
             name="holder_date_of_birth"
             type="date"
+            max={DATE_INPUT_MAX}
             defaultValue={s.holder_date_of_birth ?? ""}
             style={inputStyle}
           />
@@ -184,7 +185,7 @@ function ResourceEditForm({
               <input
                 name="date_range_start"
                 type="date"
-                max={hasBooked && periods.length === 1 ? booked[0] : undefined}
+                max={hasBooked && periods.length === 1 ? booked[0] : DATE_INPUT_MAX}
                 defaultValue={p.start ?? ""}
                 style={inputStyle}
               />
@@ -194,6 +195,7 @@ function ResourceEditForm({
               <input
                 name="date_range_end"
                 type="date"
+                max={DATE_INPUT_MAX}
                 min={hasBooked && periods.length === 1 ? booked[booked.length - 1] : undefined}
                 defaultValue={p.end ?? ""}
                 style={inputStyle}

@@ -7,7 +7,7 @@ import { formatHolder } from "@/lib/age";
 import Link from "next/link";
 import { assignBlockReason } from "@/lib/assignable";
 import { computeNeed, formatNeed } from "@/lib/assignment";
-import { formatDayRanges } from "@/lib/dates";
+import { DATE_INPUT_MAX, formatDayRanges } from "@/lib/dates";
 import { MATCH_SORTS, firstDay, parseMatchSort, sortMatches } from "@/lib/matchSort";
 import { isStaleMatch } from "@/lib/matchStatus";
 import { groupMatchesByOrder, parseMatchView, type MatchView } from "@/lib/matchGroup";
@@ -432,7 +432,7 @@ export default async function MatchesAdminPage(
           <AutoSubmitForm action={saveCalendarSettings} style={calFormStyle}>
             <input type="hidden" name="back" value={pickHref(searchParams)} />
             <input
-              type="date"
+              type="date" max={DATE_INPUT_MAX}
               name="start"
               title="日历从哪天开始。留空 = 回到默认"
               defaultValue={calendarStart ?? ""}
@@ -478,14 +478,14 @@ export default async function MatchesAdminPage(
           >
             <input
               name="from"
-              type="date"
+              type="date" max={DATE_INPUT_MAX}
               title="从这天起（跟需求日期有交集就算）"
               defaultValue={filters.from}
               style={filterInputStyle}
             />
             <input
               name="to"
-              type="date"
+              type="date" max={DATE_INPUT_MAX}
               title="到这天止（跟需求日期有交集就算）"
               defaultValue={filters.to}
               style={filterInputStyle}

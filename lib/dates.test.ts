@@ -7,6 +7,8 @@ import {
   parseDaysInput,
   replaceDayRun,
   resizeIndices,
+  daysBetween,
+  shiftDays,
 } from "./dates";
 
 describe("dateRangeToArray", () => {
@@ -158,5 +160,33 @@ describe("resizeIndices", () => {
   it("终点不能拖过起点", () => {
     const { newStartIdx, newEndIdx } = resizeIndices(3, 2, 10, "end", -10);
     expect(newEndIdx).toBe(newStartIdx); // 最短 1 天
+  });
+});
+
+describe("daysBetween", () => {
+  it("同一天是 0，往后是正、往前是负", () => {
+    expect(daysBetween("2026-12-03", "2026-12-03")).toBe(0);
+    expect(daysBetween("2026-12-03", "2026-12-07")).toBe(4);
+    expect(daysBetween("2026-12-07", "2026-12-03")).toBe(-4);
+  });
+  it("跨月、跨年、跨夏令时都按整天算", () => {
+    expect(daysBetween("2026-12-30", "2027-01-02")).toBe(3);
+    expect(daysBetween("2027-03-13", "2027-03-15")).toBe(2);
+  });
+});
+
+describe("shiftDays", () => {
+  it("整单平移，不连续的单挪完间隔不变", () => {
+    expect(shiftDays(["2026-12-24", "2026-12-25", "2026-12-27"], 3)).toEqual([
+      "2026-12-27",
+      "2026-12-28",
+      "2026-12-30",
+    ]);
+  });
+  it("往前挪、跨月", () => {
+    expect(shiftDays(["2027-01-01", "2027-01-02"], -2)).toEqual(["2026-12-30", "2026-12-31"]);
+  });
+  it("0 天原样", () => {
+    expect(shiftDays(["2026-12-03"], 0)).toEqual(["2026-12-03"]);
   });
 });

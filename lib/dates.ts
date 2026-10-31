@@ -4,6 +4,11 @@ export function isWeekend(isoDate: string): boolean {
   return day === 0 || day === 6;
 }
 
+// 所有 <input type="date"> 都挂上 max={DATE_INPUT_MAX}。
+// 浏览器的年份格默认能敲 6 位（打字快了就是「200474年」），有了 max 就只收 4 位、
+// 敲满自动跳到月份。lib/dateInputMax.test.ts 会扫一遍，漏挂的会红
+export const DATE_INPUT_MAX = "9999-12-31";
+
 export function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -123,4 +128,23 @@ export function resizeIndices(
     newEndIdx = Math.max(Math.min(newEndIdx + delta, timelineLength - 1), newStartIdx);
   }
   return { newStartIdx, newEndIdx };
+}
+
+// 两个日子差几天（b - a）。按 UTC 算，跟 dateRangeToArray 一个口径，不受夏令时影响
+export function daysBetween(a: string, b: string): number {
+  return Math.round(
+    (Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000
+  );
+}
+
+// 排期总览按住色块拖到别的日子：整单所有日期一起平移 delta 天。
+// 不连续的单（只用 24、25、27）挪完还是那个间隔 —— 挪的是「哪几天」，不是改成连续的一段
+export function shiftDays(days: string[], delta: number): string[] {
+  return days
+    .map((d) => {
+      const t = new Date(`${d}T00:00:00Z`);
+      t.setUTCDate(t.getUTCDate() + delta);
+      return t.toISOString().slice(0, 10);
+    })
+    .sort();
 }

@@ -6,6 +6,7 @@ import type { Theme } from "@/lib/theme";
 import { selfDisplayName } from "@/lib/person";
 import { formatAddress } from "@/lib/address";
 import AddressFields from "@/app/AddressFields";
+import { chatGap } from "@/lib/selfClaim";
 
 // 右上角的账号菜单。**联系方式从主体挪进来了** —— 它是账号设置，不是物主每次
 // 进来要看的东西，跟「有哪些需求」抢同一层视觉重量纯属浪费。
@@ -50,7 +51,9 @@ export default function AccountMenu({
   editing: boolean;
   errorText: string | null;
 }) {
-  const noChat = !me?.chat_id;
+  // 昵称 + 账号缺哪样（跟客户同一份判断）；齐了是 null
+  const gap = chatGap(me);
+  const noChat = gap !== null;
 
   return (
     <details className="disc acct" open={editing || noChat} style={{ position: "relative" }}>
@@ -77,11 +80,27 @@ export default function AccountMenu({
               <input name="first_name" defaultValue={me?.first_name ?? ""} style={inputStyle} />
             </label>
             <label style={labelStyle}>
+              昵称 *
+              <input
+                name="chat_name"
+                required
+                defaultValue={me?.chat_name ?? ""}
+                placeholder="聊天里显示的名字"
+                style={inputStyle}
+              />
+            </label>
+            <label style={labelStyle}>
               账号 *
-              <input name="chat_id" required defaultValue={me?.chat_id ?? ""} style={inputStyle} />
+              <input
+                name="chat_id"
+                required
+                defaultValue={me?.chat_id ?? ""}
+                placeholder="聊天 → 我，名字下面那串"
+                style={inputStyle}
+              />
             </label>
             <p style={{ fontSize: 11, color: "var(--warn)", margin: 0, lineHeight: 1.6 }}>
-              重要：有人要租你的资源，我们是通过聊天联系你的。
+              重要：有人要租你的资源，我们是通过聊天联系你的。以前在我们这儿挂过资源的，也靠昵称对上原来的记录。
             </p>
             <label style={labelStyle}>
               手机号
@@ -105,7 +124,8 @@ export default function AccountMenu({
         ) : (
           <>
             <dl style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.9 }}>
-              <Row label="账号" value={me?.chat_id} warn={noChat} />
+              <Row label="昵称" value={me?.chat_name} warn={!me?.chat_name?.trim()} />
+              <Row label="账号" value={me?.chat_id} warn={!me?.chat_id?.trim()} />
               <Row label="手机号" value={me?.phone_number} />
               <Row label="地址" value={formatAddress(me)} />
             </dl>
@@ -118,7 +138,7 @@ export default function AccountMenu({
             </div>
             {noChat && (
               <p style={{ fontSize: 11, color: "var(--warn)", margin: "6px 0 0", lineHeight: 1.6 }}>
-                账号还没填 —— 有人要租你的资源，我们是通过聊天找你的。
+                {gap}还没填 —— 有人要租你的资源，我们是通过聊天找你的。
               </p>
             )}
             <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>

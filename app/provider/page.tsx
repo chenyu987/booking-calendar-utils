@@ -31,7 +31,7 @@ export const dynamic = "force-dynamic";
 const ERROR_TEXT: Record<string, string> = {
   ...RESOURCE_EDIT_ERRORS,
   save: "没存上，再试一次。",
-  chat: "账号得填 —— 我们是通过聊天联系你的。",
+  chat: "昵称和账号都得填 —— 我们是通过聊天联系你的，以前在我们这儿挂过资源的也靠昵称对上原来的记录。",
   country: "国家请从下拉里选。",
   hasBookings:
     "这个资源已经排出去了，删不了 —— 删掉会把分配记录一起带走，订单那边还显示配好了资源。不想再出租的话改成「暂停」或「已下架」。",

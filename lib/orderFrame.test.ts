@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { BETA_FRAME_COLOR, adminColor, effectiveAdminId, frameColor, orderFrame } from "./orderFrame";
+import { BETA_FRAME_COLOR, adminColor, adminTagColors, effectiveAdminId, frameColor, orderFrame } from "./orderFrame";
+import { TOKENS } from "./theme";
 
 const ADMINS = [
   { id: "admin1", name: "Admin1" },
@@ -41,6 +42,28 @@ describe("管理员的边框颜色", () => {
   it("人多过颜色数就轮着用", () => {
     const many = Array.from({ length: 6 }, (_, i) => ({ id: `a${i}`, name: `a${i}` }));
     expect(adminColor("a4", many, null)).toBe("var(--admin-1)");
+  });
+});
+
+describe("「谁的客人」标签的颜色（Provider 管理）", () => {
+  it("**跟边框同一套排位**：Admin1 是 1 号色（浅玫红），小王 2 号", () => {
+    expect(adminTagColors("admin1", ADMINS, "admin2")).toEqual({
+      background: "var(--admin-1-tint)",
+      color: "var(--admin-1-ink)",
+    });
+    expect(adminTagColors("wang", ADMINS, "admin2")?.background).toBe("var(--admin-2-tint)");
+  });
+
+  it("主要管理员、名单里没有的 → null（标签保持原样）", () => {
+    expect(adminTagColors("admin2", ADMINS, "admin2")).toBeNull();
+    expect(adminTagColors("gone", ADMINS, "admin2")).toBeNull();
+  });
+
+  it("用到的 token 在 lib/theme.ts 里都有（不然暗色、亮色下都是空的）", () => {
+    for (let slot = 1; slot <= 4; slot++) {
+      expect(TOKENS).toHaveProperty(`admin-${slot}-tint`);
+      expect(TOKENS).toHaveProperty(`admin-${slot}-ink`);
+    }
   });
 });
 

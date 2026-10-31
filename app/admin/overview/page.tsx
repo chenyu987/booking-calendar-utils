@@ -25,6 +25,7 @@ import ResizableOrderBlock from "./ResizableOrderBlock";
 import OptimisticEditForm from "./OptimisticEditForm";
 import NewOrderSelector from "./NewOrderSelector";
 import DragAssign from "./DragAssign";
+import DragMove from "./DragMove";
 import OptimisticAssign from "./OptimisticAssign";
 import type { EditorData } from "./AssignEditor";
 import OrderBlock from "./OrderBlock";
@@ -916,6 +917,7 @@ export default async function OverviewPage(
       <CardsRowScroll />
       {/* 从左边把资源拖到订单色块上分配。分配模式开不开都能用 */}
       <DragAssign />
+      <DragMove />
       {/* 点色块进分配模式的即时反馈：整页重渲染要 420ms，这层先把「点到了」画出来 */}
       <OptimisticAssign />
       {/* 填地点名的输入框共用这一份补全列表 */}
@@ -1245,6 +1247,8 @@ export default async function OverviewPage(
                       key={d}
                       // 新开标签页时用来定位到"今天"那一列
                       data-today={d === today ? "1" : undefined}
+                      // 按住色块拖到别的日子（DragMove）：靠它认指针底下是哪一天
+                      data-day={d}
                       title={peak ? "Alpha 限制资源的 peak date，这天进不了场" : undefined}
                       style={{
                         gridRow: 1,

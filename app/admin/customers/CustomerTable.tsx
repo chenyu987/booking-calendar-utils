@@ -12,8 +12,10 @@ import {
   type FootprintSort,
   type CustomerSeason,
 } from "@/lib/footprint";
+import { DATE_INPUT_MAX } from "@/lib/dates";
 import { CUSTOMER_STATUSES, CUSTOMER_STATUS_LABELS, parseCustomerEdit, customerRowAfterEdit } from "@/lib/customerEdit";
 import { CONTACT_FILTER_NONE, matchesContactFilter, parseAdminIds, type Admin } from "@/lib/admins";
+import { adminTagColors } from "@/lib/orderFrame";
 import {
   tableStyle,
   thStyle,
@@ -88,8 +90,19 @@ export function ContactCheckboxes({
  * 列表里那一格：每个管理员一个小标签，没标的显示「-」。
  * 按管理员列表的顺序画（Admin1 在前），不按库里的行序 —— 不然同样两个人，
  * 这一行「Admin1 admin2」下一行「admin2 Admin1」，扫一眼对不齐
+ *
+ * 传了 primaryId（Provider 管理传）：非主要管理员的标签按 adminTagColors 上色（Admin1 = 浅玫红），
+ * 跟排期总览上他的单子边框一个色系；主要管理员照旧。不传就全是原来那个样子（Customer 管理）
  */
-function ContactTags({ ids, admins }: { ids: string[]; admins: Admin[] }) {
+export function ContactTags({
+  ids,
+  admins,
+  primaryId,
+}: {
+  ids: string[];
+  admins: Admin[];
+  primaryId?: string | null;
+}) {
   const shown = admins.filter((a) => ids.includes(a.id));
   if (shown.length === 0) return <span style={{ color: "var(--text-faint)" }}>-</span>;
   return (
@@ -104,6 +117,7 @@ function ContactTags({ ids, admins }: { ids: string[]; admins: Admin[] }) {
             whiteSpace: "nowrap",
             background: "var(--row-tint)",
             color: "var(--link)",
+            ...(primaryId !== undefined ? adminTagColors(a.id, admins, primaryId) : null),
           }}
         >
           {a.name}
@@ -328,7 +342,7 @@ function EditRow({
           <ContactCheckboxes admins={admins} checked={row.contactIds} form={formId} />
         </td>
         <td style={editTd}>
-          <input name="date_of_birth" type="date" form={formId} defaultValue={e.date_of_birth} aria-label="生日" style={cellInput} />
+          <input name="date_of_birth" type="date" max={DATE_INPUT_MAX} form={formId} defaultValue={e.date_of_birth} aria-label="生日" style={cellInput} />
         </td>
         <td style={editTd}>
           <select name="status" form={formId} defaultValue={e.status} aria-label="状态" style={{ ...selectStyle, width: "100%", boxSizing: "border-box" }}>

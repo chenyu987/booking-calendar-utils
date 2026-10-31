@@ -34,11 +34,31 @@ const ADMIN_COLOR_COUNT = 4;
  * **算出来的，不存字段**：admins 不给删，顺序就不会变，颜色也就不会跳
  */
 export function adminColor(adminId: string | null, admins: Admin[], primaryId: string | null): string | null {
+  const slot = adminSlot(adminId, admins, primaryId);
+  return slot === null ? null : `var(--admin-${slot})`;
+}
+
+/** 这个管理员排第几号色（1..4）；主要管理员、算不出是谁的 → null。边框和标签共用这一份排位 */
+function adminSlot(adminId: string | null, admins: Admin[], primaryId: string | null): number | null {
   if (!adminId || adminId === primaryId) return null;
   const others = admins.filter((a) => a.id !== primaryId);
   const i = others.findIndex((a) => a.id === adminId);
   if (i === -1) return null;
-  return `var(--admin-${(i % ADMIN_COLOR_COUNT) + 1})`;
+  return (i % ADMIN_COLOR_COUNT) + 1;
+}
+
+/**
+ * 「谁的客人」那个小标签的底色和字色：跟色块边框同一套排位、同一个色系的浅色版
+ * （2026-10-31：Admin1 的标签用浅玫红，跟排期总览上他的单子边框对得上）。
+ * 主要管理员 → null，标签保持原样 —— 跟边框一样，满列只有少数人带颜色才一眼分得出
+ */
+export function adminTagColors(
+  adminId: string,
+  admins: Admin[],
+  primaryId: string | null
+): { background: string; color: string } | null {
+  const slot = adminSlot(adminId, admins, primaryId);
+  return slot === null ? null : { background: `var(--admin-${slot}-tint)`, color: `var(--admin-${slot}-ink)` };
 }
 
 /** Beta 单子的边框色。token 在 lib/theme.ts */

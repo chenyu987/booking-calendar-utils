@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { personSpread } from "@/lib/people";
 import { DISPLAY_COLUMNS, displayName } from "@/lib/person";
 import { calcAge } from "@/lib/age";
-import { formatDayRanges } from "@/lib/dates";
+import { DATE_INPUT_MAX, formatDayRanges } from "@/lib/dates";
 import { summarizeBookings } from "@/lib/booking";
 import { DELETE_BLOCKED_TEXT } from "@/lib/resourceEdit";
 import { periodsFromFormData, serializeValidity, resourcePeriods, validitySpan } from "@/lib/validity";
@@ -14,6 +14,8 @@ import { STATUS_LABELS as ORDER_STATUS_LABELS } from "@/lib/orderStatus";
 import FilterForm from "../orders/FilterForm";
 import {
   parseResourceFilters,
+  resourceFiltersQuery,
+  resourceReturnPath,
   hasAnyResourceFilter,
   matchesResourceFilters,
 } from "@/lib/resourceFilter";
@@ -88,7 +90,8 @@ async function updateResource(formData: FormData) {
 
   revalidatePath("/admin/resources");
   revalidatePath("/admin/overview");
-  redirect("/admin/resources");
+  // 存完回到筛过的列表（退出编辑态），不是整张表 —— 筛选带在隐藏的 back 里
+  redirect(resourceReturnPath(String(formData.get("back") ?? "")));
 }
 
 // 删除 / 恢复在 ./actions.ts（软删除，迁移 0013）
@@ -258,19 +261,19 @@ export default async function ResourcesAdminPage(
         </select>
         <input
           name="holder_date_of_birth"
-          type="date"
+          type="date" max={DATE_INPUT_MAX}
           title="物主生日"
           style={inputStyle}
         />
         <input
           name="date_range_start"
-          type="date"
+          type="date" max={DATE_INPUT_MAX}
           title="有效期开始（选填，空 = 不设下限）"
           style={inputStyle}
         />
         <input
           name="date_range_end"
-          type="date"
+          type="date" max={DATE_INPUT_MAX}
           title="有效期结束（选填，空 = 不设上限）"
           style={inputStyle}
         />
@@ -343,10 +346,10 @@ export default async function ResourcesAdminPage(
             />
           </div>
           <div style={{ ...cellStyle, width: 130 }}>
-            <input type="date" name="vfrom" defaultValue={filters.validFrom} title="有效期起：不早于这天" style={filterInputStyle} />
+            <input type="date" max={DATE_INPUT_MAX} name="vfrom" defaultValue={filters.validFrom} title="有效期起：不早于这天" style={filterInputStyle} />
           </div>
           <div style={{ ...cellStyle, width: 130 }}>
-            <input type="date" name="vto" defaultValue={filters.validTo} title="有效期止：不晚于这天" style={filterInputStyle} />
+            <input type="date" max={DATE_INPUT_MAX} name="vto" defaultValue={filters.validTo} title="有效期止：不晚于这天" style={filterInputStyle} />
           </div>
           <div style={{ ...cellStyle, flex: 1.8 }}>
             <select name="booked" defaultValue={filters.booked} style={filterInputStyle}>
@@ -400,6 +403,7 @@ export default async function ResourcesAdminPage(
         s.id === editingId ? (
           <form key={s.id} action={updateResource} style={rowStyle}>
             <input type="hidden" name="id" value={s.id} />
+            <input type="hidden" name="back" value={resourceFiltersQuery(filters)} />
             <div style={{ ...cellStyle, flex: 1.1 }}>
               <select
                 name="provider_id"
@@ -444,7 +448,7 @@ export default async function ResourcesAdminPage(
             <div style={{ ...cellStyle, width: 96 }}>
               <input
                 name="holder_date_of_birth"
-                type="date"
+                type="date" max={DATE_INPUT_MAX}
                 defaultValue={s.holder_date_of_birth ?? ""}
                 style={{ ...inputStyle, width: "100%" }}
               />
@@ -457,7 +461,7 @@ export default async function ResourcesAdminPage(
                 <input
                   key={i}
                   name="date_range_start"
-                  type="date"
+                  type="date" max={DATE_INPUT_MAX}
                   title="空 = 不设下限"
                   defaultValue={p.start ?? ""}
                   style={{ ...inputStyle, width: "100%" }}
@@ -469,7 +473,7 @@ export default async function ResourcesAdminPage(
                 <input
                   key={i}
                   name="date_range_end"
-                  type="date"
+                  type="date" max={DATE_INPUT_MAX}
                   title="空 = 不设上限"
                   defaultValue={p.end ?? ""}
                   style={{ ...inputStyle, width: "100%" }}
@@ -496,7 +500,7 @@ export default async function ResourcesAdminPage(
               <button type="submit" style={buttonStyle}>
                 保存
               </button>
-              <Link href="/admin/resources" style={linkButtonStyle}>
+              <Link href={`/admin/resources${resourceFiltersQuery(filters)}`} style={linkButtonStyle}>
                 取消
               </Link>
             </div>
@@ -601,7 +605,7 @@ export default async function ResourcesAdminPage(
                 </form>
               ) : (
                 <>
-                  <Link href={`/admin/resources?edit=${s.id}`} style={linkButtonStyle}>
+                  <Link href={`/admin/resources${resourceFiltersQuery(filters, { edit: s.id })}`} style={linkButtonStyle}>
                     编辑
                   </Link>
                   {/* 已经排出去的资源不给删（lib/resourceEdit.ts 的 deleteBlockReason），

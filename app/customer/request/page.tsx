@@ -5,6 +5,7 @@ import { getSessionUser } from "@/lib/supabaseServer";
 import { claimCustomer } from "@/lib/accountClaim";
 import LocationInput from "@/components/LocationInput";
 import { chatGap } from "@/lib/selfClaim";
+import { DATE_INPUT_MAX } from "@/lib/dates";
 import { submitRequest } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -97,11 +98,11 @@ export default async function CustomerRequestPage(
         <div style={{ display: "flex", gap: 10 }}>
           <label style={{ ...labelStyle, flex: 1 }}>
             开始日期
-            <input name="start_date" type="date" required style={inputStyle} />
+            <input name="start_date" type="date" max={DATE_INPUT_MAX} required style={inputStyle} />
           </label>
           <label style={{ ...labelStyle, flex: 1 }}>
             结束日期
-            <input name="end_date" type="date" required style={inputStyle} />
+            <input name="end_date" type="date" max={DATE_INPUT_MAX} required style={inputStyle} />
           </label>
         </div>
         <label style={labelStyle}>

@@ -7,7 +7,7 @@ import { DISPLAY_COLUMNS } from "@/lib/person";
 import { getReferralRate, setReferralRate } from "@/lib/appSettings";
 import { getBandDays } from "@/lib/bandDaysSetting";
 import Link from "next/link";
-import { formatDayRanges, todayIso } from "@/lib/dates";
+import { DATE_INPUT_MAX, formatDayRanges, todayIso } from "@/lib/dates";
 import { weekBounds } from "@/lib/revenue";
 import CalendarView from "./CalendarView";
 import PersonInput from "./PersonInput";
@@ -638,9 +638,9 @@ export default async function ReferralsAdminPage(
           <span style={helpTextStyle}>%，生效期</span>
           {/* 返点窗口：两头各自可空，空 = 这一头不设限（跟资源有效期同一套约定）。
               资源的是**活动日**，不是下单日 */}
-          <input name="from" type="date" title="返点窗口起点，留空 = 不设限" style={inputStyle} />
+          <input name="from" type="date" max={DATE_INPUT_MAX} title="返点窗口起点，留空 = 不设限" style={inputStyle} />
           <span style={helpTextStyle}>~</span>
-          <input name="until" type="date" title="返点窗口终点，留空 = 不设限" style={inputStyle} />
+          <input name="until" type="date" max={DATE_INPUT_MAX} title="返点窗口终点，留空 = 不设限" style={inputStyle} />
           <button type="submit" style={buttonStyle}>
             建立关系
           </button>
@@ -696,14 +696,14 @@ export default async function ReferralsAdminPage(
                     <div style={{ ...col(LINK_COL.window), display: "flex", gap: 4 }}>
                       <input
                         name="from"
-                        type="date"
+                        type="date" max={DATE_INPUT_MAX}
                         defaultValue={referee.referral_from ?? ""}
                         title="留空 = 不设限"
                         style={{ ...inputStyle, padding: "2px 4px", fontSize: 12 }}
                       />
                       <input
                         name="until"
-                        type="date"
+                        type="date" max={DATE_INPUT_MAX}
                         defaultValue={referee.referral_until ?? ""}
                         title="留空 = 不设限"
                         style={{ ...inputStyle, padding: "2px 4px", fontSize: 12 }}

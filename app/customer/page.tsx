@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { getSessionUser } from "@/lib/supabaseServer";
 import { claimCustomer } from "@/lib/accountClaim";
 import { selfDisplayName } from "@/lib/person";
-import { formatDayRanges } from "@/lib/dates";
+import { DATE_INPUT_MAX, formatDayRanges } from "@/lib/dates";
 import { formatParty } from "@/lib/party";
 import { calcAge } from "@/lib/age";
 import { STATUS_LABELS, statusColor } from "@/lib/orderStatus";
@@ -177,6 +177,7 @@ export default async function CustomerHomePage(
               <input
                 name="date_of_birth"
                 type="date"
+                max={DATE_INPUT_MAX}
                 defaultValue={me?.date_of_birth ?? ""}
                 style={inputStyle}
               />

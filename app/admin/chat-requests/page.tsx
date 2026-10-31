@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { DISPLAY_COLUMNS, displayName } from "@/lib/person";
+import { DATE_INPUT_MAX } from "@/lib/dates";
 import {
   GROUP_NAME_MAX,
   GROUP_NOTE_MAX,
@@ -169,7 +170,7 @@ export default async function ChatRequestsPage(props: {
         </select>
         <input name="location" defaultValue={filters.location} placeholder="地点（locaj、akaad 都行）" style={{ ...inputStyle, width: 160 }} />
         <span style={helpTextStyle}>活动日</span>
-        <input type="date" name="day" defaultValue={filters.day} style={inputStyle} />
+        <input type="date" max={DATE_INPUT_MAX}name="day" defaultValue={filters.day} style={inputStyle} />
         <select name="party" defaultValue={filters.party} style={selectStyle}>
           <option value="">男资源女资源都看</option>
           <option value="male">要男资源的</option>
@@ -177,9 +178,9 @@ export default async function ChatRequestsPage(props: {
           <option value="both">男女都要的</option>
         </select>
         <span style={helpTextStyle}>抓到</span>
-        <input type="date" name="from" defaultValue={filters.from} style={inputStyle} />
+        <input type="date" max={DATE_INPUT_MAX}name="from" defaultValue={filters.from} style={inputStyle} />
         <span style={helpTextStyle}>到</span>
-        <input type="date" name="to" defaultValue={filters.to} style={inputStyle} />
+        <input type="date" max={DATE_INPUT_MAX}name="to" defaultValue={filters.to} style={inputStyle} />
         {filtered && (
           <Link href={`/admin/chat-requests${requestFiltersQuery(filters, { group: "", sender: "", item: "", location: "", day: "", party: "", from: "", to: "" })}`} style={helpTextStyle}>
             清空筛选

@@ -3,9 +3,37 @@ import {
   parseResourceFilters,
   hasAnyResourceFilter,
   matchesResourceFilters,
+  resourceFiltersQuery,
+  resourceReturnPath,
   EMPTY_RESOURCE_FILTERS,
   type FilterableResource,
 } from "./resourceFilter";
+
+describe("resourceFiltersQuery / resourceReturnPath —— 编辑、取消、保存不丢筛选", () => {
+  it("筛选拼回 URL 参数名，空的不拼；extra 带上 edit", () => {
+    const f = { ...EMPTY_RESOURCE_FILTERS, provider: "老李", ageMin: "20", validFrom: "2026-12-01" };
+    expect(resourceFiltersQuery(f, { edit: "s1" })).toBe("?provider=%E8%80%81%E6%9D%8E&agemin=20&vfrom=2026-12-01&edit=s1");
+  });
+
+  it("什么都没筛就是空串", () => {
+    expect(resourceFiltersQuery(EMPTY_RESOURCE_FILTERS)).toBe("");
+  });
+
+  it("跟 parseResourceFilters 来回一趟不走样", () => {
+    const f = { ...EMPTY_RESOURCE_FILTERS, item: "beta" as const, gender: "female" as const, booked: "no" as const, sstatus: "active" };
+    const sp = Object.fromEntries(new URLSearchParams(resourceFiltersQuery(f).slice(1)));
+    expect(parseResourceFilters(sp)).toEqual(f);
+  });
+
+  it("保存后回到筛过的列表，edit 不带（退出编辑态）", () => {
+    expect(resourceReturnPath("?provider=Zoey&edit=s1")).toBe("/admin/resources?provider=Zoey");
+  });
+
+  it("**交上来的查询串只认筛选参数**，别的丢掉 —— 永远停在 /admin/resources", () => {
+    expect(resourceReturnPath("next=https://evil.example&item=bogus")).toBe("/admin/resources");
+    expect(resourceReturnPath("")).toBe("/admin/resources");
+  });
+});
 
 const base: FilterableResource = {
   providerName: "Zoey Lee",

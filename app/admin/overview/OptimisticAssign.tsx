@@ -67,9 +67,18 @@ export default function OptimisticAssign() {
       }, 8000);
     }
 
+    // 按下去之后拖动了（DragMove：挪到别的日子）—— 那不是点，假条和光圈撤掉
+    function onDragStart() {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      setLabel(null);
+      setPaintedId(null);
+    }
+
     document.addEventListener("pointerdown", onDown);
+    window.addEventListener("overview:order-drag-start", onDragStart);
     return () => {
       document.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("overview:order-drag-start", onDragStart);
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);

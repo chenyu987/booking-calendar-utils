@@ -935,3 +935,116 @@ test.describe("删单", () => {
     await expect(page.locator('[data-order-id="ord-doomed"]')).toHaveCount(0);
   });
 });
+
+test.describe("按住色块拖到别的日子", () => {
+  const editor = (page: Page, id: string) => page.locator(`[data-assign-editor="${id}"]`);
+  const seg = (page: Page, id: string) => page.locator(`a[data-order-id="${id}"][data-edit-seg]`);
+  const addDays = (iso: string, n: number) => {
+    const d = new Date(`${iso}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+
+  /** 按住这一单的色块，拖到 toDay 那一列（纵坐标不变）松手 */
+  async function dragTo(page: Page, id: string, toDay: string) {
+    // 日历默认滚到今天那一列，这一单可能在屏幕外：先把它滚到靠左的地方，右边留出落点
+    await seg(page, id).evaluate((el) => {
+      const sc = el.closest(".cal-scroll") as HTMLElement | null;
+      if (!sc) return;
+      sc.scrollLeft += el.getBoundingClientRect().left - sc.getBoundingClientRect().left - 300;
+      sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - 100;
+    });
+    const b = (await seg(page, id).boundingBox())!;
+    const cell = (await page.locator(`[data-band-grid] > [data-day="${toDay}"]`).first().boundingBox())!;
+    const y = b.y + b.height / 2;
+    await page.mouse.move(b.x + 10, y);
+    await page.mouse.down();
+    // 落在目标格子靠左那一点：离拿起的地方近，不会被页面右边那一栏盖住（测试的视口是 1280 宽）
+    await page.mouse.move(cell.x + 10, y, { steps: 8 });
+    await page.mouse.up();
+  }
+
+  test("拖过去：整单挪到那一天，不进分配态；再拖回来", async ({ page }) => {
+    await gotoOverview(page);
+    const from = (await seg(page, SHORT_NAME).getAttribute("data-order-start"))!;
+    const to = addDays(from, 2);
+    const bodies: any[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/admin/overview/move")) bodies.push(r.postDataJSON());
+    });
+    // 后台存故意拖 2 秒：「当场」要证明的是**不等**存完、不等刷新（跟退出分配态那条一个道理）
+    await page.route("**/admin/overview/move", async (r) => {
+      await new Promise((res) => setTimeout(res, 2000));
+      await r.continue();
+    });
+    await dragTo(page, SHORT_NAME, to);
+    // 当场：新位置已经画上了（嵌在落点那一列），原来那块藏起来了
+    const landed = page.locator("[data-band-grid] > [data-move-landed]");
+    await expect(landed).toHaveCount(1, { timeout: 500 });
+    const landedX = (await landed.boundingBox())!.x;
+    const toX = (await page.locator(`[data-band-grid] > [data-day="${to}"]`).first().boundingBox())!.x;
+    expect(Math.abs(landedX - toX)).toBeLessThan(2);
+    expect(await seg(page, SHORT_NAME).evaluate((el) => getComputedStyle(el).visibility)).toBe("hidden");
+    // 存完、服务端那次渲染到了：真色块在新位置，clone 撤掉
+    await expect(seg(page, SHORT_NAME)).toHaveAttribute("data-order-start", to, { timeout: 10000 });
+    await expect(landed).toHaveCount(0);
+    expect(await seg(page, SHORT_NAME).evaluate((el) => getComputedStyle(el).visibility)).toBe("visible");
+    await page.unroute("**/admin/overview/move");
+    expect(bodies).toEqual([{ order_id: SHORT_NAME, from_day: from, to_day: to }]);
+    // 松手后浏览器补的那个 click 被吞掉了：没进分配态
+    await expect(editor(page, SHORT_NAME)).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.get("assign")).toBeNull();
+    // 影子撤干净了，原来那几段也不再是淡的
+    await expect(page.locator("[data-move-ghost]")).toHaveCount(0);
+    expect(await seg(page, SHORT_NAME).evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+
+    // 拖回去，别影响后面的测试
+    await dragTo(page, SHORT_NAME, from);
+    await expect(seg(page, SHORT_NAME)).toHaveAttribute("data-order-start", from);
+  });
+
+  test("**松手还落在原来那块上**（多天的单挪一天）：浏览器补的 click 吞掉，不进分配态", async ({ page }) => {
+    await gotoOverview(page);
+    // 主角那单两天：从第一天拿起、放到第二天，指针一直在原色块上 ——
+    // 松手那下 click 落在这个链接上，不吞的话就进了分配态
+    const from = (await seg(page, MAIN).getAttribute("data-order-start"))!;
+    // 服务端结果无所谓（资源撞不撞别单不是这条要验的），固定回一个成功的空响应，库不动
+    await page.route("**/admin/overview/move", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, at: 0 }) })
+    );
+    await dragTo(page, MAIN, addDays(from, 1));
+    await page.waitForTimeout(300);
+    await expect(editor(page, MAIN)).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.get("assign")).toBeNull();
+  });
+
+  test("按下没怎么动就松开：还是一次点击，进分配态，不发挪日期的请求", async ({ page }) => {
+    await gotoOverview(page);
+    let moved = 0;
+    page.on("request", (r) => r.url().includes("/admin/overview/move") && moved++);
+    await seg(page, SHORT_NAME).scrollIntoViewIfNeeded();
+    const b = (await seg(page, SHORT_NAME).boundingBox())!;
+    await page.mouse.move(b.x + 10, b.y + b.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + 12, b.y + b.height / 2); // 2px，不到拖拽门槛
+    await page.mouse.up();
+    await editor(page, SHORT_NAME).waitFor();
+    expect(moved).toBe(0);
+  });
+
+  test("服务端拒了：撤回原位，红条说出原因", async ({ page }) => {
+    await gotoOverview(page);
+    await page.route("**/admin/overview/move", (r) =>
+      r.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "sara lee 在 某天 已经配给别的订单了" }) })
+    );
+    const from = (await seg(page, SHORT_NAME).getAttribute("data-order-start"))!;
+    await dragTo(page, SHORT_NAME, addDays(from, 2));
+    await expect(page.getByText("sara lee 在 某天 已经配给别的订单了")).toBeVisible();
+    await expect(page.locator("[data-move-ghost]")).toHaveCount(0);
+    // 当场画的那块撤掉，原来那块回来
+    await expect(page.locator("[data-move-landed]")).toHaveCount(0);
+    await expect(seg(page, SHORT_NAME)).toHaveAttribute("data-order-start", from);
+    expect(await seg(page, SHORT_NAME).evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+    expect(await seg(page, SHORT_NAME).evaluate((el) => getComputedStyle(el).visibility)).toBe("visible");
+  });
+});

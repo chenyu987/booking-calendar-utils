@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { createPerson, PERSON_SPREAD } from "@/lib/people";
 import { calcAge } from "@/lib/age";
 import { selfName } from "@/lib/person";
-import { todayIso } from "@/lib/dates";
+import { DATE_INPUT_MAX, todayIso } from "@/lib/dates";
 import { buildFootprints } from "@/lib/footprint";
 import { customerName } from "@/lib/referral";
 import { parseAdminIds } from "@/lib/admins";
@@ -132,7 +132,7 @@ export default async function CustomersAdminPage(
         />
         <input
           name="date_of_birth"
-          type="date"
+          type="date" max={DATE_INPUT_MAX}
           title="生日"
           style={inputStyle}
         />

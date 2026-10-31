@@ -105,6 +105,8 @@ export default function OrderBlock({ d: server }: { d: BlockData }) {
       // 不预取：点色块不导航（InstantAssign 在浏览器里进分配态），预取一次就是白让服务端
       // 整页渲染一遍 —— 1800 个色块，鼠标扫过去一路都在预取（e2e「点一下不发请求」抓到的）
       prefetch={false}
+      // 按住拖是「挪到别的日子」（DragMove），不是浏览器原生的「把链接拖出去」
+      draggable={false}
       style={{
         ...BLOCK_BASE_STYLE,
         ...style,

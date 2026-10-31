@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { dateRangeToArray } from "@/lib/dates";
+import { DATE_INPUT_MAX, dateRangeToArray } from "@/lib/dates";
 import { computeTotalFromPerDay } from "@/lib/pricing";
 import { parseCount } from "@/lib/party";
 import LocationInput from "@/components/LocationInput";
@@ -488,7 +488,7 @@ export default function NewOrderSelector({
             }}
           >
             <input
-              type="date"
+              type="date" max={DATE_INPUT_MAX}
               value={dateStart}
               onChange={(e) => {
                 const v = e.target.value;
@@ -499,7 +499,7 @@ export default function NewOrderSelector({
             />
             <span>~</span>
             <input
-              type="date"
+              type="date" max={DATE_INPUT_MAX}
               value={dateEnd}
               min={dateStart || undefined}
               onChange={(e) => {

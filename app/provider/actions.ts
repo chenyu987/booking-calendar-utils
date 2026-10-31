@@ -9,6 +9,7 @@ import { validateResourceEdit, deleteBlockReason } from "@/lib/resourceEdit";
 import { type Period, periodsFromFormData, serializeValidity } from "@/lib/validity";
 import { cookies } from "next/headers";
 import { addressFromFormData } from "@/lib/address";
+import { chatGap } from "@/lib/selfClaim";
 
 import { bookedDaysFor } from "./data";
 import { clampProviderBandDays } from "@/lib/providerBoard";
@@ -110,13 +111,15 @@ export async function deleteResource(formData: FormData) {
   redirect("/provider?deleted=1");
 }
 
-// 联系方式。**聊天必填** —— 配到客户之后全靠聊天找人，没有聊天这个资源就等于挂不出去。
+// 联系方式。**昵称 + 账号都必填**（跟客户同一把尺，lib/selfClaim.ts 的 chatGap）：
+// 账号是管理员加好友用的；昵称是跟库里老物主对上用的 —— 认领只按邮箱，老物主几乎
+// 只有昵称，不填它 Provider 管理就提示不出「可能是老物主」
 export async function saveContact(formData: FormData) {
   const providerId = await requireProvider();
 
-  // 物主自己填的是账号（0020）—— 管理员拿它加好友。昵称是加了之后在后台填的
+  const chatName = text(formData, "chat_name");
   const chat = text(formData, "chat_id");
-  if (!chat) redirect("/provider?edit=contact&error=chat");
+  if (chatGap({ chat_name: chatName, chat_id: chat })) redirect("/provider?edit=contact&error=chat");
   const parsed = addressFromFormData(formData);
   if ("error" in parsed) redirect("/provider?edit=contact&error=country");
 
@@ -125,6 +128,7 @@ export async function saveContact(formData: FormData) {
     .from("people")
     .update({
       first_name: text(formData, "first_name") || null,
+      chat_name: chatName,
       chat_id: chat,
       phone_number: text(formData, "phone_number") || null,
       ...parsed.address,

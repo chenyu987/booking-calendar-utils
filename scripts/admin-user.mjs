@@ -28,7 +28,8 @@ function readEnvLocal() {
   const p = join(ROOT, ".env.local");
   if (!existsSync(p)) return {};
   const out = {};
-  for (const line of readFileSync(p, "utf8").split("\n")) {
+  // \r?\n：.env.local 在 Windows 上存过就是 CRLF，只切 \n 的话行尾留个 \r，正则整行对不上，变量全读不到
+  for (const line of readFileSync(p, "utf8").split(/\r?\n/)) {
     const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
     if (m) out[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
   }
