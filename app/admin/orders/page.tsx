@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { personSpread } from "@/lib/people";
+import { deleteOrder as deleteOrderAndStrayPerson } from "@/lib/deleteOrder";
 import { DISPLAY_COLUMNS, displayName } from "@/lib/person";
 import LocationInput from "@/components/LocationInput";
 import { isUnknownLocation, locationHintFor } from "@/lib/locations";
@@ -110,12 +111,10 @@ async function updateOrder(formData: FormData) {
 
 async function deleteOrder(formData: FormData) {
   "use server";
-  const { error } = await supabase
-    .from("orders")
-    .delete()
-    .eq("id", formData.get("id") as string);
-  if (error) throw new Error(error.message);
+  // 跟着这一单凭空多出来的客人（输错名字、选错身份）一起清掉，见 lib/deleteOrder.ts
+  await deleteOrderAndStrayPerson(formData.get("id") as string);
   revalidatePath("/admin/orders");
+  revalidatePath("/admin/customers");
   revalidatePath("/admin/overview");
   revalidatePath("/");
 }

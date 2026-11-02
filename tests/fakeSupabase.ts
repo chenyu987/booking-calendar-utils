@@ -13,6 +13,7 @@
 //   from(t).delete().eq().eq()
 //   from(t).upsert(row, { onConflict })
 //   rpc(name, args)                 （只记进 writes，不跑函数）
+//   failReadsOn(t)                  这张表的 select 之后一律返回 error
 //
 // select 里写成 "resources(id, holder_gender)" 的嵌套关系也认，一条 select 里可以有好几个：
 //   · 这一行上有外键列的（order_assignments.resource_id → resources）：多对一，
@@ -82,6 +83,8 @@ export function createFakeSupabase(seed: Tables = {}) {
   const writes: { op: string; table: string; payload?: any }[] = [];
   /** 下一次写操作强制失败，用来测「库出错了 handler 怎么办」 */
   let failNextWrite: string | null = null;
+  /** 这几张表的 select 一律返回 error（验「查询出错就停」那种分支） */
+  const failingReads = new Set<string>();
   /** 只让这张表的下一次写失败（null = 哪张表都算）。测「第二步失败时第一步撤没撤」用 */
   let failTable: string | null = null;
   /** 这一次写该不该失败；该的话把失败用掉，返回错误信息 */
@@ -136,6 +139,7 @@ export function createFakeSupabase(seed: Tables = {}) {
         writes.push({ op: "delete", table: t, payload: filters });
         return { data: null, error: null };
       }
+      if (failingReads.has(t)) return { data: null, error: { message: `读 ${t} 失败` } };
       return { data: rows().map(project), error: null };
     };
 
@@ -188,6 +192,7 @@ export function createFakeSupabase(seed: Tables = {}) {
         );
       },
       maybeSingle() {
+        if (failingReads.has(t)) return Promise.resolve({ data: null, error: { message: `读 ${t} 失败` } });
         const r = rows()[0];
         return Promise.resolve({ data: r ? project(r) : null, error: null });
       },
@@ -279,6 +284,9 @@ export function createFakeSupabase(seed: Tables = {}) {
     },
     db,
     writes,
+    failReadsOn(t: string) {
+      failingReads.add(t);
+    },
     failNextWriteWith(message: string, onTable?: string) {
       failNextWrite = message;
       failTable = onTable ?? null;

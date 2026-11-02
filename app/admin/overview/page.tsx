@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { createPerson, personSpread } from "@/lib/people";
+import { deleteOrder as deleteOrderAndStrayPerson } from "@/lib/deleteOrder";
 import { displayName, formatPerson } from "@/lib/person";
 import {
   CONTACT_FILTER_NONE,
@@ -281,12 +282,8 @@ async function createQuickOrder(formData: FormData) {
 
 async function deleteOrder(formData: FormData) {
   "use server";
-  const orderId = formData.get("order_id") as string;
-
-  // order_assignments/payments/order_notes/matches 对 orders 都是 on delete cascade，
-  // 删这一条订单会自动把它们清掉，不用手动一张张删
-  const { error } = await supabase.from("orders").delete().eq("id", orderId);
-  if (error) throw new Error(error.message);
+  // 跟着这一单凭空多出来的客人（输错名字、选错身份）一起清掉，见 lib/deleteOrder.ts
+  await deleteOrderAndStrayPerson(formData.get("order_id") as string);
 
   revalidatePath("/admin/overview");
   revalidatePath("/admin/orders");
