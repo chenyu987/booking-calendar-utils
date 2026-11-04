@@ -62,7 +62,7 @@ async function updateCustomer(formData: FormData) {
 
 export default async function CustomersAdminPage(
   props: {
-    searchParams: Promise<{ edit?: string; error?: string; saved?: string; merge_error?: string }>;
+    searchParams: Promise<{ edit?: string; error?: string; saved?: string; focus?: string; merge_error?: string }>;
   }
 ) {
   const searchParams = await props.searchParams;
@@ -186,7 +186,8 @@ export default async function CustomersAdminPage(
         rows={rows}
         editingId={searchParams.edit ?? null}
         editError={searchParams.error ?? null}
-        savedId={searchParams.saved ?? null}
+        // focus：全局搜索点进来的那个人，跟保存回来一样滚过去闪一下
+        savedId={searchParams.saved ?? searchParams.focus ?? null}
         updateAction={updateCustomer}
         today={todayIso()}
         admins={admins}

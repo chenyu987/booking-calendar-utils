@@ -173,6 +173,29 @@ export function createFakeSupabase(seed: Tables = {}) {
         filters.push((row) => String(row[col] ?? "").toLowerCase() === want);
         return api;
       },
+      // .or("a.ilike.\"%x%\",b.ilike.\"%x%\"")：只认全局搜索用的那种写法（lib/globalSearch.ts 的
+      // orContains）—— 每段都是带双引号的 ilike，% 是通配，\ 转义。认不出来就抛，免得测试悄悄全绿
+      or(expr: string) {
+        const parts = [...expr.matchAll(/([a-z_]+)\.ilike\."((?:[^"\\]|\\.)*)"(?:,|$)/g)];
+        if (!parts.length || parts.map((m) => m[0]).join("") !== expr) {
+          throw new Error(`假库不认这条 or：${expr}`);
+        }
+        const tests = parts.map(([, col, quoted]) => {
+          const pattern = quoted.replace(/\\(.)/g, "$1"); // 先去掉引号那层转义
+          let re = "";
+          for (let i = 0; i < pattern.length; i++) {
+            const c = pattern[i];
+            if (c === "\\") re += pattern[++i].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            else if (c === "%") re += ".*";
+            else if (c === "_") re += ".";
+            else re += c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          }
+          const rx = new RegExp(`^${re}$`, "is");
+          return (row: any) => rx.test(String(row[col] ?? ""));
+        });
+        filters.push((row) => tests.some((t) => t(row)));
+        return api;
+      },
       // PostgREST 的 .is(col, null) 是 IS NULL。假库里「这个字段没有」和「是 null」
       // 是一回事（种子数据不会把每个可空列都写出来），所以用 == 不用 ===
       is(col: string, val: any) {

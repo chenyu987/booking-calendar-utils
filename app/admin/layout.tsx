@@ -7,6 +7,7 @@ import PublicRail from "./PublicRail";
 import { clampRailWidth } from "@/lib/bandDays";
 import { parseNavWidth } from "@/lib/navWidth";
 import SettingsTrigger from "@/components/SettingsTrigger";
+import CommandPalette from "./CommandPalette";
 import { parseTheme, THEME_COOKIE } from "@/lib/theme";
 
 const navItems = [
@@ -64,6 +65,10 @@ export default async function AdminLayout(
             </Link>
           </div>
         ))}
+        {/* 全局搜索：⌘K 在哪一页都能开，这里是给鼠标用的入口。导航项原样传进去，不输字时当快捷跳转 */}
+        <div style={{ marginBottom: 8, whiteSpace: "nowrap" }}>
+          <CommandPalette pages={navItems} />
+        </div>
         {/* 设置是弹框不是页面：顺手调一下不该把手上的位置（滚到哪一周、
             正在配哪一单）弄丢 */}
         <div style={{ marginBottom: 8, whiteSpace: "nowrap" }}>

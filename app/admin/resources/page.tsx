@@ -22,7 +22,7 @@ import {
 import {
   RESOURCE_STATUSES,
   RESOURCE_STATUS_LABELS,
-  VALIDITY_OPEN_LABEL,
+  formatDateRange,
   statusBadge,
 } from "@/lib/resourceStatus";
 import {
@@ -40,6 +40,12 @@ import {
 } from "@/lib/adminStyles";
 
 export const dynamic = "force-dynamic";
+
+// 有效期一列：一段一行「起 ~ 止」，编辑态 / 筛选行是两个日期框夹一个「~」。
+// 表头、筛选行、编辑态、展示四处都取它，别再各写一个数
+const VALIDITY_WIDTH = 270;
+const rangeInputStyle = { flex: 1, minWidth: 0 };
+const tildeStyle = { color: "var(--text-faint)", flexShrink: 0, fontSize: 11 };
 
 function genderLabel(g?: string | null) {
   return g === "male" ? "男" : g === "female" ? "女" : "-";
@@ -291,8 +297,7 @@ export default async function ResourcesAdminPage(
         <div style={{ ...cellStyle, width: 60 }}>性别</div>
         <div style={{ ...cellStyle, width: 96 }}>物主生日</div>
         <div style={{ ...cellStyle, width: 70 }}>年龄</div>
-        <div style={{ ...cellStyle, width: 130 }}>有效期起</div>
-        <div style={{ ...cellStyle, width: 130 }}>有效期止</div>
+        <div style={{ ...cellStyle, width: VALIDITY_WIDTH }}>有效期</div>
         <div style={{ ...cellStyle, flex: 1.8 }}>排期（去过/要去的地点）</div>
         <div style={{ ...cellStyle, width: 110 }}>挂牌状态</div>
         <div style={{ ...cellStyle, width: 110 }}>操作</div>
@@ -345,11 +350,10 @@ export default async function ResourcesAdminPage(
               style={{ ...filterInputStyle, flex: 1, minWidth: 0 }}
             />
           </div>
-          <div style={{ ...cellStyle, width: 130 }}>
-            <input type="date" max={DATE_INPUT_MAX} name="vfrom" defaultValue={filters.validFrom} title="有效期起：不早于这天" style={filterInputStyle} />
-          </div>
-          <div style={{ ...cellStyle, width: 130 }}>
-            <input type="date" max={DATE_INPUT_MAX} name="vto" defaultValue={filters.validTo} title="有效期止：不晚于这天" style={filterInputStyle} />
+          <div style={{ ...cellStyle, width: VALIDITY_WIDTH, display: "flex", alignItems: "center", gap: 2 }}>
+            <input type="date" max={DATE_INPUT_MAX} name="vfrom" defaultValue={filters.validFrom} title="有效期起：不早于这天" style={{ ...filterInputStyle, ...rangeInputStyle }} />
+            <span style={tildeStyle}>~</span>
+            <input type="date" max={DATE_INPUT_MAX} name="vto" defaultValue={filters.validTo} title="有效期止：不晚于这天" style={{ ...filterInputStyle, ...rangeInputStyle }} />
           </div>
           <div style={{ ...cellStyle, flex: 1.8 }}>
             <select name="booked" defaultValue={filters.booked} style={filterInputStyle}>
@@ -454,30 +458,27 @@ export default async function ResourcesAdminPage(
               />
             </div>
             <div style={{ ...cellStyle, width: 70, color: "var(--text-faint)" }}>自动</div>
-            {/* 有效期一段一对输入框，几段就上下叠几个（lib/validity.ts）。
-                同一段的开始和结束在两列的同一高度上 */}
-            <div style={{ ...cellStyle, width: 130 }}>
+            {/* 有效期一段一对输入框，几段就上下叠几行（lib/validity.ts）。
+                periodsFromFormData 按 getAll 的顺序配对，一行里先起后止就对得上 */}
+            <div style={{ ...cellStyle, width: VALIDITY_WIDTH }}>
               {resourcePeriods(s).map((p, i) => (
-                <input
-                  key={i}
-                  name="date_range_start"
-                  type="date" max={DATE_INPUT_MAX}
-                  title="空 = 不设下限"
-                  defaultValue={p.start ?? ""}
-                  style={{ ...inputStyle, width: "100%" }}
-                />
-              ))}
-            </div>
-            <div style={{ ...cellStyle, width: 130 }}>
-              {resourcePeriods(s).map((p, i) => (
-                <input
-                  key={i}
-                  name="date_range_end"
-                  type="date" max={DATE_INPUT_MAX}
-                  title="空 = 不设上限"
-                  defaultValue={p.end ?? ""}
-                  style={{ ...inputStyle, width: "100%" }}
-                />
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <input
+                    name="date_range_start"
+                    type="date" max={DATE_INPUT_MAX}
+                    title="空 = 不设下限"
+                    defaultValue={p.start ?? ""}
+                    style={{ ...inputStyle, ...rangeInputStyle }}
+                  />
+                  <span style={tildeStyle}>~</span>
+                  <input
+                    name="date_range_end"
+                    type="date" max={DATE_INPUT_MAX}
+                    title="空 = 不设上限"
+                    defaultValue={p.end ?? ""}
+                    style={{ ...inputStyle, ...rangeInputStyle }}
+                  />
+                </div>
               ))}
             </div>
             <div style={{ ...cellStyle, flex: 1.8, color: "var(--text-faint)", fontSize: 11 }}>
@@ -521,23 +522,10 @@ export default async function ResourcesAdminPage(
             <div style={{ ...cellStyle, width: 70 }}>
               {calcAge(s.holder_date_of_birth) ?? "-"}
             </div>
-            {/* 有效期有好几段时一段一行，开始和结束两列对齐 */}
-            <div style={{ ...cellStyle, width: 130 }}>
+            {/* 有效期有好几段时一段一行「起 ~ 止」，一头不设限的写法走 formatDateRange */}
+            <div style={{ ...cellStyle, width: VALIDITY_WIDTH }}>
               {resourcePeriods(s).map((p, i) => (
-                <div key={i}>
-                  {p.start ?? (
-                    <span style={{ color: "var(--text-faint)" }}>{VALIDITY_OPEN_LABEL}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div style={{ ...cellStyle, width: 130 }}>
-              {resourcePeriods(s).map((p, i) => (
-                <div key={i}>
-                  {p.end ?? (
-                    <span style={{ color: "var(--text-faint)" }}>{VALIDITY_OPEN_LABEL}</span>
-                  )}
-                </div>
+                <div key={i}>{formatDateRange(p.start, p.end)}</div>
               ))}
             </div>
             <div style={{ ...cellStyle, flex: 1.8 }}>
