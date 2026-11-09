@@ -865,9 +865,9 @@ test.describe("资源清单的排序", () => {
       const cards = Array.from(
         document.querySelectorAll("#resource-panel [data-resource-id]")
       ) as HTMLElement[];
-      return cards
-        .map((c) => c.querySelector("a")!.children[0].textContent || "")
-        .map((t) => t.replace(/\d{4}-\d{2}-\d{2}|生日没填/g, "").trim());
+      // 名字读卡片上的 data-resource-name，不按位置找：卡片左边加了头像之后，
+      // 「链接的第一个子元素」就是头像了（2026-11-09 这条因此挂过）
+      return cards.map((c) => c.dataset.resourceName ?? "");
     });
 
   test("默认按年龄从小到大", async ({ page }) => {

@@ -92,6 +92,19 @@ export function summarizeBookings<T extends { demand_days?: string[] | null }>(
   };
 }
 
+/**
+ * 这一单是哪年，跟在「11/29-12/1」后面。`formatDayRanges` 只写月日，
+ * 一个资源排过好几季的话浮层里分不清哪条是哪年的。
+ * 只写后两位（「24」）。跨年的单（12/30-1/2）写成「25-26」，不挑一头去猜。没日子就给空串
+ */
+export function bookingYear(days: string[] | null | undefined): string {
+  const sorted = [...(days ?? [])].sort();
+  if (!sorted.length) return "";
+  const a = sorted[0].slice(2, 4);
+  const b = sorted[sorted.length - 1].slice(2, 4);
+  return a === b ? a : `${a}-${b}`;
+}
+
 /** 一段的完整文字，给 tooltip 和窄处截断用 */
 export function formatRun(r: BookingRun): string {
   return r.location ? `${r.label} ${r.location}` : `${r.label} 地点没填`;

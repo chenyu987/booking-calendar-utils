@@ -13,6 +13,7 @@
 //   from(t).delete().eq().eq()
 //   from(t).upsert(row, { onConflict })
 //   rpc(name, args)                 （只记进 writes，不跑函数）
+//   storage.from(b).download(p) / upload(p, blob)   内存里的文件，第二个参数可以预先放几份
 //   failReadsOn(t)                  这张表的 select 之后一律返回 error
 //
 // select 里写成 "resources(id, holder_gender)" 的嵌套关系也认，一条 select 里可以有好几个：
@@ -74,13 +75,15 @@ function topLevelEmbeds(select: string): string[] {
   return out;
 }
 
-export function createFakeSupabase(seed: Tables = {}) {
+export function createFakeSupabase(seed: Tables = {}, files: Record<string, Blob> = {}) {
   const db: Tables = {};
   for (const [k, v] of Object.entries(seed)) db[k] = v.map((r) => ({ ...r }));
   const table = (t: string) => (db[t] ??= []);
 
   /** 记下每一次写操作，测试里可以断言「到底有没有真写进去」 */
   const writes: { op: string; table: string; payload?: any }[] = [];
+  /** Storage 里的文件，键是「桶/路径」 */
+  const storage = new Map<string, Blob>(Object.entries(files));
   /** 下一次写操作强制失败，用来测「库出错了 handler 怎么办」 */
   let failNextWrite: string | null = null;
   /** 这几张表的 select 一律返回 error（验「查询出错就停」那种分支） */
@@ -303,6 +306,21 @@ export function createFakeSupabase(seed: Tables = {}) {
         const message = takeFailure(name);
         writes.push({ op: "rpc", table: name, payload: args });
         return { data: null, error: message ? { message } : null };
+      },
+      // Storage：桶 → 路径 → 文件，内存里存着。只有持有人照片用（lib/holderPhoto.ts）
+      storage: {
+        from: (bucket: string) => ({
+          download: async (path: string) => {
+            const blob = storage.get(`${bucket}/${path}`);
+            return blob ? { data: blob, error: null } : { data: null, error: { message: "Object not found" } };
+          },
+          upload: async (path: string, body: Blob, _opts?: unknown) => {
+            const message = takeFailure(`storage:${bucket}`);
+            writes.push({ op: "upload", table: bucket, payload: path });
+            if (!message) storage.set(`${bucket}/${path}`, body);
+            return { data: message ? null : { path }, error: message ? { message } : null };
+          },
+        }),
       },
     },
     db,

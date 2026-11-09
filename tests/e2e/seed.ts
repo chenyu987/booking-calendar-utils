@@ -54,6 +54,7 @@ export const SEED = {
   resources: [
     {
       id: "s-male",
+      holder_photo_path: "s-male/1.jpg",
       provider_id: "o-1",
       holder_name: "jordan doe",
       holder_gender: "male",
@@ -64,6 +65,7 @@ export const SEED = {
     },
     {
       id: "s-female",
+      holder_photo_path: "s-female/1.jpg",
       provider_id: "o-1",
       holder_name: "sara lee",
       holder_gender: "female",

@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { formatRun, sortChronologically, summarizeBookings, toBookingRuns } from "./booking";
+import { bookingYear, formatRun, sortChronologically, summarizeBookings, toBookingRuns } from "./booking";
 
 const TODAY = "2026-09-10";
+
+describe("bookingYear", () => {
+  it("同一年就写那一年，日子乱序也一样", () => {
+    expect(bookingYear(["2025-12-01", "2025-11-29", "2025-11-30"])).toBe("25");
+  });
+  it("跨年的单两头都写，不挑一头猜", () => {
+    expect(bookingYear(["2026-01-02", "2025-12-30"])).toBe("25-26");
+  });
+  it("没日子给空串", () => {
+    expect(bookingYear([])).toBe("");
+    expect(bookingYear(null)).toBe("");
+  });
+});
 
 describe("toBookingRuns", () => {
   it("每段都带上那一单去的地点", () => {

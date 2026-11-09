@@ -366,7 +366,7 @@ export default async function OverviewPage(
       .from("resources")
       .select(
         // provider_id 是推荐要用的：同一单的两个资源如果同一个物主，取还跑一趟就够
-        "id, provider_id, holder_name, holder_gender, holder_date_of_birth, item_type, validity, status"
+        "id, provider_id, holder_name, holder_gender, holder_date_of_birth, holder_photo_path, item_type, validity, status"
       )
       // 物主删掉的资源不在这儿列 —— 这一页是干活的地方，配也配不上（lib/assignable.ts
       // 拦着）。库里还在，要看去 /admin/resources（迁移 0013）

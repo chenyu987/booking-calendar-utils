@@ -8,4 +8,15 @@
 import { createFakeSupabase } from "../fakeSupabase";
 import { SEED } from "./seed";
 
-export const supabase = createFakeSupabase(SEED as any).client as any;
+// 持有人照片：种子里 s-male / s-female 挂了照片（s-later 没有，看「没照片」那种样子）。
+// 用一张纯色 SVG 顶替，不往仓库里放真人照片
+const fakePhoto = (color: string) =>
+  new Blob(
+    [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 50"><rect width="40" height="50" fill="${color}"/><circle cx="20" cy="18" r="9" fill="#fff8"/><rect x="8" y="31" width="24" height="19" rx="10" fill="#fff8"/></svg>`],
+    { type: "image/svg+xml" },
+  );
+
+export const supabase = createFakeSupabase(SEED as any, {
+  "holder-photos/s-male/1.jpg": fakePhoto("#5b8def"),
+  "holder-photos/s-female/1.jpg": fakePhoto("#e8749a"),
+}).client as any;

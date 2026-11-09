@@ -6,7 +6,7 @@ import { personSpread } from "@/lib/people";
 import { DISPLAY_COLUMNS, displayName } from "@/lib/person";
 import { calcAge } from "@/lib/age";
 import { DATE_INPUT_MAX, formatDayRanges } from "@/lib/dates";
-import { summarizeBookings } from "@/lib/booking";
+import { bookingYear, summarizeBookings } from "@/lib/booking";
 import { DELETE_BLOCKED_TEXT } from "@/lib/resourceEdit";
 import { periodsFromFormData, serializeValidity, resourcePeriods, validitySpan } from "@/lib/validity";
 import { deleteResource, restoreResource } from "./actions";
@@ -23,6 +23,7 @@ import {
   RESOURCE_STATUSES,
   RESOURCE_STATUS_LABELS,
   formatDateRange,
+  formatValidity,
   statusBadge,
 } from "@/lib/resourceStatus";
 import {
@@ -41,11 +42,14 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// 有效期一列：一段一行「起 ~ 止」，编辑态 / 筛选行是两个日期框夹一个「~」。
-// 表头、筛选行、编辑态、展示四处都取它，别再各写一个数
+// 有效期一列：展示是一行，编辑态 / 筛选行是两个日期框夹一个「~」。表头、筛选行、编辑态、展示四处都取它。
+// 两段放一行要 337px（13px system-ui），为了这几个资源把列放到那么宽，别的列（排期）就被挤没了 ——
+// 所以宽度按一段给，两段的新的在前、旧的被省略号截掉，鼠标放上去看全的
 const VALIDITY_WIDTH = 270;
 const rangeInputStyle = { flex: 1, minWidth: 0 };
 const tildeStyle = { color: "var(--text-faint)", flexShrink: 0, fontSize: 11 };
+// 展示行每格都只占一行，放不下就省略号（title 里是全的）—— 哪一格折行，那一行就比别的高
+const oneLineStyle = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } as const;
 
 function genderLabel(g?: string | null) {
   return g === "male" ? "男" : g === "female" ? "女" : "-";
@@ -510,9 +514,9 @@ export default async function ResourcesAdminPage(
           // 删掉的资源整行压暗 —— 右边挂牌状态那一格已经写着「已删除」（statusBadge），
           // 压暗是让人扫表时一眼略过它
           <div key={s.id} style={s.deleted_at ? { ...rowStyle, color: "var(--text-faint)" } : rowStyle}>
-            <div style={{ ...cellStyle, flex: 1.1 }}>{providerName(s.provider_id)}</div>
+            <div title={providerName(s.provider_id)} style={{ ...cellStyle, ...oneLineStyle, flex: 1.1 }}>{providerName(s.provider_id)}</div>
             <div style={{ ...cellStyle, width: 70 }}>{s.item_type ?? "-"}</div>
-            <div style={{ ...cellStyle, flex: 1.1 }}>{s.holder_name ?? "-"}</div>
+            <div title={s.holder_name ?? ""} style={{ ...cellStyle, ...oneLineStyle, flex: 1.1 }}>{s.holder_name ?? "-"}</div>
             <div style={{ ...cellStyle, width: 60 }}>
               {genderLabel(s.holder_gender)}
             </div>
@@ -522,11 +526,16 @@ export default async function ResourcesAdminPage(
             <div style={{ ...cellStyle, width: 70 }}>
               {calcAge(s.holder_date_of_birth) ?? "-"}
             </div>
-            {/* 有效期有好几段时一段一行「起 ~ 止」，一头不设限的写法走 formatDateRange */}
-            <div style={{ ...cellStyle, width: VALIDITY_WIDTH }}>
-              {resourcePeriods(s).map((p, i) => (
-                <div key={i}>{formatDateRange(p.start, p.end)}</div>
-              ))}
+            {/* 有效期几段都在一行，不叠行 —— 叠了的话两段的资源那一行就比别的高一截，
+                整张表高低不齐。新的一段排前面：放不下时截掉的是早就过去的那段 */}
+            <div
+              title={formatValidity(s)}
+              style={{ ...cellStyle, ...oneLineStyle, width: VALIDITY_WIDTH }}
+            >
+              {resourcePeriods(s)
+                .reverse()
+                .map((p) => formatDateRange(p.start, p.end))
+                .join("、")}
             </div>
             <div style={{ ...cellStyle, flex: 1.8 }}>
               {(() => {
@@ -566,6 +575,7 @@ export default async function ResourcesAdminPage(
                         <div key={o.id} className="bk-pop-row">
                           <span style={{ color: "var(--link)" }}>
                             {formatDayRanges(o.demand_days ?? [])}
+                            <span style={{ color: "var(--text-faint)" }}> {bookingYear(o.demand_days)}</span>
                           </span>
                           <span>{o.location ?? "?"}</span>
                           <span>{displayName(o.customers)}</span>

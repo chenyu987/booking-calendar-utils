@@ -103,6 +103,8 @@ create table resources (
   holder_name text,
   holder_gender text check (holder_gender in ('male', 'female')),
   holder_date_of_birth date,
+  -- 持有人照片在 Storage 私有桶 holder-photos 里的路径（迁移 0033，读写见 lib/holderPhoto.ts）
+  holder_photo_path text,
   -- 有效期：一组日期段（迁移 0023）。24/25 季能用、25/26 没续、26/27 又续上了，
   -- 存成 {[2024-11-01,2025-05-31),[2026-11-01,2027-05-31)}。每段两头各自可以不设限，
   -- 整季通用的资源就是 {(,)}。逼着填只会填进假日期，反倒在分配那一刻把合法的资源拦掉。
@@ -496,3 +498,8 @@ $$;
 -- 只给服务端（service key）调。Supabase 新建函数默认给 anon / authenticated EXECUTE（0027 那条）
 revoke execute on function merge_person(uuid, uuid) from public, anon, authenticated;
 grant execute on function merge_person(uuid, uuid) to service_role;
+
+-- 持有人照片的私有桶（迁移 0033）
+insert into storage.buckets (id, name, public)
+values ('holder-photos', 'holder-photos', false)
+on conflict (id) do nothing;

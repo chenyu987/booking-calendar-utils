@@ -6,6 +6,7 @@ import PanelScroller from "./PanelScroller";
 import CollapsibleResourcePanel from "./CollapsibleResourcePanel";
 import CollapsibleFilters from "./CollapsibleFilters";
 import SortMenu from "./SortMenu";
+import HolderAvatar from "./HolderAvatar";
 import { AssignResourceButton } from "./AssignActions";
 import { publishPanelData, useAssignSelection } from "./assignSelection";
 import { compareResources, type ResourceSort } from "@/lib/resourceSort";
@@ -547,10 +548,15 @@ function ResourceGroup({
                 style={{
                   textDecoration: "none",
                   color: "inherit",
-                  display: "block",
+                  // 左边头像，右边原来那两行（名字生日 / 排期）
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
                   cursor: "inherit",
                 }}
               >
+                <HolderAvatar path={s.holder_photo_path} name={s.holder_name} />
+                <div style={{ flex: 1, minWidth: 0 }}>
                 <div
                   style={{
                     display: "flex",
@@ -661,6 +667,7 @@ function ResourceGroup({
                       {badge.text}
                     </span>
                   )}
+                </div>
                 </div>
               </Link>
 
