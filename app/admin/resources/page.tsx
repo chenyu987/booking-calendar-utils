@@ -12,6 +12,8 @@ import { periodsFromFormData, serializeValidity, resourcePeriods, validitySpan }
 import { deleteResource, restoreResource } from "./actions";
 import { STATUS_LABELS as ORDER_STATUS_LABELS } from "@/lib/orderStatus";
 import FilterForm from "../orders/FilterForm";
+import HolderPhotoUpload from "./HolderPhotoUpload";
+import HolderAvatar from "../overview/HolderAvatar";
 import {
   parseResourceFilters,
   resourceFiltersQuery,
@@ -435,11 +437,13 @@ export default async function ResourcesAdminPage(
                 <option value="alpha">alpha</option>
               </select>
             </div>
-            <div style={{ ...cellStyle, flex: 1.1 }}>
+            {/* 照片在这一格：选了图马上传（HolderPhotoUpload），不跟「保存」走 */}
+            <div style={{ ...cellStyle, flex: 1.1, display: "flex", alignItems: "center", gap: 6 }}>
+              <HolderPhotoUpload resourceId={s.id} path={s.holder_photo_path ?? null} name={s.holder_name} />
               <input
                 name="holder_name"
                 defaultValue={s.holder_name ?? ""}
-                style={{ ...inputStyle, width: "100%" }}
+                style={{ ...inputStyle, width: "100%", minWidth: 0 }}
               />
             </div>
             <div style={{ ...cellStyle, width: 60 }}>
@@ -516,7 +520,10 @@ export default async function ResourcesAdminPage(
           <div key={s.id} style={s.deleted_at ? { ...rowStyle, color: "var(--text-faint)" } : rowStyle}>
             <div title={providerName(s.provider_id)} style={{ ...cellStyle, ...oneLineStyle, flex: 1.1 }}>{providerName(s.provider_id)}</div>
             <div style={{ ...cellStyle, width: 70 }}>{s.item_type ?? "-"}</div>
-            <div title={s.holder_name ?? ""} style={{ ...cellStyle, ...oneLineStyle, flex: 1.1 }}>{s.holder_name ?? "-"}</div>
+            <div title={s.holder_name ?? ""} style={{ ...cellStyle, flex: 1.1, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+              <HolderAvatar path={s.holder_photo_path} name={s.holder_name} />
+              <span style={{ ...oneLineStyle, minWidth: 0 }}>{s.holder_name ?? "-"}</span>
+            </div>
             <div style={{ ...cellStyle, width: 60 }}>
               {genderLabel(s.holder_gender)}
             </div>

@@ -51,3 +51,81 @@ describe("/admin/holder-photo", () => {
     }
   });
 });
+
+describe("POST /admin/holder-photo（上传 / 换照片）", () => {
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  const OLD = "s-old/1600000000000.jpg";
+  let fake: ReturnType<typeof createFakeSupabase>;
+
+  beforeEach(() => {
+    fake = createFakeSupabase(
+      {
+        resources: [
+          { id: "s-1", holder_name: "a", holder_photo_path: null, deleted_at: null },
+          { id: "s-old", holder_name: "b", holder_photo_path: OLD, deleted_at: null },
+          { id: "s-gone", holder_name: "c", holder_photo_path: null, deleted_at: "2026-11-01T00:00:00Z" },
+        ],
+      },
+      { [`holder-photos/${OLD}`]: new Blob([JPEG], { type: "image/jpeg" }) },
+    );
+    (globalThis as any).__fakeSupabase = fake.client;
+  });
+
+  const post = async (resourceId: string | null, file: Blob | null) => {
+    const { POST } = await import("@/app/admin/holder-photo/route");
+    const fd = new FormData();
+    if (resourceId !== null) fd.set("resourceId", resourceId);
+    if (file) fd.set("file", file, "photo.jpg");
+    return POST(new NextRequest("http://x/admin/holder-photo", { method: "POST", body: fd }));
+  };
+  const row = (id: string) => fake.db.resources.find((s: any) => s.id === id);
+  const files = () => [...fake.storage.keys()];
+
+  it("传 jpg：存进桶、资源上记下路径", async () => {
+    const res = await post("s-1", new Blob([JPEG], { type: "image/jpeg" }));
+    expect(res.status).toBe(200);
+    const { path } = await res.json();
+    expect(path).toMatch(/^s-1\/\d+\.jpg$/);
+    expect(row("s-1").holder_photo_path).toBe(path);
+    expect(files()).toContain(`holder-photos/${path}`);
+  });
+
+  it("换照片：新的记上，旧文件删掉", async () => {
+    const res = await post("s-old", new Blob([JPEG], { type: "image/jpeg" }));
+    const { path } = await res.json();
+    expect(row("s-old").holder_photo_path).toBe(path);
+    expect(files()).not.toContain(`holder-photos/${OLD}`);
+  });
+
+  it("不是 jpg 的不收 —— 看文件头，Content-Type 写成 image/jpeg 也没用", async () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+    const res = await post("s-1", new Blob([png], { type: "image/jpeg" }));
+    expect(res.status).toBe(400);
+    expect(row("s-1").holder_photo_path).toBeNull();
+    expect(fake.writes.filter((w) => w.op === "upload")).toEqual([]);
+  });
+
+  it("太大的不收", async () => {
+    const big = new Uint8Array(2 * 1024 * 1024 + 1);
+    big.set(JPEG);
+    expect((await post("s-1", new Blob([big]))).status).toBe(400);
+    expect(fake.writes.filter((w) => w.op === "upload")).toEqual([]);
+  });
+
+  it("没有这个资源、资源已经删了、资源 id 里带 ../：都不收，桶里不多东西", async () => {
+    for (const id of ["s-nope", "s-gone", "../x"]) {
+      expect((await post(id, new Blob([JPEG]))).status, id).toBe(404);
+    }
+    expect((await post(null, new Blob([JPEG]))).status).toBe(400);
+    expect((await post("s-1", null)).status).toBe(400);
+    expect(fake.writes.filter((w) => w.op === "upload")).toEqual([]);
+  });
+
+  it("写库失败：刚传上去的文件删掉，不留孤儿；旧照片不动", async () => {
+    fake.failNextWriteWith("boom", "resources");
+    const res = await post("s-old", new Blob([JPEG]));
+    expect(res.status).toBe(500);
+    expect(row("s-old").holder_photo_path).toBe(OLD);
+    expect(files()).toEqual([`holder-photos/${OLD}`]);
+  });
+});

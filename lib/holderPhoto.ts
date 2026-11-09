@@ -10,6 +10,9 @@
 
 export const HOLDER_PHOTO_BUCKET = "holder-photos";
 
+/** 上传的照片最大多少。浏览器那边先缩成 480px 宽的 jpg（app/admin/resources/HolderPhotoUpload.tsx），正常几十 KB */
+export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+
 const PATH_RE = /^[0-9A-Za-z-]{1,64}\/\d{1,16}\.jpg$/;
 
 export function isHolderPhotoPath(p: unknown): p is string {

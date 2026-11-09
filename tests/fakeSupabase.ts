@@ -13,7 +13,7 @@
 //   from(t).delete().eq().eq()
 //   from(t).upsert(row, { onConflict })
 //   rpc(name, args)                 （只记进 writes，不跑函数）
-//   storage.from(b).download(p) / upload(p, blob)   内存里的文件，第二个参数可以预先放几份
+//   storage.from(b).download(p) / upload(p, blob) / remove([p])   内存里的文件，第二个参数可以预先放几份
 //   failReadsOn(t)                  这张表的 select 之后一律返回 error
 //
 // select 里写成 "resources(id, holder_gender)" 的嵌套关系也认，一条 select 里可以有好几个：
@@ -320,11 +320,18 @@ export function createFakeSupabase(seed: Tables = {}, files: Record<string, Blob
             if (!message) storage.set(`${bucket}/${path}`, body);
             return { data: message ? null : { path }, error: message ? { message } : null };
           },
+          remove: async (paths: string[]) => {
+            writes.push({ op: "remove", table: bucket, payload: paths });
+            for (const p of paths) storage.delete(`${bucket}/${p}`);
+            return { data: paths.map((name) => ({ name })), error: null };
+          },
         }),
       },
     },
     db,
     writes,
+    /** Storage 里现在有哪些文件，键是「桶/路径」 */
+    storage,
     failReadsOn(t: string) {
       failingReads.add(t);
     },
