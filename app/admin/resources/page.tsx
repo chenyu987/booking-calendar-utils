@@ -1,23 +1,21 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { personSpread } from "@/lib/people";
 import { DISPLAY_COLUMNS, displayName } from "@/lib/person";
 import { calcAge } from "@/lib/age";
 import { DATE_INPUT_MAX, formatDayRanges } from "@/lib/dates";
-import { bookingYear, summarizeBookings } from "@/lib/booking";
+import { summarizeBookings } from "@/lib/booking";
 import { DELETE_BLOCKED_TEXT } from "@/lib/resourceEdit";
 import { periodsFromFormData, serializeValidity, resourcePeriods, validitySpan } from "@/lib/validity";
 import { deleteResource, restoreResource } from "./actions";
-import { STATUS_LABELS as ORDER_STATUS_LABELS } from "@/lib/orderStatus";
 import FilterForm from "../orders/FilterForm";
-import HolderPhotoUpload from "./HolderPhotoUpload";
+import { ResourceEditProvider, ResourceRow, EditResourceButton } from "./ResourceEditing";
+import BookingHistory from "./BookingHistory";
+import { VALIDITY_WIDTH, rangeInputStyle, tildeStyle, oneLineStyle } from "./styles";
 import HolderAvatar from "../overview/HolderAvatar";
 import {
   parseResourceFilters,
-  resourceFiltersQuery,
-  resourceReturnPath,
   hasAnyResourceFilter,
   matchesResourceFilters,
 } from "@/lib/resourceFilter";
@@ -43,15 +41,6 @@ import {
 } from "@/lib/adminStyles";
 
 export const dynamic = "force-dynamic";
-
-// 有效期一列：展示是一行，编辑态 / 筛选行是两个日期框夹一个「~」。表头、筛选行、编辑态、展示四处都取它。
-// 两段放一行要 337px（13px system-ui），为了这几个资源把列放到那么宽，别的列（排期）就被挤没了 ——
-// 所以宽度按一段给，两段的新的在前、旧的被省略号截掉，鼠标放上去看全的
-const VALIDITY_WIDTH = 270;
-const rangeInputStyle = { flex: 1, minWidth: 0 };
-const tildeStyle = { color: "var(--text-faint)", flexShrink: 0, fontSize: 11 };
-// 展示行每格都只占一行，放不下就省略号（title 里是全的）—— 哪一格折行，那一行就比别的高
-const oneLineStyle = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } as const;
 
 function genderLabel(g?: string | null) {
   return g === "male" ? "男" : g === "female" ? "女" : "-";
@@ -84,29 +73,7 @@ async function createResource(formData: FormData) {
   revalidatePath("/admin/overview");
 }
 
-async function updateResource(formData: FormData) {
-  "use server";
-  const { error } = await supabase
-    .from("resources")
-    .update({
-      provider_id: formData.get("provider_id") as string,
-      item_type: formData.get("item_type") as string,
-      holder_name: (formData.get("holder_name") as string)?.trim() || null,
-      holder_gender: (formData.get("holder_gender") as string) || null,
-      holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
-      validity: serializeValidity(validityFromForm(formData)),
-      status: formData.get("status") as string,
-    })
-    .eq("id", formData.get("id") as string);
-  if (error) throw new Error(error.message);
-
-  revalidatePath("/admin/resources");
-  revalidatePath("/admin/overview");
-  // 存完回到筛过的列表（退出编辑态），不是整张表 —— 筛选带在隐藏的 back 里
-  redirect(resourceReturnPath(String(formData.get("back") ?? "")));
-}
-
-// 删除 / 恢复在 ./actions.ts（软删除，迁移 0013）
+// 删除 / 恢复 / 编辑后保存在 ./actions.ts（删除是软删除，迁移 0013）
 
 // 筛选行的控件比新增表单里的紧凑：11 列挤在一行。
 // boxSizing 不能少——inputStyle 带内边距和边框，默认 content-box 的话 width:100%
@@ -196,7 +163,9 @@ export default async function ResourcesAdminPage(
       supabase
         .from("order_assignments")
         .select(
-          `resource_id, orders(id, location, demand_days, status, customers(${personSpread(DISPLAY_COLUMNS)}))`
+          // 只要排期那一行的摘要（第一单 … 最新一单 N 单）和单数：客户名只在浮层里用，
+          // 浮层点开才去拿（lib/resourceBookings.ts）。带上客户名的话近五千条分配要多 join 一层
+          "resource_id, orders(id, location, demand_days)"
         ),
     ]);
 
@@ -409,115 +378,28 @@ export default async function ResourcesAdminPage(
         </p>
       )}
 
-      {visibleResources.map((s: any) =>
-        s.id === editingId ? (
-          <form key={s.id} action={updateResource} style={rowStyle}>
-            <input type="hidden" name="id" value={s.id} />
-            <input type="hidden" name="back" value={resourceFiltersQuery(filters)} />
-            <div style={{ ...cellStyle, flex: 1.1 }}>
-              <select
-                name="provider_id"
-                defaultValue={s.provider_id}
-                style={{ ...selectStyle, width: "100%" }}
-              >
-                {providers?.map((o: any) => (
-                  <option key={o.id} value={o.id}>
-                    {displayName(o)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div style={{ ...cellStyle, width: 70 }}>
-              <select
-                name="item_type"
-                defaultValue={s.item_type ?? "alpha"}
-                style={{ ...selectStyle, width: "100%" }}
-              >
-                <option value="beta">beta</option>
-                <option value="alpha">alpha</option>
-              </select>
-            </div>
-            {/* 照片在这一格：选了图马上传（HolderPhotoUpload），不跟「保存」走 */}
-            <div style={{ ...cellStyle, flex: 1.1, display: "flex", alignItems: "center", gap: 6 }}>
-              <HolderPhotoUpload resourceId={s.id} path={s.holder_photo_path ?? null} name={s.holder_name} />
-              <input
-                name="holder_name"
-                defaultValue={s.holder_name ?? ""}
-                style={{ ...inputStyle, width: "100%", minWidth: 0 }}
-              />
-            </div>
-            <div style={{ ...cellStyle, width: 60 }}>
-              <select
-                name="holder_gender"
-                defaultValue={s.holder_gender ?? ""}
-                style={{ ...selectStyle, width: "100%" }}
-              >
-                <option value="">-</option>
-                <option value="male">男</option>
-                <option value="female">女</option>
-              </select>
-            </div>
-            <div style={{ ...cellStyle, width: 96 }}>
-              <input
-                name="holder_date_of_birth"
-                type="date" max={DATE_INPUT_MAX}
-                defaultValue={s.holder_date_of_birth ?? ""}
-                style={{ ...inputStyle, width: "100%" }}
-              />
-            </div>
-            <div style={{ ...cellStyle, width: 70, color: "var(--text-faint)" }}>自动</div>
-            {/* 有效期一段一对输入框，几段就上下叠几行（lib/validity.ts）。
-                periodsFromFormData 按 getAll 的顺序配对，一行里先起后止就对得上 */}
-            <div style={{ ...cellStyle, width: VALIDITY_WIDTH }}>
-              {resourcePeriods(s).map((p, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  <input
-                    name="date_range_start"
-                    type="date" max={DATE_INPUT_MAX}
-                    title="空 = 不设下限"
-                    defaultValue={p.start ?? ""}
-                    style={{ ...inputStyle, ...rangeInputStyle }}
-                  />
-                  <span style={tildeStyle}>~</span>
-                  <input
-                    name="date_range_end"
-                    type="date" max={DATE_INPUT_MAX}
-                    title="空 = 不设上限"
-                    defaultValue={p.end ?? ""}
-                    style={{ ...inputStyle, ...rangeInputStyle }}
-                  />
-                </div>
-              ))}
-            </div>
-            <div style={{ ...cellStyle, flex: 1.8, color: "var(--text-faint)", fontSize: 11 }}>
-              排期由订单决定，改不了
-            </div>
-            <div style={{ ...cellStyle, width: 110 }}>
-              <select
-                name="status"
-                defaultValue={s.status}
-                style={{ ...selectStyle, width: "100%" }}
-              >
-                {RESOURCE_STATUSES.map((st) => (
-                  <option key={st} value={st}>
-                    {RESOURCE_STATUS_LABELS[st]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div style={{ ...cellStyle, width: 110, display: "flex", gap: 8 }}>
-              <button type="submit" style={buttonStyle}>
-                保存
-              </button>
-              <Link href={`/admin/resources${resourceFiltersQuery(filters)}`} style={linkButtonStyle}>
-                取消
-              </Link>
-            </div>
-          </form>
-        ) : (
-          // 删掉的资源整行压暗 —— 右边挂牌状态那一格已经写着「已删除」（statusBadge），
-          // 压暗是让人扫表时一眼略过它
-          <div key={s.id} style={s.deleted_at ? { ...rowStyle, color: "var(--text-faint)" } : rowStyle}>
+      <ResourceEditProvider
+        initialId={editingId ?? null}
+        providers={(providers ?? []).map((o: any) => ({ id: o.id, name: displayName(o) }))}
+      >
+      {visibleResources.map((s: any) => (
+        <ResourceRow
+          key={s.id}
+          resource={{
+            id: s.id,
+            provider_id: s.provider_id,
+            item_type: s.item_type,
+            holder_name: s.holder_name,
+            holder_gender: s.holder_gender,
+            holder_date_of_birth: s.holder_date_of_birth,
+            holder_photo_path: s.holder_photo_path ?? null,
+            validity: s.validity,
+            status: s.status,
+          }}
+        >
+          {/* 删掉的资源整行压暗 —— 右边挂牌状态那一格已经写着「已删除」（statusBadge），
+              压暗是让人扫表时一眼略过它 */}
+          <div style={s.deleted_at ? { ...rowStyle, color: "var(--text-faint)" } : rowStyle}>
             <div title={providerName(s.provider_id)} style={{ ...cellStyle, ...oneLineStyle, flex: 1.1 }}>{providerName(s.provider_id)}</div>
             <div style={{ ...cellStyle, width: 70 }}>{s.item_type ?? "-"}</div>
             <div title={s.holder_name ?? ""} style={{ ...cellStyle, flex: 1.1, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
@@ -554,9 +436,9 @@ export default async function ResourcesAdminPage(
                 if (!first) {
                   return <span style={{ color: "var(--text-faint)", fontSize: 12 }}>还没排过</span>;
                 }
+                // 浮层里的全部明细点开才拿（BookingHistory → /admin/resources/bookings）
                 return (
-                  <details className="bk">
-                    <summary>
+                  <BookingHistory resourceId={s.id}>
                       {/* 顺序是反的，见 bookingCss 的注释：从右往左摆，放不下的第一单折走 */}
                       <div className="bk-line">
                         <span className="bk-count">{list.length} 单</span>
@@ -576,23 +458,7 @@ export default async function ResourcesAdminPage(
                           )}
                         </span>
                       </div>
-                    </summary>
-                    <div className="bk-pop">
-                      {list.map((o: any) => (
-                        <div key={o.id} className="bk-pop-row">
-                          <span style={{ color: "var(--link)" }}>
-                            {formatDayRanges(o.demand_days ?? [])}
-                            <span style={{ color: "var(--text-faint)" }}> {bookingYear(o.demand_days)}</span>
-                          </span>
-                          <span>{o.location ?? "?"}</span>
-                          <span>{displayName(o.customers)}</span>
-                          <span style={{ color: "var(--text-faint)" }}>
-                            {ORDER_STATUS_LABELS[o.status] ?? o.status}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
+                    </BookingHistory>
                 );
               })()}
             </div>
@@ -610,9 +476,8 @@ export default async function ResourcesAdminPage(
                 </form>
               ) : (
                 <>
-                  <Link href={`/admin/resources${resourceFiltersQuery(filters, { edit: s.id })}`} style={linkButtonStyle}>
-                    编辑
-                  </Link>
+                  {/* 当场切成编辑态，不跳页（ResourceEditing.tsx） */}
+                  <EditResourceButton id={s.id} />
                   {/* 已经排出去的资源不给删（lib/resourceEdit.ts 的 deleteBlockReason），
                       按钮直接不出现；服务端那边另有一道拦 */}
                   {(bookingsByResource.get(s.id) ?? []).length === 0 && (
@@ -627,8 +492,9 @@ export default async function ResourcesAdminPage(
               )}
             </div>
           </div>
-        )
-      )}
+        </ResourceRow>
+      ))}
+      </ResourceEditProvider>
     </main>
   );
 }

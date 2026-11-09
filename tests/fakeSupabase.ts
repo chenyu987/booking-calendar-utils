@@ -9,7 +9,7 @@
 //   from(t).select(cols).eq().neq().in().is().ilike().overlaps() → 数组
 //   ….single() / .maybeSingle()     → 单行
 //   from(t).insert(row)            （也能接 .select("id").single() 拿回新行）
-//   from(t).update(patch).eq() / .in()
+//   from(t).update(patch).eq() / .in() / .is()（接 .select() 拿回改到的行）
 //   from(t).delete().eq().eq()
 //   from(t).upsert(row, { onConflict })
 //   rpc(name, args)                 （只记进 writes，不跑函数）
@@ -253,10 +253,13 @@ export function createFakeSupabase(seed: Tables = {}, files: Record<string, Blob
           if (failure) {
             return { data: null, error: { message: failure } };
           }
-          for (const row of rows()) Object.assign(row, patch);
+          const hit = rows();
+          for (const row of hit) Object.assign(row, patch);
           writes.push({ op: "update", table: t, payload: patch });
-          return { data: null, error: null };
+          return { data: wantRows ? hit.map((r) => ({ ...r })) : null, error: null };
         };
+        // .select() 接在后面：跟真的一样，返回改到的那几行（没改到就是空数组）
+        let wantRows = false;
         const chain: any = {
           eq(col: string, val: any) {
             filters.push((row) => row[col] === val);
@@ -268,6 +271,10 @@ export function createFakeSupabase(seed: Tables = {}, files: Record<string, Blob
           },
           in(col: string, vals: any[]) {
             filters.push((row) => vals.includes(row[col]));
+            return chain;
+          },
+          select(_cols?: string) {
+            wantRows = true;
             return chain;
           },
           then: (res: any, rej: any) => Promise.resolve(run()).then(res, rej),
