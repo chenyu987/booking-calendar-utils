@@ -32,14 +32,73 @@ test.describe("手机窄屏", () => {
     });
   }
 
-  test("列表页的表格不被挤扁，留桌面宽度在内容区里横滑", async ({ page }) => {
+  // 每个后台页：表格以外的东西（标题、表单、筛选）都得在屏宽以内，超出去的只许是包在
+  // <MobileScroll> 里的宽表格、或者日历自己的滚动框 —— 那些在自己的框里横滑
+  const PAGES = [
+    "/admin/orders", "/admin/customers", "/admin/providers", "/admin/resources", "/admin/payments",
+    "/admin/matches", "/admin/referrals", "/admin/chat-requests", "/admin/history",
+  ];
+  for (const path of PAGES) {
+    test(`${path}：表格之外没有东西伸出屏幕`, async ({ page }) => {
+      await goto(page, path);
+      await page.locator(".admin-main").waitFor();
+      const sticking = await page.locator(".admin-main").evaluate((main) => {
+        const right = main.getBoundingClientRect().right + 1;
+        const out: string[] = [];
+        // 在自己的横滑框里的（MobileScroll、日历的滚动容器）不算：那是故意的
+        const inOwnScroller = (el: Element) => {
+          for (let a = el.parentElement; a && a !== main; a = a.parentElement) {
+            const ox = getComputedStyle(a).overflowX;
+            if (ox === "auto" || ox === "scroll" || ox === "hidden") return true;
+          }
+          return false;
+        };
+        for (const el of main.querySelectorAll("*")) {
+          if (inOwnScroller(el)) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width > 0 && r.right > right) out.push(`${el.tagName} ${Math.round(r.right)} ${(el.textContent ?? "").trim().slice(0, 20)}`);
+        }
+        return out;
+      });
+      expect(sticking).toEqual([]);
+    });
+  }
+
+  test("Order 表格不被挤扁：在自己的框里保持宽度、能横滑", async ({ page }) => {
     await goto(page, "/admin/orders");
-    const inner = page.locator(".admin-main > main");
+    const inner = page.locator(".m-scroll-inner").first();
     await inner.waitFor();
-    expect((await inner.boundingBox())!.width).toBeGreaterThanOrEqual(1000);
-    const scrolls = await page.locator(".admin-main").evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect((await inner.boundingBox())!.width).toBeGreaterThanOrEqual(900);
+    const scrolls = await page.locator(".m-scroll").first().evaluate((el) => el.scrollWidth > el.clientWidth);
     expect(scrolls).toBe(true);
   });
+
+  test("排期总览：资源面板默认收起，展开时浮在日历上面", async ({ page }) => {
+    await goto(page, "/admin/overview");
+    await page.locator("body[data-overview-ready]").waitFor();
+    const panel = page.locator("#resource-panel");
+    await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBeLessThanOrEqual(20);
+    await page.getByTitle("展开资源面板").click();
+    await expect(panel).toHaveCSS("position", "fixed");
+    const box = (await panel.boundingBox())!;
+    expect(box.x).toBe(0);
+    expect(box.width).toBeLessThanOrEqual(345);
+    await page.getByTitle("收起资源面板").click();
+    await expect(panel).not.toHaveCSS("position", "fixed");
+  });
+
+  for (const path of ["/admin/matches", "/admin/referrals"]) {
+    test(`${path}：日历有缩放，选 50% 日历就缩一半`, async ({ page }) => {
+      await goto(page, path);
+      const sel = page.locator("select:has(option[value='50'])");
+      await expect(sel).toHaveCount(1);
+      const zoomed = page.locator("[style*='zoom']").first();
+      const before = (await zoomed.boundingBox())!.height;
+      await sel.selectOption("50");
+      // 不一定正好一半（有最小高度、换行），明显变矮就算
+      await expect.poll(async () => (await zoomed.boundingBox())!.height).toBeLessThan(before * 0.7);
+    });
+  }
 
   test("点 ☰ 滑出导航，点链接换页后自己收起，点遮罩也能收", async ({ page }) => {
     await goto(page, "/admin/orders");

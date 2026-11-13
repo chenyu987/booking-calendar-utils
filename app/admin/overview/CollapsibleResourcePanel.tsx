@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { MOBILE_BREAKPOINT } from "@/lib/adminMobile";
 
 // 资源面板的外壳，带一个收起/展开的按钮。
 // 收起之后只剩一根窄条（按钮还在，能再展开），右边日历就把腾出来的 260px 吃掉。
@@ -22,6 +23,13 @@ export default function CollapsibleResourcePanel({
 }) {
   const [collapsed, setCollapsed] = useState(initialCollapsed);
 
+  // 手机上展开的面板会盖住日历，所以手机上**没自己选过**就默认收起。
+  // 选过（cookie 里有值）就照用户的来。只在挂载时看一次，不跟着窗口宽度来回变
+  useEffect(() => {
+    const chosen = document.cookie.split("; ").some((c) => c.startsWith("resource_panel_collapsed="));
+    if (!chosen && window.matchMedia(`(max-width:${MOBILE_BREAKPOINT}px)`).matches) setCollapsed(true);
+  }, []);
+
   function toggle() {
     const next = !collapsed;
     setCollapsed(next);
@@ -29,8 +37,11 @@ export default function CollapsibleResourcePanel({
   }
 
   return (
+    // data-expanded：手机上展开时它浮在日历上面（lib/adminMobile.ts），不然 260px 宽的面板
+    // 把 390px 的屏占掉大半，日历只剩一条缝。桌面上这个属性没有规则命中
     <aside
       id="resource-panel"
+      data-expanded={collapsed ? undefined : ""}
       style={{
         width: collapsed ? 14 : expandedWidth,
         // 跟日历之间的间距由这儿控制（外层 flex 的 gap 设成 0 了）：

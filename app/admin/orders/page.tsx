@@ -1,4 +1,5 @@
 import Link from "next/link";
+import MobileScroll from "@/app/admin/MobileScroll";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
@@ -239,6 +240,7 @@ export default async function OrdersAdminPage(
 
       {error && <p style={{ color: "crimson" }}>{error.message}</p>}
 
+      <MobileScroll minWidth={960}>
       <div style={headerRowStyle}>
         <div style={{ ...cellStyle, flex: 1 }}>Customer</div>
         <div style={{ ...cellStyle, flex: 1 }}>地点</div>
@@ -533,6 +535,7 @@ export default async function OrdersAdminPage(
           </div>
         )
       )}
+      </MobileScroll>
     </main>
   );
 }

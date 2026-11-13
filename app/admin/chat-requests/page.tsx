@@ -1,4 +1,5 @@
 import Link from "next/link";
+import MobileScroll from "@/app/admin/MobileScroll";
 import { supabase } from "@/lib/supabase";
 import { DISPLAY_COLUMNS, displayName } from "@/lib/person";
 import { DATE_INPUT_MAX } from "@/lib/dates";
@@ -218,6 +219,7 @@ export default async function ChatRequestsPage(props: {
           <p style={{ color: "crimson" }}>{GROUP_ERRORS[searchParams.group_error] ?? "没存上，再试一次"}</p>
         )}
         {groupsError && <p style={{ color: "crimson" }}>{groupsError.message}</p>}
+        <MobileScroll minWidth={600}>
         <table style={{ ...tableStyle, marginTop: 8 }}>
           <thead>
             <tr>
@@ -272,6 +274,7 @@ export default async function ChatRequestsPage(props: {
             </tr>
           </tbody>
         </table>
+        </MobileScroll>
       </details>
 
       {searchParams.error === "bad" && <p style={{ color: "crimson" }}>没存上：状态不对，刷新一下再试</p>}
@@ -295,6 +298,7 @@ export default async function ChatRequestsPage(props: {
       {matching.length > PAGE_SIZE && <p style={helpTextStyle}>只显示最新 {PAGE_SIZE} 条，用上面的筛选缩小范围。</p>}
 
       {shown.length > 0 && (
+        <MobileScroll minWidth={1100}>
         <table style={tableStyle}>
           <thead>
             <tr>
@@ -392,6 +396,7 @@ export default async function ChatRequestsPage(props: {
             })}
           </tbody>
         </table>
+        </MobileScroll>
       )}
     </main>
   );

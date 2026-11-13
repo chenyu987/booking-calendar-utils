@@ -1,4 +1,5 @@
 import Link from "next/link";
+import MobileScroll from "@/app/admin/MobileScroll";
 
 import FilterForm from "@/app/admin/orders/FilterForm";
 import { helpTextStyle, pageTitleStyle, selectStyle, tableStyle, tdStyle, thStyle } from "@/lib/adminStyles";
@@ -142,6 +143,7 @@ export default async function HistoryPage(
       {entries.length === 0 ? (
         <p style={helpTextStyle}>{before ? "没有更早的了。" : "还没有记录。"}</p>
       ) : (
+        <MobileScroll minWidth={800}>
         <table style={tableStyle}>
           <thead>
             <tr>
@@ -186,6 +188,7 @@ export default async function HistoryPage(
             })}
           </tbody>
         </table>
+        </MobileScroll>
       )}
 
       {entries.length === PAGE_SIZE && last && (

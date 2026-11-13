@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import MobileScroll from "@/app/admin/MobileScroll";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FOOTPRINT_SORTS,
@@ -687,6 +688,7 @@ export default function CustomerTable({
 
       {/* tableLayout fixed：列宽只听表头的，不跟着内容变。不然一进编辑，生日框、保存按钮
           把各自那列撑宽，整张表的列都挪几像素 —— 进出编辑几何必须一模一样（CLAUDE.md） */}
+      <MobileScroll minWidth={1000}>
       <table style={{ ...tableStyle, marginTop: 8, tableLayout: "fixed" }}>
         <thead>
           <tr>
@@ -863,6 +865,7 @@ export default function CustomerTable({
           })}
         </tbody>
       </table>
+      </MobileScroll>
 
       {filtered.length === 0 && rows.length > 0 && (
         <p style={{ color: "var(--text-muted)", fontSize: 13 }}>没有符合筛选条件的 Customer</p>

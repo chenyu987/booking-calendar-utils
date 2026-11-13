@@ -1,4 +1,5 @@
 import Link from "next/link";
+import MobileScroll from "@/app/admin/MobileScroll";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { PERSON_COLUMNS, personSpread } from "@/lib/people";
@@ -185,6 +186,7 @@ export default async function ProvidersAdminPage(
         </section>
       )}
 
+      <MobileScroll minWidth={1100}>
       <div style={headerRowStyle}>
         <div style={COL.name}>昵称</div>
         <div style={COL.phone}>电话</div>
@@ -395,6 +397,7 @@ export default async function ProvidersAdminPage(
           </div>
         )
       )}
+      </MobileScroll>
     </main>
   );
 }

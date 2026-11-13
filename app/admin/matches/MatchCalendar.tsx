@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ZoomBox } from "../ZoomSelect";
 import { todayIso } from "@/lib/dates";
 import BoardDayHeader from "@/components/BoardDayHeader";
 import { statusColor, STATUS_LABELS } from "@/lib/orderStatus";
@@ -87,7 +88,8 @@ export default function MatchCalendar({
         })}
       </div>
 
-      <div style={{ border: "1px solid var(--border)", borderRadius: 6, overflowX: "auto" }}>
+      {/* 缩放：手机上 100% 一屏只看得到两三天（ZoomBox 是客户端的，这张表照旧服务端画） */}
+      <ZoomBox scrollStyle={{ border: "1px solid var(--border)", borderRadius: 6, overflowX: "auto" }}>
         <div style={{ minWidth }}>
         {bands.map((band, i) => {
           const lanes = band.rows[0].lanes;
@@ -168,7 +170,7 @@ export default function MatchCalendar({
           );
         })}
         </div>
-      </div>
+      </ZoomBox>
 
     </>
   );

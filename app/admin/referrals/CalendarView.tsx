@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import ReferralCalendar from "./ReferralCalendar";
+import { ZoomSelect } from "../ZoomSelect";
 import { clampBandDays, SCROLLBAR_ALLOWANCE, widthForBandDays } from "@/lib/bandDays";
 import {
   REFERRAL_COL_GAP,
@@ -38,6 +39,7 @@ export default function CalendarView({
   panels: Record<string, React.ReactNode>;
 }) {
   const [days, setDays] = useState(clampBandDays(initialBandDays));
+  const [zoom, setZoom] = useState(100);
 
   function pick(next: number) {
     const n = clampBandDays(next);
@@ -60,6 +62,8 @@ export default function CalendarView({
       <div
         style={{
           display: "flex",
+          // 手机上放不下一行（多了个缩放）就换行，别把页面撑宽
+          flexWrap: "wrap",
           alignItems: "center",
           gap: 6,
           margin: "0 0 8px",
@@ -104,6 +108,10 @@ export default function CalendarView({
           style={{ width: 120, marginLeft: 4 }}
         />
         <span style={{ color: "var(--text-faint)" }}>{days} 天</span>
+        {/* 缩放：手机上 100% 一屏只看得到两三天 */}
+        <span style={{ marginLeft: 6 }}>
+          <ZoomSelect value={zoom} onChange={setZoom} />
+        </span>
       </div>
 
       {/* **宽度按天数封顶** —— 列是 `minmax(112px, 1fr)`，不封顶的话选「1 周」
@@ -112,11 +120,13 @@ export default function CalendarView({
       <div
         style={{
           maxWidth:
-            widthForBandDays(days, 1, REFERRAL_COL_WIDTH, REFERRAL_COL_GAP) +
+            widthForBandDays(days, 1, REFERRAL_COL_WIDTH, REFERRAL_COL_GAP) * (zoom / 100) +
             SCROLLBAR_ALLOWANCE,
         }}
       >
-        <ReferralCalendar board={board} bandDays={days} today={today} panels={panels} />
+        <div style={{ zoom: `${zoom}%` }}>
+          <ReferralCalendar board={board} bandDays={days} today={today} panels={panels} />
+        </div>
       </div>
     </>
   );

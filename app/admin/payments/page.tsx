@@ -1,4 +1,5 @@
 import { revalidatePath } from "next/cache";
+import MobileScroll from "@/app/admin/MobileScroll";
 import { supabase } from "@/lib/supabase";
 import { personSpread } from "@/lib/people";
 import { DISPLAY_COLUMNS, displayName } from "@/lib/person";
@@ -85,6 +86,7 @@ export default async function PaymentsAdminPage() {
 
       {error && <p style={{ color: "crimson" }}>{error.message}</p>}
 
+      <MobileScroll minWidth={700}>
       <table style={tableStyle}>
         <thead>
           <tr>
@@ -107,6 +109,7 @@ export default async function PaymentsAdminPage() {
           ))}
         </tbody>
       </table>
+      </MobileScroll>
     </main>
   );
 }

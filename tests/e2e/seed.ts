@@ -43,7 +43,8 @@ export const SEED = {
     { id: "r-aged", chat_name: "小明", date_of_birth: "1998-06-20" },
     { id: "o-1", chat_name: "测试物主" },
   ],
-  customers: [{ id: "r-long" }, { id: "r-short" }, { id: "r-aged" }],
+  // r-long 是 r-aged 介绍来的、ord-main 上有一条意向：让 Referral / Match 两张日历有东西画（手机缩放的测试要用）
+  customers: [{ id: "r-long", referred_by: "r-aged" }, { id: "r-short" }, { id: "r-aged" }],
   // 排期总览标题旁边「当前身份」那个下拉的名单（0018）
   admins: [
     { id: "admin-admin1", name: "Admin1", created_at: "2026-01-01T00:00:00Z" },
@@ -155,7 +156,7 @@ export const SEED = {
   ],
   order_notes: [{ id: "n1", order_id: "ord-main", internal_note: "备注" }],
   payments: [],
-  matches: [],
+  matches: [{ id: "m1", order_id: "ord-main", resource_id: "s-male", status: "proposed" }],
   day_notes: [],
   // 主要管理员 = admin2：没写是谁的单都算她的，她的单不上色；只有 Admin1 的（ord-main）带颜色
   app_settings: [{ key: "primary_admin_id", value: "admin-admin2" }],

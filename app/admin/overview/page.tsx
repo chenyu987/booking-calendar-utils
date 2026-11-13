@@ -988,7 +988,8 @@ export default async function OverviewPage(
             选完自动提交（onChange 交给 FilterAutoSubmit，跟资源筛选共用）。 */}
         {/* 外面再包一层同样 gap 的 flex：类型开关在表单外面（见下），不包的话它跟前面那排下拉
             之间隔的是外层的大间距，看着像另一组 */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {/* ov-filters：手机上这一排换行（lib/adminMobile.ts），桌面不变 */}
+        <div className="ov-filters" style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <FilterForm action="/admin/overview" style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {/* 看哪一季。放最前面：它决定读哪批数据，后面几个筛选都是在这一季里面再筛。
               今天这季的选项值是空的 —— 默认那档不写进 URL（FilterForm 会剔掉空值） */}

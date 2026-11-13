@@ -1,4 +1,5 @@
 import Link from "next/link";
+import MobileScroll from "@/app/admin/MobileScroll";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { personSpread } from "@/lib/people";
@@ -265,6 +266,7 @@ export default async function ResourcesAdminPage(
 
       {error && <p style={{ color: "crimson" }}>{error.message}</p>}
 
+      <MobileScroll minWidth={1500}>
       <div style={headerRowStyle}>
         <div style={{ ...cellStyle, flex: 1.1 }}>Provider</div>
         <div style={{ ...cellStyle, width: 70 }}>资源类型</div>
@@ -495,6 +497,7 @@ export default async function ResourcesAdminPage(
         </ResourceRow>
       ))}
       </ResourceEditProvider>
+      </MobileScroll>
     </main>
   );
 }

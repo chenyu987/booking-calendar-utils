@@ -4,9 +4,9 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import CalendarScroller from "./CalendarScroller";
 import OutsideRail from "./OutsideRail";
+import { ZoomSelect } from "../ZoomSelect";
 import { widthForBandDays, clampBandDays, SCROLLBAR_ALLOWANCE } from "@/lib/bandDays";
 
-const ZOOM_LEVELS = [50, 75, 90, 100, 125, 150, 200];
 
 // 纯前端缩放，跟 Google Sheet 右下角调百分比一个作用：订单多的时候缩小看全局。
 //
@@ -127,20 +127,7 @@ export default function ZoomableCalendar({
         }}
       >
         {toolbar}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "var(--text-faint)" }}>缩放</span>
-          <select
-            value={zoom}
-            onChange={(e) => setZoom(Number(e.target.value))}
-            style={{ fontSize: 12, padding: "2px 4px" }}
-          >
-            {ZOOM_LEVELS.map((z) => (
-              <option key={z} value={z}>
-                {z}%
-              </option>
-            ))}
-          </select>
-        </div>
+        <ZoomSelect value={zoom} onChange={setZoom} />
       </div>
 
       <div ref={rowRef} style={{ display: "flex", gap: 0, alignItems: "flex-start" }}>
