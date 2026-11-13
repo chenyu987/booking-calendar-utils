@@ -928,7 +928,10 @@ export default async function OverviewPage(
           Number((await cookies()).get("overview_rail_width")?.value ?? NaN)
         )}
         panel={
+          // key 是给 React 19 dev 下的检查看的：不加的话控制台报「ZoomableCalendar 里的列表缺 key」、
+          // 指着这一行（2026-11-11 实测，加了就没了）。只有一个、不会重排，写死就行
           <ResourcePanel
+            key="resource-panel"
             assignHistory={assignHistory}
             orderRegion={orderFilter.region}
             orderMtn={orderFilter.mtn}
@@ -1433,6 +1436,7 @@ export default async function OverviewPage(
                           })),
                           cardBg: c.bg,
                           cardBorder: c.border,
+                          adminId: effectiveAdminId(o.admin_id, primaryAdminId),
                         }
                       : null;
                     if (editorData) {
@@ -1506,6 +1510,8 @@ export default async function OverviewPage(
         exitHref={qs({ assign: "" })}
         // 浮动条「打名字分配」的候选不在这儿传数据：跟左边资源清单共用一份（assignSelection.ts）
         deleteAction={deleteOrder}
+        admins={admins}
+        primaryAdminId={primaryAdminId}
       />
 
     </main>

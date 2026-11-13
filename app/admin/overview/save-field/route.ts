@@ -26,6 +26,19 @@ export async function POST(req: NextRequest) {
   const orderId = body.order_id as string;
   if (!orderId) return NextResponse.json({ error: "缺 order_id" }, { status: 400 });
 
+  // 这一单是谁的（orders.admin_id，0019）：分配浮动条上那个下拉。
+  // **认不出来的管理员整个拒掉，而且拦在任何写库之前** —— 一个不存在的 id 写进去，
+  // 外键会挡，但那时同一个请求里别的字段已经写了一半
+  const adminId = body.admin_id;
+  if (adminId !== undefined) {
+    if (typeof adminId !== "string" || !adminId) {
+      return NextResponse.json({ error: "admin_id 不对" }, { status: 400 });
+    }
+    const { data, error } = await supabase.from("admins").select("id").eq("id", adminId).maybeSingle();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!data) return NextResponse.json({ error: "没有这个管理员" }, { status: 400 });
+  }
+
   try {
     if (typeof body.customer_name === "string" && body.customer_name.trim()) {
       const { data: ord } = await supabase
@@ -99,6 +112,11 @@ export async function POST(req: NextRequest) {
           { order_id: orderId, internal_note: note || null },
           { onConflict: "order_id" }
         );
+      if (error) throw new Error(error.message);
+    }
+
+    if (typeof adminId === "string") {
+      const { error } = await supabase.from("orders").update({ admin_id: adminId }).eq("id", orderId);
       if (error) throw new Error(error.message);
     }
 

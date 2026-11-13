@@ -18,10 +18,10 @@ import {
   parseResourceFilters,
   hasAnyResourceFilter,
   matchesResourceFilters,
+  STATUS_FILTER_OPTIONS,
 } from "@/lib/resourceFilter";
 import {
-  RESOURCE_STATUSES,
-  RESOURCE_STATUS_LABELS,
+  badgeKind,
   formatDateRange,
   formatValidity,
   statusBadge,
@@ -202,7 +202,7 @@ export default async function ResourcesAdminPage(
         rangeStart: validitySpan(resourcePeriods(s)).start,
         rangeEnd: validitySpan(resourcePeriods(s)).end,
         bookingCount: (bookingsByResource.get(s.id) ?? []).length,
-        status: s.status,
+        badge: badgeKind(s),
       },
       filters
     )
@@ -340,9 +340,9 @@ export default async function ResourcesAdminPage(
           <div style={{ ...cellStyle, width: 110 }}>
             <select name="sstatus" defaultValue={filters.sstatus} style={filterInputStyle}>
               <option value="">全部状态</option>
-              {RESOURCE_STATUSES.map((st) => (
-                <option key={st} value={st}>
-                  {RESOURCE_STATUS_LABELS[st]}
+              {STATUS_FILTER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </select>

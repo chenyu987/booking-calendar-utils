@@ -60,6 +60,11 @@ describe("applyPatchToBlock：色块当场显示新值", () => {
     expect(d.locationHint).not.toBe("");
   });
 
+  it("改了是谁的单：边框颜色当场换；换回主要管理员（null）也换得回去", () => {
+    expect(applyPatchToBlock(block, { adminId: "a2", adminColor: "var(--admin-1)" }).adminColor).toBe("var(--admin-1)");
+    expect(applyPatchToBlock({ ...block, adminColor: "var(--admin-1)" }, { adminId: "a1", adminColor: null }).adminColor).toBeNull();
+  });
+
   it("不改原来那份（服务端的数据还得留着撤回用）", () => {
     applyPatchToBlock(block, { customerName: "x", maleCount: 3 });
     expect(block.customerName).toBe("小雨");
@@ -72,6 +77,16 @@ describe("applyPatchToEditor：退出后马上又点开这一单，编辑框里�
     const ed = { customerName: "小雨", location: "locaa", maleCount: 1, femaleCount: 0, need: { maleFilled: 1, femaleFilled: 0, maleGap: 0, femaleGap: 0 } } as unknown as EditorData;
     const d = applyPatchToEditor(ed, { femaleCount: 2, customerName: "小雨2" });
     expect(d).toMatchObject({ customerName: "小雨2", femaleCount: 2, need: { femaleGap: 2, maleGap: 0 } });
+  });
+});
+
+describe("applyPatchToEditor：改了是谁的单", () => {
+  it("下拉显示新的人，分配态边框换成他的颜色（光圈照旧）", () => {
+    const ed = { adminId: "a1", style: { border: "1px solid var(--link)" }, cardBorder: "#ccc", need: {} } as unknown as EditorData;
+    const d = applyPatchToEditor(ed, { adminId: "a2", adminColor: "var(--admin-1)" });
+    expect(d.adminId).toBe("a2");
+    expect(d.style.border).toBe("1px solid var(--admin-1)");
+    expect(String(d.style.boxShadow)).toContain("var(--link)");
   });
 });
 

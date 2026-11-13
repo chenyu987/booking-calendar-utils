@@ -89,14 +89,47 @@ export function validityOverlaps(resource: any, from: string, to: string): boole
   );
 }
 
-// 卡片上那个小标签：优先显示挂牌状态，其次显示是不是过期了
-export function statusBadge(resource: any): { text: string; color: string } {
+/**
+ * 卡片上那个小标签是哪一种 —— **唯一出处**。优先挂牌状态，其次看是不是过期了。
+ *
+ * 跟库里的 `status` 不是一回事：「已过期」「已删除」是现算的，库里那个资源可能还写着 active。
+ * Resource 管理的「挂牌状态」筛选比的是这个（显示什么就按什么筛），不是 `status` ——
+ * 原来比 `status`，筛「出租中」会把显示「已过期」的资源一起筛进来，而「已过期」根本没法单独筛。
+ *
+ * 过期**不写回库里**（比如自动改成暂停）：分配校验要求 active，补录历史单要拿过期资源配当时的日子；
+ * 续了一季还得记得改回来 —— 正是「能算出来的东西存成字段」那个坑。
+ */
+export const BADGE_KINDS = ["active", "expired", "paused", "archived", "deleted"] as const;
+export type BadgeKind = (typeof BADGE_KINDS)[number];
+
+export const BADGE_LABELS: Record<BadgeKind, string> = {
+  active: "出租中",
+  expired: "已过期",
+  paused: "暂停",
+  archived: "已下架",
+  deleted: "已删除",
+};
+
+const BADGE_COLORS: Record<BadgeKind, string> = {
+  active: "var(--ok)",
+  expired: "var(--text-faint)",
+  paused: "var(--warn)",
+  archived: "var(--text-faint)",
+  deleted: "var(--danger)",
+};
+
+export function badgeKind(resource: any): BadgeKind {
   // 删掉的排最前面：它压过其它一切状态
-  if (isDeleted(resource)) return { text: "已删除", color: "var(--danger)" };
-  if (resource.status === "archived") return { text: "已下架", color: "var(--text-faint)" };
-  if (resource.status === "paused") return { text: "暂停", color: "var(--warn)" };
-  if (isExpired(resource)) return { text: "已过期", color: "var(--text-faint)" };
-  return { text: "出租中", color: "var(--ok)" };
+  if (isDeleted(resource)) return "deleted";
+  if (resource.status === "archived") return "archived";
+  if (resource.status === "paused") return "paused";
+  if (isExpired(resource)) return "expired";
+  return "active";
+}
+
+export function statusBadge(resource: any): { text: string; color: string } {
+  const k = badgeKind(resource);
+  return { text: BADGE_LABELS[k], color: BADGE_COLORS[k] };
 }
 
 // 只在「不正常」时才给标签。正常出租中是默认情况，不用占地方提醒。

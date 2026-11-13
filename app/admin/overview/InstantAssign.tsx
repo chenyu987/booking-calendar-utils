@@ -14,6 +14,7 @@ import {
   setInstantSelection,
   setPatches,
   setPreviousUse,
+  usePatch,
   type ExitMode,
 } from "./assignSelection";
 import {
@@ -24,6 +25,8 @@ import {
 } from "./blockPatch";
 import { nameCandidates } from "@/lib/assignPanel";
 import { previousOrdersFor } from "@/lib/previousUse";
+import { frameColor } from "@/lib/orderFrame";
+import type { Admin } from "@/lib/admins";
 
 // 排期总览的分配态（编辑一单），**全在浏览器里**：进、出、存都不等整页渲染。
 //
@@ -52,11 +55,16 @@ export default function InstantAssign({
   bandDays,
   exitHref,
   deleteAction,
+  admins,
+  primaryAdminId,
 }: {
   editors: InstantEditors;
   bandDays: string[][];
   exitHref: string;
   deleteAction: (formData: FormData) => Promise<void>;
+  /** 浮动条「谁的单」下拉的名单；改了以后边框换色也要它（frameColor） */
+  admins: Admin[];
+  primaryAdminId: string | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -100,6 +108,11 @@ export default function InstantAssign({
     (id: string, changes: Record<string, string>) => {
       const patch = patchFromChanges(changes);
       const before = getPatches().get(id);
+      // 改了是谁的：边框颜色当场跟着换（Beta 地点的单照旧是 Beta 色，frameColor 管）
+      if (patch.adminId !== undefined) {
+        const location = before?.patch.location ?? editorsRef.current[id]?.location ?? null;
+        patch.adminColor = frameColor(location, patch.adminId, admins, primaryAdminId);
+      }
       const merged: FieldPatch = { ...before?.patch, ...patch };
       setPatches(new Map(getPatches()).set(id, { patch: merged, savedAt: null }));
 
@@ -143,7 +156,7 @@ export default function InstantAssign({
           if (saving.current.get(id) === run) saving.current.delete(id);
         });
     },
-    [router, select]
+    [router, select, admins, primaryAdminId]
   );
 
   const exit = useCallback(
@@ -322,7 +335,8 @@ export default function InstantAssign({
   const live = active ? editors[active] : null;
   if (live) lastData.current = live;
   const base = active ? live ?? (lastData.current?.orderId === active ? lastData.current : null) : null;
-  const pending = active ? getPatches().get(active) : undefined;
+  // 订阅着：浮动条上改「谁的单」不退出编辑，没有别的 state 变化带着这里重画
+  const pending = usePatch(active ?? "");
   const d = base && pending ? applyPatchToEditor(base, pending.patch) : base;
 
   const toastEl = toast ? <ErrorToast message={toast} onClose={() => setToast(null)} /> : null;
@@ -360,6 +374,11 @@ export default function InstantAssign({
         deleteAction={deleteAction}
         exitHref={exitHref}
         onDelete={() => exit("discard")}
+        admins={admins}
+        adminId={d.adminId}
+        // 跟退出时存字段走同一条路（save）：色块边框当场换色、后台写库、存不上撤回并提示。
+        // 不等退出才存 —— 这个下拉在浮动条上，不在编辑框里，退出时收字段收不到它
+        onAdminChange={(adminId) => save(d.orderId, { admin_id: adminId })}
       />
     </>
   );

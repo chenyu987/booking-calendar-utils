@@ -8,6 +8,7 @@ import {
   EMPTY_RESOURCE_FILTERS,
   type FilterableResource,
 } from "./resourceFilter";
+import { badgeKind } from "./resourceStatus";
 
 describe("resourceFiltersQuery / resourceReturnPath —— 编辑、取消、保存不丢筛选", () => {
   it("筛选拼回 URL 参数名，空的不拼；extra 带上 edit", () => {
@@ -20,7 +21,7 @@ describe("resourceFiltersQuery / resourceReturnPath —— 编辑、取消、保
   });
 
   it("跟 parseResourceFilters 来回一趟不走样", () => {
-    const f = { ...EMPTY_RESOURCE_FILTERS, item: "beta" as const, gender: "female" as const, booked: "no" as const, sstatus: "active" };
+    const f = { ...EMPTY_RESOURCE_FILTERS, item: "beta" as const, gender: "female" as const, booked: "no" as const, sstatus: "unavailable" as const };
     const sp = Object.fromEntries(new URLSearchParams(resourceFiltersQuery(f).slice(1)));
     expect(parseResourceFilters(sp)).toEqual(f);
   });
@@ -44,7 +45,7 @@ const base: FilterableResource = {
   rangeStart: "2026-08-30",
   rangeEnd: "2026-09-20",
   bookingCount: 3,
-  status: "active",
+  badge: "active",
 };
 const f = (over: Partial<typeof EMPTY_RESOURCE_FILTERS>) => ({
   ...EMPTY_RESOURCE_FILTERS,
@@ -149,6 +150,29 @@ describe("matchesResourceFilters", () => {
   it("挂牌状态是精确匹配", () => {
     expect(matchesResourceFilters(base, f({ sstatus: "active" }))).toBe(true);
     expect(matchesResourceFilters(base, f({ sstatus: "paused" }))).toBe(false);
+  });
+
+  it("挂牌状态按**显示的标签**筛：库里还是 active 的过期资源，筛「出租中」不该出现，筛「已过期」才出现", () => {
+    // 页面传的是 badgeKind(resource)：status=active、有效期全结束了 → expired
+    const expiredCard = { status: "active", deleted_at: null, validity: "{[2020-01-01,2020-05-31)}" };
+    const row = { ...base, badge: badgeKind(expiredCard) };
+    expect(matchesResourceFilters(row, f({ sstatus: "active" }))).toBe(false);
+    expect(matchesResourceFilters(row, f({ sstatus: "expired" }))).toBe(true);
+  });
+
+  it("「不可租」= 暂停 + 已过期 + 已下架，不含出租中和已删除", () => {
+    const pick = (badge: FilterableResource["badge"]) =>
+      matchesResourceFilters({ ...base, badge }, f({ sstatus: "unavailable" }));
+    expect(pick("paused")).toBe(true);
+    expect(pick("expired")).toBe(true);
+    expect(pick("archived")).toBe(true);
+    expect(pick("active")).toBe(false);
+    expect(pick("deleted")).toBe(false);
+  });
+
+  it("URL 里乱写的状态当没筛", () => {
+    expect(parseResourceFilters({ sstatus: "bogus" }).sstatus).toBe("");
+    expect(parseResourceFilters({ sstatus: "expired" }).sstatus).toBe("expired");
   });
 
   it("多个条件是「而且」", () => {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import DeleteOrderButton from "./DeleteOrderButton";
 import { AssignByNameInput } from "./AssignActions";
 import NoteInput from "./NoteInput";
+import type { Admin } from "@/lib/admins";
 
 /**
  * 分配模式的浮动操作条。
@@ -24,6 +25,9 @@ export default function AssigningBar({
   exitHref,
   instant = false,
   onDelete,
+  admins = [],
+  adminId = null,
+  onAdminChange,
 }: {
   orderId: string;
   label: string;
@@ -35,6 +39,11 @@ export default function AssigningBar({
   instant?: boolean;
   /** 确认删除这单的那一刻：退出分配态、不存改动（InstantAssign） */
   onDelete?: () => void;
+  /** 「谁的单」下拉（orders.admin_id）。没传 onAdminChange 就不显示 */
+  admins?: Admin[];
+  /** 这一单现在算谁的（没写的算主要管理员） */
+  adminId?: string | null;
+  onAdminChange?: (adminId: string) => void;
 }) {
   return (
     <div
@@ -72,6 +81,39 @@ export default function AssigningBar({
       >
         正在分配：{label}
       </span>
+
+      {/* 这一单是谁的（2026-11-11 加的）：比如 Admin1 接的单转给 admin2。
+          只改这一单的归属，不动客人挂在谁名下（person_contacts）—— 那是「哪个账号加的」，
+          在 Customer 管理里勾 */}
+      {onAdminChange && admins.length > 0 && (
+        <select
+          aria-label="谁的单"
+          title="这一单是谁的"
+          value={adminId ?? ""}
+          onChange={(e) => e.target.value && onAdminChange(e.target.value)}
+          style={{
+            flexShrink: 0,
+            fontSize: 12,
+            padding: "3px 4px",
+            borderRadius: 4,
+            border: "1px solid rgba(255,255,255,0.45)",
+            background: "rgba(255,255,255,0.12)",
+            color: "var(--on-solid)",
+          }}
+        >
+          {!adminId && (
+            <option value="" disabled>
+              谁的单
+            </option>
+          )}
+          {admins.map((a) => (
+            // 下拉展开的那张列表是系统画的白底，option 跟着上面的白字就看不见了
+            <option key={a.id} value={a.id} style={{ color: "var(--text)", background: "var(--bg)" }}>
+              {a.name} 的单
+            </option>
+          ))}
+        </select>
+      )}
 
       {/* 输入物主名字直接分配 —— 不用非得到左边一长串里去找去点。
           放在这条上而不是色块里：色块里那个几十像素宽的输入框，

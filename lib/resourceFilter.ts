@@ -4,7 +4,22 @@
 // 一季的资源也就几十张，全捞回来在内存里筛就够了；而且"年龄"是从生日现算的
 // （CLAUDE.md：能算出来的东西不要存成字段），写进 SQL 反而要在两处维护同一套算法。
 
+import { BADGE_KINDS, BADGE_LABELS, type BadgeKind } from "./resourceStatus";
+
 export type ItemFilter = "" | "beta" | "alpha";
+
+/**
+ * 「挂牌状态」筛选按**显示出来的标签**比（`badgeKind`），不按库里的 `status`。
+ * 外加一项「不可租」= 暂停 + 已过期 + 已下架，一次挑出所有眼下租不出去的（已删除不算，它另有一项）。
+ * 老链接里的 active / paused / archived 照样认，意思不变（只是出租中不再含过期的）
+ */
+export type StatusFilter = "" | BadgeKind | "unavailable";
+const UNAVAILABLE: BadgeKind[] = ["paused", "expired", "archived"];
+export const STATUS_FILTER_OPTIONS: { value: Exclude<StatusFilter, "">; label: string }[] = [
+  ...BADGE_KINDS.map((k) => ({ value: k, label: BADGE_LABELS[k] })),
+  { value: "unavailable", label: "不可租（暂停/过期/下架）" },
+];
+const STATUS_VALUES: StatusFilter[] = ["", ...STATUS_FILTER_OPTIONS.map((o) => o.value)];
 export type GenderFilter = "" | "male" | "female";
 export type BookedFilter = "" | "yes" | "no";
 
@@ -18,7 +33,7 @@ export type ResourceFilters = {
   validFrom: string;
   validTo: string;
   booked: BookedFilter;
-  sstatus: string;
+  sstatus: StatusFilter;
 };
 
 export const EMPTY_RESOURCE_FILTERS: ResourceFilters = {
@@ -55,7 +70,7 @@ export function parseResourceFilters(
     validFrom: str(sp.vfrom),
     validTo: str(sp.vto),
     booked: oneOf(sp.booked, BOOKED_VALUES),
-    sstatus: str(sp.sstatus),
+    sstatus: oneOf(sp.sstatus, STATUS_VALUES),
   };
 }
 
@@ -110,7 +125,8 @@ export type FilterableResource = {
   rangeStart: string | null;
   rangeEnd: string | null;
   bookingCount: number;
-  status: string;
+  /** 显示出来的那个标签（`badgeKind(resource)`），不是库里的 status */
+  badge: BadgeKind;
 };
 
 // contains / matchesAge 也给 lib/providerFilter.ts 用（Provider 管理的逐列筛选同一套口径），别再抄一份
@@ -153,6 +169,8 @@ export function matchesResourceFilters(
   if (f.validTo && (!s.rangeEnd || s.rangeEnd > f.validTo)) return false;
   if (f.booked === "yes" && s.bookingCount === 0) return false;
   if (f.booked === "no" && s.bookingCount > 0) return false;
-  if (f.sstatus && s.status !== f.sstatus) return false;
+  if (f.sstatus === "unavailable") {
+    if (!UNAVAILABLE.includes(s.badge)) return false;
+  } else if (f.sstatus && s.badge !== f.sstatus) return false;
   return true;
 }

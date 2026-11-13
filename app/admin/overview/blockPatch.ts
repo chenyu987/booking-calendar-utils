@@ -1,5 +1,6 @@
 import { isUnknownLocation, locationHintFor } from "@/lib/locations";
 import { statusColor } from "@/lib/orderStatus";
+import { orderFrame } from "@/lib/orderFrame";
 import type { BlockData } from "./OrderBlock";
 import type { EditorData } from "./AssignEditor";
 
@@ -20,6 +21,13 @@ export type FieldPatch = {
   amount?: string;
   maleCount?: number;
   femaleCount?: number;
+  /** 这一单改成谁的（orders.admin_id） */
+  adminId?: string;
+  /**
+   * 改了是谁的之后边框换成什么颜色（lib/orderFrame.ts 的 frameColor，null = 跟状态色）。
+   * 要 admins 名单才算得出来，所以不在 patchFromChanges 里算，由 InstantAssign 填
+   */
+  adminColor?: string | null;
 };
 
 /** collectChangedEdits 收出来的那份（save-field 的字段名）→ 补丁 */
@@ -32,6 +40,7 @@ export function patchFromChanges(changes: Record<string, string>): FieldPatch {
   if (changes.amount !== undefined) p.amount = changes.amount;
   if (changes.male_count !== undefined) p.maleCount = Number(changes.male_count);
   if (changes.female_count !== undefined) p.femaleCount = Number(changes.female_count);
+  if (changes.admin_id !== undefined) p.adminId = changes.admin_id;
   return p;
 }
 
@@ -48,6 +57,7 @@ export function applyPatchToBlock(d: BlockData, p: FieldPatch): BlockData {
   if (p.status !== undefined) out.status = p.status;
   if (p.note !== undefined) out.note = p.note;
   if (p.amount !== undefined) out.amount = p.amount === "" ? null : p.amount;
+  if (p.adminColor !== undefined) out.adminColor = p.adminColor;
   // 人数就是「要几个资源」的分母；配齐没有跟着重算（已配的张数不变）
   if (p.maleCount !== undefined) out.need.maleNeeded = p.maleCount;
   if (p.femaleCount !== undefined) out.need.femaleNeeded = p.femaleCount;
@@ -81,6 +91,11 @@ export function applyPatchToEditor<T extends EditorData>(d: T, p: FieldPatch): T
   if (p.femaleCount !== undefined) {
     out.femaleCount = p.femaleCount;
     out.need.femaleGap = Math.max(0, p.femaleCount - out.need.femaleFilled);
+  }
+  if (p.adminId !== undefined) out.adminId = p.adminId;
+  if (p.adminColor !== undefined) {
+    // 分配态的边框光圈跟普通态同一处算（orderFrame），只是 assigning
+    out.style = { ...out.style, ...orderFrame({ statusBorder: out.cardBorder, adminColor: p.adminColor, assigning: true }) };
   }
   return out;
 }

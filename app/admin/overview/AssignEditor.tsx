@@ -57,6 +57,8 @@ export type EditorData = {
   /** 撤销分配那个叉的底色和边框：跟色块一样，盖在字上也看得清 */
   cardBg: string;
   cardBorder: string;
+  /** 这一单算谁的（effectiveAdminId：没写就是主要管理员）。浮动条上「谁的单」那个下拉显示它 */
+  adminId: string | null;
 };
 
 export default function AssignEditor({
