@@ -67,7 +67,7 @@ export default function PublicRail({ initialWidth }: { initialWidth: number }) {
   return (
     // paddingRight 跟 layout 里内容区的右内边距一样：总览那道帘子长在内容区**里面**，
     // 右边自带 8px；这道长在外面，不补上的话手柄会紧贴屏幕最右边，很难抓
-    <div style={{ display: "flex", flexShrink: 0, paddingRight: 8 }}>
+    <div className="public-rail" style={{ display: "flex", flexShrink: 0, paddingRight: 8 }}>
       <PublicRailShell
         width={width}
         dragging={dragging}

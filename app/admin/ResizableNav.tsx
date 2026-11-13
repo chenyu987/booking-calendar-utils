@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { clampNavWidth, NAV_CONTENT_WIDTH } from "@/lib/navWidth";
 
 // 侧边栏外壳 + 右边那根可拖拽的分隔条。
@@ -16,6 +17,18 @@ export default function ResizableNav({
 }) {
   const [width, setWidth] = useState(initialWidth);
   const dragRef = useRef<{ originX: number; originWidth: number } | null>(null);
+  // 手机上侧边栏是个抽屉（样式在 lib/adminMobile.ts，桌面上这几样都不起作用）。
+  // 开没开是纯客户端状态：点一下就该出来，不值得回服务端
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const pathname = usePathname();
+  // 点了导航里的链接 = 换了页，抽屉自己收起来，不然新页面还被它盖着
+  useEffect(() => setDrawerOpen(false), [pathname]);
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setDrawerOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawerOpen]);
 
   function beginDrag(e: React.MouseEvent) {
     e.preventDefault();
@@ -55,7 +68,37 @@ export default function ResizableNav({
 
   return (
     <>
-      <nav style={{ width, flexShrink: 0, overflow: "hidden" }}>
+      {/* 手机顶栏：桌面上 display:none，窄屏才露出来（.admin-topbar） */}
+      <div className="admin-topbar" style={{ display: "none" }}>
+        <button
+          type="button"
+          aria-label="打开导航"
+          aria-expanded={drawerOpen}
+          onClick={() => setDrawerOpen(true)}
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            padding: "4px 10px",
+            fontSize: 18,
+            lineHeight: 1,
+            cursor: "pointer",
+          }}
+        >
+          ☰
+        </button>
+        <span style={{ fontWeight: 500, fontSize: 14 }}>Admin 后台</span>
+      </div>
+      <div
+        className="admin-nav-backdrop"
+        data-open={drawerOpen || undefined}
+        onClick={() => setDrawerOpen(false)}
+        style={{ display: "none" }}
+      />
+      <nav
+        className="admin-nav"
+        data-open={drawerOpen || undefined}
+        style={{ width, flexShrink: 0, overflow: "hidden" }}
+      >
         {/* 内容宽度固定，不跟着外壳缩。外壳 overflow:hidden 负责裁切，
             这样拖窄时文字是被切掉而不是换行——换行会把导航撑成好几行高。 */}
         <div
@@ -70,6 +113,7 @@ export default function ResizableNav({
         </div>
       </nav>
       <div
+        className="admin-nav-handle"
         onMouseDown={beginDrag}
         title="拖动调整侧边栏宽度"
         style={{

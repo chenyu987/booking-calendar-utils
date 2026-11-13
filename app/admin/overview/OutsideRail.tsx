@@ -159,6 +159,7 @@ export default function OutsideRail({
     // 右上角那块空白也补上了
     <div
       ref={containerRef}
+      className="public-rail"
       style={{
         display: "flex",
         alignItems: "stretch",

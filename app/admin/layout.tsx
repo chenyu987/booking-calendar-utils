@@ -9,6 +9,7 @@ import { parseNavWidth } from "@/lib/navWidth";
 import SettingsTrigger from "@/components/SettingsTrigger";
 import CommandPalette from "./CommandPalette";
 import { parseTheme, THEME_COOKIE } from "@/lib/theme";
+import { ADMIN_MOBILE_CSS } from "@/lib/adminMobile";
 
 const navItems = [
   { href: "/admin/overview", label: "排期总览" },
@@ -39,7 +40,9 @@ export default async function AdminLayout(
   const railWidth = clampRailWidth(Number(jar.get("overview_rail_width")?.value));
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
+    <div className="admin-shell" style={{ display: "flex", minHeight: "100vh" }}>
+      {/* 手机窄屏的布局规则（抽屉导航、藏掉对外页面）。必须走 dangerouslySetInnerHTML，见 CLAUDE.md */}
+      <style dangerouslySetInnerHTML={{ __html: ADMIN_MOBILE_CSS }} />
       <ResizableNav initialWidth={initialWidth}>
         <EnvBanner />
         <BackToHome />
@@ -97,7 +100,7 @@ export default async function AdminLayout(
       {/* 四边都收窄——排期总览那张日历要尽量多的面积。左边原来留 24 是想跟侧边栏
           拉开距离，但侧边栏自己已经有 16 内边距、外面还有 6px 拖拽条，再留 24 就多了；
           侧边栏拖到 0 的时候这 24 更是纯浪费。 */}
-      <div style={{ flex: 1, minWidth: 0, padding: "10px 8px 8px 10px" }}>{children}</div>
+      <div className="admin-main" style={{ flex: 1, minWidth: 0, padding: "10px 8px 8px 10px" }}>{children}</div>
       {/* 「对外页面」帘子：**每个 admin 页都有**，切 tab 不会丢。
           排期总览自己那道兼着「改每行几天」，所以 PublicRail 在总览页让开 */}
       <PublicRail initialWidth={railWidth} />
