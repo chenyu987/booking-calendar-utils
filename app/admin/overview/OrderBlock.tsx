@@ -36,6 +36,8 @@ export type BlockData = {
   status: string;
   /** 非主要管理员的单，边框是这个颜色（lib/orderFrame.ts）；null = 跟状态色 */
   adminColor: string | null;
+  /** 非主要管理员的 Beta 单：青边里面那一圈他的颜色（lib/orderFrame.ts 的 frameInnerColor）；null = 没有 */
+  innerColor?: string | null;
   title: string;
   /** 抢画分配浮动条用的标题（OptimisticAssign） */
   label: string;
@@ -72,6 +74,7 @@ export default function OrderBlock({ d: server }: { d: BlockData }) {
   const frame = orderFrame({
     statusBorder: c.border,
     adminColor: d.adminColor,
+    innerColor: d.innerColor ?? null,
     assigning: selected,
     previousUse,
   });

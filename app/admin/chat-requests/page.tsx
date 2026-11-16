@@ -189,10 +189,10 @@ export default async function ChatRequestsPage(props: {
         )}
       </FilterForm>
 
-      {/* 每天单价：估总价用，存在库里（两个管理员看到的一样），不进任何订单 */}
+      {/* 每人每天单价：跟设置弹框里那两个是同一对（排期总览建单也按它预填），存在库里 */}
       <form action={saveRequestPrices} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", margin: "8px 0" }}>
         <input type="hidden" name="back" value={backQs} />
-        <span style={helpTextStyle}>估价用的每天单价：</span>
+        <span style={helpTextStyle}>每人每天单价（跟设置里同一对，建单也按它预填）：</span>
         <label style={{ fontSize: 14 }}>
           BETA ${" "}
           <input name="price_beta" type="number" min="0" step="1" defaultValue={prices.beta ?? ""} placeholder="不设" style={{ ...inputStyle, width: 80 }} />

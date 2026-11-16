@@ -585,6 +585,39 @@ test.describe("建单弹窗的人数框", () => {
     await expect(page.getByText("客人记到 Admin1 名下")).toBeVisible();
   });
 
+  test("金额按设置里的每人每天单价自动填（Alpha 40 / Beta 50），能改", async ({ page }) => {
+    await openPopup(page);
+    const popup = page.locator('[data-new-order-popup="true"]');
+    const [male, female] = [popup.locator('input[type="number"]').nth(0), popup.locator('input[type="number"]').nth(1)];
+    const perDay = page.getByPlaceholder("单价");
+    const total = popup.getByPlaceholder("选填", { exact: true });
+    // 双击出来的是一天
+    const days = Number((await popup.getByText(/（\d+天）/).textContent())!.match(/\d+/)![0]);
+
+    // 地点没填、开关在「全部」：不猜
+    await expect(perDay).toHaveValue("");
+    await male.fill("2");
+    await page.getByPlaceholder("去哪个地点（选填）").fill("locaa");
+    await expect(perDay).toHaveValue("40");
+    await expect(total).toHaveValue(String(40 * days * 2));
+    // 换成 Beta 的地点，单价跟着换
+    await page.getByPlaceholder("去哪个地点（选填）").fill("locbp");
+    await expect(perDay).toHaveValue("50");
+    await expect(total).toHaveValue(String(50 * days * 2));
+    // 人数变了总价跟着变
+    await female.fill("1");
+    await expect(total).toHaveValue(String(50 * days * 3));
+    // 自己改了总价就不再自动算
+    await total.fill("123");
+    await male.fill("4");
+    await expect(total).toHaveValue("123");
+    // 自己改单价：总价回到跟着单价算；之后换地点也不再覆盖单价
+    await perDay.fill("45");
+    await expect(total).toHaveValue(String(45 * days * 5));
+    await page.getByPlaceholder("去哪个地点（选填）").fill("locaa");
+    await expect(perDay).toHaveValue("45");
+  });
+
   test("**没选身份就不让建**，并且说出来", async ({ page }) => {
     // 一台还没选过身份的电脑：不知道这个客人该记在谁名下
     await openPopup(page, null);

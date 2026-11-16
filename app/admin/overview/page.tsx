@@ -77,9 +77,9 @@ import {
 } from "@/lib/timelineStart";
 import type { ResourceUse } from "@/lib/previousUse";
 import { findClashes, indexClashes, clashKey } from "@/lib/doubleBooking";
-import { getOverviewStart, getOverviewEnd, getPrimaryAdminId } from "@/lib/appSettings";
+import { getOverviewStart, getOverviewEnd, getPrimaryAdminId, getRequestPrices } from "@/lib/appSettings";
 import { getBandDays } from "@/lib/bandDaysSetting";
-import { BETA_FRAME_COLOR, adminColor, effectiveAdminId, frameColor, orderFrame } from "@/lib/orderFrame";
+import { BETA_FRAME_COLOR, adminColor, effectiveAdminId, frameColor, frameInnerColor, orderFrame } from "@/lib/orderFrame";
 import DayNote from "./DayNote";
 import { readNoteText } from "@/lib/orderNote";
 import {
@@ -351,6 +351,7 @@ export default async function OverviewPage(
     bandDaysSetting,
     admins,
     primaryAdminRaw,
+    dayPrices,
   ] = await Promise.all([
     supabase
       .from("orders")
@@ -389,6 +390,8 @@ export default async function OverviewPage(
     // 标题旁边「当前身份」那个下拉的名单（一共几行，跟着并排跑不多等）
     loadAdmins(),
     getPrimaryAdminId(),
+    // 每人每天默认单价（设置里），新建单预填用（lib/pricing.ts 的 defaultDayPrice）
+    getRequestPrices(),
   ]);
   // 主要管理员：没写是谁的单子算他的，他的单不上色（lib/orderFrame.ts）
   const primaryAdminId = resolvePrimaryAdmin(primaryAdminRaw, admins);
@@ -1167,7 +1170,7 @@ export default async function OverviewPage(
                 </span>
               );
             })}
-          {/* Beta 的单不分管理员一个颜色（lib/orderFrame.ts 的 frameColor） */}
+          {/* Beta 的单边框一律青色；非主要管理员的 Beta 单青边里面再一圈他的颜色（lib/orderFrame.ts） */}
           <span
             data-beta-legend
             style={{
@@ -1179,8 +1182,29 @@ export default async function OverviewPage(
               color: "var(--text-muted)",
             }}
           >
-            Beta 的单
+            {(() => {
+              const primary = admins.find((a) => a.id === primaryAdminId);
+              return primary ? `${primary.name} 的 Beta 单` : "Beta 的单";
+            })()}
           </span>
+          {admins
+            .filter((a) => a.id !== primaryAdminId)
+            .map((a) => (
+              <span
+                key={a.id}
+                data-beta-admin-legend={a.name}
+                style={{
+                  fontSize: 12,
+                  padding: "3px 8px",
+                  borderRadius: 4,
+                  border: `1px solid ${BETA_FRAME_COLOR}`,
+                  boxShadow: `inset 0 0 0 1px ${adminColor(a.id, admins, primaryAdminId)}`,
+                  color: "var(--text-muted)",
+                }}
+              >
+                {a.name} 的 Beta 单
+              </span>
+            ))}
         </div>
           </>
         }
@@ -1218,6 +1242,7 @@ export default async function OverviewPage(
                   adminName={currentAdmin?.name ?? null}
                   adminId={currentAdmin?.id ?? null}
                   itemMode={itemMode}
+                  dayPrices={dayPrices}
                 />
                 {/* peak date 的整列底色。单独铺一层是因为日期条只有表头那一格，
                     往下滚就看不出这一列是不是 peak 了。gridRow 1/-1 铺满整段，
@@ -1340,15 +1365,14 @@ export default async function OverviewPage(
                     const c = statusColor(o.status);
                     // 边框和光圈：状态 / Beta 单或是哪个管理员的 / 选中 / 上一单，一处算（lib/orderFrame.ts）。
                     // 分配态那份（ResizableOrderBlock）也从这里取，不另写
-                    const providerColor = frameColor(
-                      o.location,
-                      effectiveAdminId(o.admin_id, primaryAdminId),
-                      admins,
-                      primaryAdminId
-                    );
+                    const orderAdminId = effectiveAdminId(o.admin_id, primaryAdminId);
+                    const providerColor = frameColor(o.location, orderAdminId, admins, primaryAdminId);
+                    // Beta 单的边框是青色，是谁的单放在里面那一圈（非主要管理员才有）
+                    const innerColor = frameInnerColor(o.location, orderAdminId, admins, primaryAdminId);
                     const frame = orderFrame({
                       statusBorder: c.border,
                       adminColor: providerColor,
+                      innerColor,
                       // 选中、「上一单」是客户端的事，OrderBlock 自己按客户端状态再算一遍边框光圈；
                       // 这里只给分配态编辑框的样式（editorData.style）打底
                       assigning: false,
@@ -1402,6 +1426,7 @@ export default async function OverviewPage(
                             ...orderFrame({
                               statusBorder: c.border,
                               adminColor: providerColor,
+                              innerColor,
                               assigning: true,
                             }),
                           },
@@ -1458,6 +1483,7 @@ export default async function OverviewPage(
                             gridColumn: blockStyle.gridColumn,
                             status: o.status,
                             adminColor: providerColor,
+                            innerColor,
                             title: blockTitle,
                             // 点下去那一刻，客户端要立刻拿它拼出分配浮动条的标题 ——
                             // 从色块的文字里猜太脆，直接把服务端用的那份原样带上

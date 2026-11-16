@@ -16,6 +16,9 @@ export type Settings = {
   admins: Admin[];
   /** 主要管理员：没写是谁的单子算他的，他的单在排期总览上不上色。点了当场存 */
   primary_admin_id: string | null;
+  /** 每人每天的默认单价（美元），null = 没设。建单时按地点预填，需求页估价也用它 */
+  price_alpha: number | null;
+  price_beta: number | null;
 };
 
 // 设置弹框。原来是 /admin/settings 一个页面，改成弹框：设置是「顺手调一下」，
@@ -81,6 +84,8 @@ export default function SettingsDialog({
       referral_rate: Number(form.get("referral_rate")),
       admins: data.admins,
       primary_admin_id: data.primary_admin_id,
+      price_alpha: priceOf(form.get("price_alpha")),
+      price_beta: priceOf(form.get("price_beta")),
     };
     setSaving(true);
     setError("");
@@ -93,6 +98,8 @@ export default function SettingsDialog({
           overview_end: String(form.get("overview_end") ?? ""),
           band_days: String(form.get("band_days") ?? ""),
           referral_rate: String(form.get("referral_rate") ?? ""),
+          price_alpha: String(form.get("price_alpha") ?? ""),
+          price_beta: String(form.get("price_beta") ?? ""),
         }),
       });
       const json = await res.json();
@@ -210,6 +217,35 @@ export default function SettingsDialog({
               style={{ ...inputStyle, width: 90 }}
             />
             <span style={hintStyle}>%</span>
+          </div>
+        </section>
+
+        <section style={sectionStyle}>
+          <div style={labelStyle}>每人每天的默认单价</div>
+          <p style={hintStyle}>
+            排期总览新建单时，按地点是 Alpha 还是 Beta 预填「每天单价」，总价 = 单价 × 天数 × 人数，两个都能再改。
+            地点还没填的话看上面 Alpha / Beta 开关。留空 = 不预填。需求页估总价用的也是这两个数。
+            改了只影响以后新建的单。
+          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            {(["alpha", "beta"] as const).map((item) => {
+              const v = item === "alpha" ? data.price_alpha : data.price_beta;
+              return (
+                <label key={item} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                  {item === "alpha" ? "Alpha" : "Beta"} $
+                  <input
+                    key={`price-${item}-${v ?? ""}`}
+                    type="number"
+                    name={`price_${item}`}
+                    min={0}
+                    step="0.01"
+                    placeholder="不设"
+                    defaultValue={v ?? ""}
+                    style={{ ...inputStyle, width: 80 }}
+                  />
+                </label>
+              );
+            })}
           </div>
         </section>
 
@@ -381,6 +417,13 @@ function AdminsSection({
       {error && <p style={{ fontSize: 13, color: "var(--danger)", margin: "6px 0 0" }}>{error}</p>}
     </section>
   );
+}
+
+/** 弹框里存完交回外面缓存用的值；真校验在服务端（/admin/settings 的 POST） */
+function priceOf(raw: FormDataEntryValue | null): number | null {
+  const s = String(raw ?? "").trim();
+  const n = Number(s);
+  return s && Number.isFinite(n) && n > 0 ? n : null;
 }
 
 const smallBtnStyle: React.CSSProperties = {

@@ -9,8 +9,10 @@ import { requiredItem } from "@/lib/locations";
 //
 // 这一格同时要表达三件事，各走各的通道，互不覆盖：
 //   - 订单状态 → 底色 + 同色系的细边（statusBorder）
-//   - Beta 的单 → 边框一律 --beta（2026-10-16 定的：是谁建的不重要，Beta 的单都一个颜色），
-//     压过管理员的颜色。走的是同一个通道（frameColor），所以选中时照样加重
+//   - Beta 的单 → 边框一律 --beta，压过管理员的颜色。走的是同一个通道（frameColor），所以选中时照样加重。
+//     **但 Beta 的单也要分得出是谁的**（2026-11-11 用户定的，推翻了 10/16「Beta 的单不分是谁的」）：
+//     非主要管理员的 Beta 单，青边里面再叠一圈他的颜色（innerColor，inset box-shadow，不占布局）。
+//     这样 Alpha 单 = 只有管理员色、admin2 的 Beta = 只有青边、Admin1 的 Beta = 青边 + 里一圈玫红
 //   - 是哪个管理员的 → **只有非主要管理员才上色**：只把 1px 边框换成他的颜色（柔和色）。
 //     主要管理员（大多数单子都是他的）保持原样 —— 满屏只有少数单子带颜色，
 //     一眼就分得出哪些不是他的。原来还往里叠一层同色细线、看着像 2px，太扎眼（2026-10-08 去掉）
@@ -79,18 +81,38 @@ export function frameColor(
   return adminColor(adminId, admins, primaryId);
 }
 
+/**
+ * Beta 单的「里面那一圈」：非主要管理员的 Beta 单 → 他的颜色；其余（Alpha、主要管理员的 Beta、
+ * 算不出是谁的）→ null。Beta 的单边框已经被 BETA_FRAME_COLOR 占了，是谁的只能放在这一圈里
+ */
+export function frameInnerColor(
+  location: string | null | undefined,
+  adminId: string | null,
+  admins: Admin[],
+  primaryId: string | null
+): string | null {
+  if (requiredItem(location) !== "beta") return null;
+  return adminColor(adminId, admins, primaryId);
+}
+
 export function orderFrame({
   statusBorder,
   adminColor,
+  innerColor = null,
   assigning,
   previousUse = false,
 }: {
   statusBorder: string;
   adminColor: string | null;
+  /** Beta 单是哪个非主要管理员的（frameInnerColor）：边框里面再叠一圈 */
+  innerColor?: string | null;
   assigning: boolean;
   previousUse?: boolean;
 }): { border: string; boxShadow: string | undefined } {
-  const inner = adminColor && assigning ? `inset 0 0 0 1px ${adminColor}` : null;
+  // 选中时管理员色往里加重一层；有 innerColor 的话它再往里挪一层，不被盖住
+  const strengthen = adminColor && assigning ? `inset 0 0 0 1px ${adminColor}` : null;
+  const providerRing = innerColor ? `inset 0 0 0 ${strengthen ? 2 : 1}px ${innerColor}` : null;
+  const inner = [strengthen, providerRing].filter(Boolean).join(", ") || null;
   const outer = assigning
     ? "0 0 0 1px var(--link)"
     : previousUse

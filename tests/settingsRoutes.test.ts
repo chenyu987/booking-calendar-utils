@@ -194,7 +194,32 @@ describe("设置弹框那条接口", () => {
       referral_rate: 10,
       admins: [],
       primary_admin_id: null,
+      price_alpha: null,
+      price_beta: null,
     });
+  });
+
+  it("每人每天默认单价：存进去读得出来，留空 = 清掉", async () => {
+    const r = await saveSettings({ price_alpha: "40", price_beta: "50" });
+    expect(r.status).toBe(200);
+    const { GET } = await import("@/app/admin/settings/route");
+    const json = await (await GET()).json();
+    expect([json.price_alpha, json.price_beta]).toEqual([40, 50]);
+    // 需求页估价读的是同一对 key
+    const rows = Object.fromEntries(fake.db.app_settings.map((x: any) => [x.key, x.value]));
+    expect(rows).toMatchObject({ request_price_alpha: "40", request_price_beta: "50" });
+    await saveSettings({ price_beta: "" });
+    const after = Object.fromEntries(fake.db.app_settings.map((x: any) => [x.key, x.value]));
+    expect(after.request_price_beta).toBeUndefined();
+    expect(after.request_price_alpha).toBe("40");
+  });
+
+  it("**单价填错就整个拒掉**，一项都不存（不悄悄当成不设）", async () => {
+    for (const bad of ["abc", "-5", "0", "999999"]) {
+      const r = await saveSettings({ price_alpha: bad, overview_start: "2026-12-01" });
+      expect(r.status).toBe(400);
+    }
+    expect(fake.db.app_settings).toHaveLength(0);
   });
 
   it("一次存两项", async () => {

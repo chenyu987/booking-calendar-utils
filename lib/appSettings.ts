@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import { isIsoDate } from "@/lib/timelineStart";
 import { DEFAULT_REFERRAL_RATE } from "@/lib/referral";
+import type { DayPrices } from "@/lib/pricing";
 
 // 后台设置项的读写。库里是一张 key/value 表，这里包一层，
 // 让调用方拿到的是「已经验过的值」而不是裸字符串。
@@ -22,7 +23,8 @@ export const SETTING_KEYS = {
   referralRate: "referral_rate_default",
   /** 主要管理员（0019）：没写是谁的单子都算他的，他的单色块不上色 */
   primaryAdmin: "primary_admin_id",
-  /** 需求页估总价用的每天单价（美元）。只用来估，不进任何订单 */
+  /** 每人每天的默认单价（美元）：新建单时预填（金额 = 单价 × 天数 × 人数，可改），需求页也拿它估总价。
+   *  key 名沿用需求页那时起的，没改：库里已经存着值 */
   requestPriceBeta: "request_price_beta",
   requestPriceAlpha: "request_price_alpha",
 } as const;
@@ -128,12 +130,15 @@ export async function setPrimaryAdminId(id: string | null) {
   await writeSetting(SETTING_KEYS.primaryAdmin, id);
 }
 
-// —— 需求页的每天单价 ——
+// —— 每人每天的默认单价（Alpha / Beta 各一个）——
 //
-// 两个管理员看到的估价该一样，所以放库里不放 cookie。只用来在需求页上估个总价、排个序，
-// 不写进任何订单 —— 真报价还是建单时自己填（lib/pricing.ts）。
+// 两个管理员该一样，所以放库里不放 cookie。两处用（2026-11-11 起是同一对数，只有一份）：
+//   - 排期总览新建单：按地点（或 Alpha / Beta 开关）预填「每天单价」，总价 = 单价 × 天数 × 人数，都能改
+//     （lib/pricing.ts 的 defaultDayPrice）。只是预填，存进订单的是那一刻框里的总价，改了单价不动老单
+//   - 需求页估总价、排序
+// 在设置弹框里改，需求页上那一排也能改，改的是同一对。
 
-export type RequestPrices = { beta: number | null; alpha: number | null };
+export type RequestPrices = DayPrices;
 
 export const REQUEST_PRICE_MAX = 10000;
 

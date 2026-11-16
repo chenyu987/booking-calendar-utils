@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { DATE_INPUT_MAX, dateRangeToArray } from "@/lib/dates";
-import { computeTotalFromPerDay } from "@/lib/pricing";
+import { autoTotal, defaultDayPrice, type DayPrices } from "@/lib/pricing";
 import { parseCount } from "@/lib/party";
 import LocationInput from "@/components/LocationInput";
 import { normalizeLocation, sameVenue } from "@/lib/locations";
@@ -28,6 +28,7 @@ export default function NewOrderSelector({
   adminName,
   adminId,
   itemMode,
+  dayPrices,
 }: {
   timeline: string[];
   colWidth: number;
@@ -41,6 +42,8 @@ export default function NewOrderSelector({
   adminId: string | null;
   /** 标题旁边「全部 / Alpha / Beta」开关（lib/itemMode.ts）：地点名只提示这一边的，填了另一边的不让建 */
   itemMode: ItemMode;
+  /** 设置里的每人每天默认单价（Alpha / Beta），按地点预填「每天单价」（lib/pricing.ts 的 defaultDayPrice） */
+  dayPrices: DayPrices;
 }) {
   // 正在分配的是哪一单：分配态全在浏览器里（InstantAssign），看 assignSelection；
   // 还没接管之前听服务端给的
@@ -64,6 +67,9 @@ export default function NewOrderSelector({
   const [note, setNote] = useState("");
   const [perDayPrice, setPerDayPrice] = useState("");
   const [totalPrice, setTotalPrice] = useState("");
+  // 自己动过就不再自动填：单价改过就不按地点换默认价，总价改过就不再按单价 × 天数 × 人数重算
+  const [perDayTouched, setPerDayTouched] = useState(false);
+  const [totalTouched, setTotalTouched] = useState(false);
   const [error, setError] = useState("");
   // 建单失败的提示：弹窗这时候已经关了，得有个独立的地方告诉用户没建成
   const [failed, setFailed] = useState(false);
@@ -87,6 +93,8 @@ export default function NewOrderSelector({
     setNote("");
     setPerDayPrice("");
     setTotalPrice("");
+    setPerDayTouched(false);
+    setTotalTouched(false);
     setError("");
     // 这个也要清：漏了的话建单那一下把它设成 true 之后就再没人改回来，
     // 下次开弹窗按钮会一直显示"建单中…"并且是禁用的
@@ -231,26 +239,28 @@ export default function NewOrderSelector({
     setPopupOpen(true);
   }
 
-  // 弹窗里改了日期范围（天数变了），已经填过的每天单价要跟着重新算一次总价
+  // 每天单价没自己填过：按地点（地点没填就按 Alpha / Beta 开关）预填设置里的默认价。
+  // 地点改成另一边的，跟着换成那边的价；那边没设价就清空，别留着上一边的价
   useEffect(() => {
-    if (!dateStart || !dateEnd || perDayPrice.trim() === "") return;
-    const rate = Number(perDayPrice);
-    if (!Number.isFinite(rate)) return;
-    const days = dateEnd >= dateStart ? dateRangeToArray(dateStart, dateEnd).length : 0;
-    const partySize = parseCount(male) + parseCount(female);
-    setTotalPrice(String(computeTotalFromPerDay(rate, days, partySize)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateStart, dateEnd]);
+    if (!popupOpen || perDayTouched) return;
+    const d = defaultDayPrice(location, itemMode, dayPrices);
+    setPerDayPrice(d === null ? "" : String(d));
+  }, [popupOpen, location, itemMode, dayPrices, perDayTouched]);
 
-  // 填每天单价的时候顺手把总价算出来（单价 × 天数 × 人数），总价框自己也能再改
+  // 总价没自己改过：单价 × 天数 × 人数，日期、人数、单价哪个变了都跟着重算。
+  // 缺一样（还没填人数）就空着，不算出个 $0 来
+  useEffect(() => {
+    if (!popupOpen || totalTouched) return;
+    const days = dateStart && dateEnd && dateEnd >= dateStart ? dateRangeToArray(dateStart, dateEnd).length : 0;
+    const partySize = parseCount(male) + parseCount(female);
+    setTotalPrice(autoTotal(perDayPrice, days, partySize) ?? "");
+  }, [popupOpen, totalTouched, perDayPrice, dateStart, dateEnd, male, female]);
+
+  // 自己改单价：以后不再按地点换；总价回到跟着单价算（改单价就是想让总价跟着变）
   function handlePerDayChange(value: string) {
     setPerDayPrice(value);
-    const rate = Number(value);
-    if (value.trim() === "" || !Number.isFinite(rate)) return;
-    if (!dateStart || !dateEnd || dateEnd < dateStart) return;
-    const days = dateRangeToArray(dateStart, dateEnd).length;
-    const partySize = parseCount(male) + parseCount(female);
-    setTotalPrice(String(computeTotalFromPerDay(rate, days, partySize)));
+    setPerDayTouched(true);
+    setTotalTouched(false);
   }
 
   async function submit() {
@@ -583,7 +593,10 @@ export default function NewOrderSelector({
                 step="0.01"
                 placeholder="选填"
                 value={totalPrice}
-                onChange={(e) => setTotalPrice(e.target.value)}
+                onChange={(e) => {
+                  setTotalPrice(e.target.value);
+                  setTotalTouched(true);
+                }}
                 style={{ width: "100%", fontSize: 13, padding: "6px 4px", color: "var(--text)" }}
               />
             </label>

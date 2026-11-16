@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BETA_FRAME_COLOR, adminColor, adminTagColors, effectiveAdminId, frameColor, orderFrame } from "./orderFrame";
+import { BETA_FRAME_COLOR, adminColor, adminTagColors, effectiveAdminId, frameColor, frameInnerColor, orderFrame } from "./orderFrame";
 import { TOKENS } from "./theme";
 
 const ADMINS = [
@@ -118,8 +118,8 @@ describe("色块的边框和光圈", () => {
   });
 });
 
-describe("Beta 的单一个颜色", () => {
-  it("Beta 地点的单不管是谁的都是 Beta 色，压过管理员的颜色", () => {
+describe("Beta 的单边框一个颜色", () => {
+  it("Beta 地点的单边框不管是谁的都是 Beta 色，压过管理员的颜色（是谁的看里面那一圈）", () => {
     expect(frameColor("locbp", "admin1", ADMINS, "admin2")).toBe(BETA_FRAME_COLOR);
     expect(frameColor("Loccw", "admin2", ADMINS, "admin2")).toBe(BETA_FRAME_COLOR);
     expect(frameColor("locdm", null, ADMINS, null)).toBe(BETA_FRAME_COLOR);
@@ -130,5 +130,53 @@ describe("Beta 的单一个颜色", () => {
     expect(frameColor("locaa", "admin2", ADMINS, "admin2")).toBeNull();
     expect(frameColor("111", "admin1", ADMINS, "admin2")).toBe("var(--admin-1)");
     expect(frameColor("brighton", "admin2", ADMINS, "admin2")).toBeNull();
+  });
+});
+
+describe("Beta 的单也分得出是谁的（2026-11-11）", () => {
+  const STATUS = "var(--st-assigned-border)";
+
+  it("非主要管理员的 Beta 单：里面那一圈是他的颜色", () => {
+    expect(frameInnerColor("locbp", "admin1", ADMINS, "admin2")).toBe("var(--admin-1)");
+  });
+
+  it("主要管理员的 Beta、Alpha 的单、认不出来的地点、算不出是谁的 → 没有那一圈", () => {
+    expect(frameInnerColor("locbp", "admin2", ADMINS, "admin2")).toBeNull();
+    expect(frameInnerColor("locaa", "admin1", ADMINS, "admin2")).toBeNull();
+    expect(frameInnerColor("111", "admin1", ADMINS, "admin2")).toBeNull();
+    expect(frameInnerColor("locbp", null, ADMINS, "admin2")).toBeNull();
+  });
+
+  it("Admin1 的 Beta 单：青边 + 里一圈玫红；跟 admin2 的 Beta 单（只有青边）长得不一样", () => {
+    const admin1 = orderFrame({
+      statusBorder: STATUS,
+      adminColor: BETA_FRAME_COLOR,
+      innerColor: "var(--admin-1)",
+      assigning: false,
+    });
+    const admin2 = orderFrame({ statusBorder: STATUS, adminColor: BETA_FRAME_COLOR, assigning: false });
+    expect(admin1).toEqual({ border: `1px solid ${BETA_FRAME_COLOR}`, boxShadow: "inset 0 0 0 1px var(--admin-1)" });
+    expect(admin2).toEqual({ border: `1px solid ${BETA_FRAME_COLOR}`, boxShadow: undefined });
+  });
+
+  it("选中时青色往里加重一层，他的颜色再往里挪一层，外面照旧蓝光；边框永远 1px", () => {
+    expect(
+      orderFrame({ statusBorder: STATUS, adminColor: BETA_FRAME_COLOR, innerColor: "var(--admin-1)", assigning: true })
+    ).toEqual({
+      border: `1px solid ${BETA_FRAME_COLOR}`,
+      boxShadow: `inset 0 0 0 1px ${BETA_FRAME_COLOR}, inset 0 0 0 2px var(--admin-1), 0 0 0 1px var(--link)`,
+    });
+  });
+
+  it("「上一单」的琥珀光照旧，那一圈也还在", () => {
+    expect(
+      orderFrame({
+        statusBorder: STATUS,
+        adminColor: BETA_FRAME_COLOR,
+        innerColor: "var(--admin-1)",
+        assigning: false,
+        previousUse: true,
+      }).boxShadow
+    ).toBe("inset 0 0 0 1px var(--admin-1), 0 0 0 2px var(--prev-use)");
   });
 });

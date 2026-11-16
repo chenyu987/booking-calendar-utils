@@ -159,5 +159,10 @@ export const SEED = {
   matches: [{ id: "m1", order_id: "ord-main", resource_id: "s-male", status: "proposed" }],
   day_notes: [],
   // 主要管理员 = admin2：没写是谁的单都算她的，她的单不上色；只有 Admin1 的（ord-main）带颜色
-  app_settings: [{ key: "primary_admin_id", value: "admin-admin2" }],
+  app_settings: [
+    { key: "primary_admin_id", value: "admin-admin2" },
+    // 每人每天默认单价（设置里那两个），建单弹窗按地点预填
+    { key: "request_price_alpha", value: "40" },
+    { key: "request_price_beta", value: "50" },
+  ],
 };
