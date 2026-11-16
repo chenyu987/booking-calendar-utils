@@ -99,6 +99,9 @@ create table resources (
   id uuid primary key default gen_random_uuid(),
   provider_id uuid not null references providers(id) on delete cascade,
   item_type text check (item_type in ('beta', 'alpha')),
+  -- Beta 分档（迁移 0034）：base / full，空着 = 还不知道。只有 beta 资源有档
+  item_tier text check (item_tier in ('base', 'full')),
+  constraint resources_pass_tier_beta_only check (item_tier is null or item_type = 'beta'),
   -- 持有人信息：物品登记了使用人，匹配时性别年龄要对得上才能核验时
   holder_name text,
   holder_gender text check (holder_gender in ('male', 'female')),

@@ -27,7 +27,8 @@ export default function FilterForm({
     const params = new URLSearchParams();
     new FormData(form).forEach((value, key) => {
       const v = String(value).trim();
-      if (v) params.set(key, v);
+      // 同名的好几个（多选的勾选框）用逗号接起来：item=alpha,beta-full
+      if (v) params.set(key, params.has(key) ? `${params.get(key)},${v}` : v);
     });
     const qs = params.toString();
     router.push(qs ? `${action}?${qs}` : action);

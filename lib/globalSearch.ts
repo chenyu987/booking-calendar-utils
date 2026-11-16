@@ -143,7 +143,8 @@ export function resourceHits(resources: ResourceRow[]): SearchHit[] {
       s.providers ? `物主 ${displayName(s.providers)}` : "",
       s.deleted_at ? "已删除" : ""
     ),
-    href: `/admin/resources?holder=${encodeURIComponent(s.holder_name ?? "")}`,
+    // sstatus=all：Resource 页默认只看出租中，搜到的可能是过期 / 下架的资源
+    href: `/admin/resources?holder=${encodeURIComponent(s.holder_name ?? "")}&sstatus=all`,
   }));
 }
 

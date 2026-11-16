@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { clampNavWidth, NAV_CONTENT_WIDTH } from "@/lib/navWidth";
+import { clampNavWidth, DEFAULT_NAV_WIDTH, NAV_CONTENT_WIDTH } from "@/lib/navWidth";
+import CollapseToggle, { COLLAPSED_HANDLE_WIDTH } from "@/components/CollapseToggle";
 
 // 侧边栏外壳 + 右边那根可拖拽的分隔条。
 // 导航链接本身还是 layout（Server Component）渲染的，这里只当 children 收下来，
@@ -16,6 +17,16 @@ export default function ResizableNav({
   children: React.ReactNode;
 }) {
   const [width, setWidth] = useState(initialWidth);
+  // 收起前是多宽：点钮展开时回到这个宽度，不是一律回默认（拖到 220 的人展开还该是 220）
+  const lastOpenRef = useRef(initialWidth > 0 ? initialWidth : DEFAULT_NAV_WIDTH);
+  function remember(next: number) {
+    setWidth(next);
+    if (next > 0) lastOpenRef.current = next;
+    // 直接写 cookie，不走 Server Action：拖拽本来就在客户端，走服务端等于
+    // 每次松手都重渲染整个 admin 树。服务端下次渲染读这个值当初始宽度，
+    // 所以跳页面不会丢、首屏也不会闪（localStorage 就会闪，服务端读不到）。
+    document.cookie = `admin_nav_width=${next}; path=/; max-age=31536000`;
+  }
   const dragRef = useRef<{ originX: number; originWidth: number } | null>(null);
   // 手机上侧边栏是个抽屉（样式在 lib/adminMobile.ts，桌面上这几样都不起作用）。
   // 开没开是纯客户端状态：点一下就该出来，不值得回服务端
@@ -55,11 +66,7 @@ export default function ResizableNav({
       dragRef.current = null;
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
-      setWidth(next);
-      // 直接写 cookie，不走 Server Action：拖拽本来就在客户端，走服务端等于
-      // 每次松手都重渲染整个 admin 树。服务端下次渲染读这个值当初始宽度，
-      // 所以跳页面不会丢、首屏也不会闪（localStorage 就会闪，服务端读不到）。
-      document.cookie = `admin_nav_width=${next}; path=/; max-age=31536000`;
+      remember(next);
     }
 
     document.addEventListener("mousemove", onMove);
@@ -117,14 +124,22 @@ export default function ResizableNav({
         onMouseDown={beginDrag}
         title="拖动调整侧边栏宽度"
         style={{
-          width: 5,
+          position: "relative", // 收起 / 展开那颗钮挂在这根竖条上
+          width: width === 0 ? COLLAPSED_HANDLE_WIDTH : 5,
           flexShrink: 0,
           cursor: "col-resize",
           // 这条 1px 线就是原来 nav 上的 borderRight，挪到手柄左边缘，
           // 位置不变但现在整根都能拖
           borderLeft: "1px solid var(--border)",
         }}
-      />
+      >
+        <CollapseToggle
+          collapsed={width === 0}
+          side="left"
+          label="导航"
+          onToggle={() => remember(width === 0 ? lastOpenRef.current : 0)}
+        />
+      </div>
     </>
   );
 }

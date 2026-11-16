@@ -6,7 +6,11 @@
 
 import { BADGE_KINDS, BADGE_LABELS, type BadgeKind } from "./resourceStatus";
 
-export type ItemFilter = "" | "beta" | "alpha";
+import { parseItemKinds } from "./itemKind";
+import { matchesContactFilter } from "./admins";
+
+/** 资源类型可以多选：URL 上逗号隔开的 ItemKind（lib/itemKind.ts），空 = 不筛 */
+export type ItemFilter = string;
 
 /**
  * 「挂牌状态」筛选按**显示出来的标签**比（`badgeKind`），不按库里的 `status`。
@@ -34,6 +38,10 @@ export type ResourceFilters = {
   validTo: string;
   booked: BookedFilter;
   sstatus: StatusFilter;
+  /** 物主地址（包含就算，比的是完整地址那一串） */
+  addr: string;
+  /** 谁的联系人：空 = 不筛，none = 还没标，其余是管理员 id（认不认得出由页面拿管理员名单再过一遍） */
+  contact: string;
 };
 
 export const EMPTY_RESOURCE_FILTERS: ResourceFilters = {
@@ -47,9 +55,19 @@ export const EMPTY_RESOURCE_FILTERS: ResourceFilters = {
   validTo: "",
   booked: "",
   sstatus: "",
+  addr: "",
+  contact: "",
 };
 
-const ITEM_VALUES: ItemFilter[] = ["", "beta", "alpha"];
+/**
+ * 挂牌状态**默认只看出租中**（2026-11-13 用户定的）：打开这一页多半是找能租的资源。
+ * 所以 URL 上没写 sstatus = 出租中；要看全部得写 `sstatus=all`（下拉里的「全部状态」）。
+ * 内部 `sstatus: ""` 仍然是「不筛」，只是 URL 上它叫 all。
+ * 例外：带 `edit=<id>` 跳过来（排期总览双击卡片）又没写状态的，按全部 —— 要改的那个资源
+ * 可能已经过期，默认筛掉的话点过来是一片空
+ */
+export const DEFAULT_RESOURCE_FILTERS: ResourceFilters = { ...EMPTY_RESOURCE_FILTERS, sstatus: "active" };
+
 const GENDER_VALUES: GenderFilter[] = ["", "male", "female"];
 const BOOKED_VALUES: BookedFilter[] = ["", "yes", "no"];
 
@@ -62,20 +80,30 @@ export function parseResourceFilters(
     allowed.includes(str(v) as T) ? (str(v) as T) : ("" as T);
   return {
     provider: str(sp.provider),
-    item: oneOf(sp.item, ITEM_VALUES),
+    item: parseItemKinds(sp.item).join(","),
     holder: str(sp.holder),
     gender: oneOf(sp.gender, GENDER_VALUES),
     ageMin: str(sp.agemin),
     ageMax: str(sp.agemax),
     validFrom: str(sp.vfrom),
     validTo: str(sp.vto),
+    addr: str(sp.addr),
+    contact: str(sp.contact),
     booked: oneOf(sp.booked, BOOKED_VALUES),
-    sstatus: oneOf(sp.sstatus, STATUS_VALUES),
+    sstatus:
+      str(sp.sstatus) === "all"
+        ? ""
+        : str(sp.sstatus) === ""
+          ? str(sp.edit) ? "" : DEFAULT_RESOURCE_FILTERS.sstatus
+          : STATUS_VALUES.includes(str(sp.sstatus) as StatusFilter)
+            ? (str(sp.sstatus) as StatusFilter)
+            : DEFAULT_RESOURCE_FILTERS.sstatus,
   };
 }
 
+/** 跟默认（只看出租中）比，有没有改过什么 */
 export function hasAnyResourceFilter(f: ResourceFilters): boolean {
-  return Object.values(f).some((v) => v !== "");
+  return (Object.keys(f) as (keyof ResourceFilters)[]).some((k) => f[k] !== DEFAULT_RESOURCE_FILTERS[k]);
 }
 
 // 字段名 → URL 参数名（parseResourceFilters 的反方向）
@@ -90,6 +118,8 @@ const URL_KEYS: Record<keyof ResourceFilters, string> = {
   validTo: "vto",
   booked: "booked",
   sstatus: "sstatus",
+  addr: "addr",
+  contact: "contact",
 };
 
 /**
@@ -100,8 +130,11 @@ const URL_KEYS: Record<keyof ResourceFilters, string> = {
 export function resourceFiltersQuery(f: ResourceFilters, extra: Record<string, string> = {}): string {
   const params = new URLSearchParams();
   for (const k of Object.keys(URL_KEYS) as (keyof ResourceFilters)[]) {
+    if (k === "sstatus") continue;
     if (f[k]) params.set(URL_KEYS[k], f[k]);
   }
+  // 状态：默认（出租中）不写，「不筛」写成 all（空着会被当成默认）
+  if (f.sstatus !== DEFAULT_RESOURCE_FILTERS.sstatus) params.set("sstatus", f.sstatus || "all");
   for (const [k, v] of Object.entries(extra)) if (v) params.set(k, v);
   const qs = params.toString();
   return qs ? `?${qs}` : "";
@@ -113,12 +146,14 @@ export function resourceFiltersQuery(f: ResourceFilters, extra: Record<string, s
  */
 export function resourceReturnPath(rawQuery: string): string {
   const sp = Object.fromEntries(new URLSearchParams(rawQuery.replace(/^\?/, "")));
+  delete sp.edit; // 回列表是退出编辑态，别让 edit 把状态默认值改成「全部」
   return `/admin/resources${resourceFiltersQuery(parseResourceFilters(sp))}`;
 }
 
 export type FilterableResource = {
   providerName: string;
-  itemType: string | null;
+  /** itemKind(resource)：alpha / beta-base / beta-full / beta-unknown，类型没填是 null */
+  itemKind: string | null;
   holderName: string | null;
   holderGender: string | null;
   age: number | null;
@@ -127,6 +162,10 @@ export type FilterableResource = {
   bookingCount: number;
   /** 显示出来的那个标签（`badgeKind(resource)`），不是库里的 status */
   badge: BadgeKind;
+  /** 物主的完整地址（formatAddress），没填是 null */
+  address?: string | null;
+  /** 物主挂在哪几个管理员名下（person_contacts） */
+  contactIds?: string[];
 };
 
 // contains / matchesAge 也给 lib/providerFilter.ts 用（Provider 管理的逐列筛选同一套口径），别再抄一份
@@ -159,7 +198,7 @@ export function matchesResourceFilters(
   f: ResourceFilters
 ): boolean {
   if (!contains(s.providerName, f.provider)) return false;
-  if (f.item && s.itemType !== f.item) return false;
+  if (f.item && !f.item.split(",").includes(s.itemKind ?? "")) return false;
   if (!contains(s.holderName, f.holder)) return false;
   if (f.gender && s.holderGender !== f.gender) return false;
   if (!matchesAge(s.age, f.ageMin, f.ageMax)) return false;
@@ -169,6 +208,8 @@ export function matchesResourceFilters(
   if (f.validTo && (!s.rangeEnd || s.rangeEnd > f.validTo)) return false;
   if (f.booked === "yes" && s.bookingCount === 0) return false;
   if (f.booked === "no" && s.bookingCount > 0) return false;
+  if (!contains(s.address ?? null, f.addr)) return false;
+  if (!matchesContactFilter(s.contactIds ?? [], f.contact)) return false;
   if (f.sstatus === "unavailable") {
     if (!UNAVAILABLE.includes(s.badge)) return false;
   } else if (f.sstatus && s.badge !== f.sstatus) return false;

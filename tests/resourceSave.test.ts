@@ -38,7 +38,11 @@ beforeEach(() => {
       { id: "o-c", demand_days: ["2026-12-21"], location: "x", status: "created", customer_id: "r-1" },
     ],
     customers: [{ id: "r-1" }],
-    people: [{ id: "r-1", chat_name: "小王" }],
+    providers: [{ id: "o-1" }],
+    people: [
+      { id: "r-1", chat_name: "小王", city: "Seattle", region: "WA", postal_code: "98101" },
+      { id: "o-1", chat_name: "物主", address_line1: "1 Main St", city: null, region: null, postal_code: null, country: "US" },
+    ],
   });
   (globalThis as any).__fakeSupabase = fake.client;
 });
@@ -51,7 +55,7 @@ const form = (fields: Record<string, string | string[]>) => {
 const base = {
   id: "s-1",
   provider_id: "o-2",
-  item_type: "alpha",
+  item_kind: "beta-full",
   holder_name: "  New Name ",
   holder_gender: "female",
   holder_date_of_birth: "1999-01-02",
@@ -66,6 +70,21 @@ describe("saveResource", () => {
     const { saveResource } = await import("@/app/admin/resources/actions");
     expect(await saveResource(form(base))).toEqual({});
     expect(row("s-1")).toMatchObject({ provider_id: "o-2", holder_name: "New Name", holder_gender: "female", status: "paused" });
+    // 资源类型一个值，写库拆成类型 + 分档两列（lib/itemKind.ts，迁移 0034）
+    expect(row("s-1")).toMatchObject({ item_type: "beta", item_tier: "full" });
+  });
+
+  it("改回 alpha：分档一起清掉（库里 check 也只许 beta 有档）", async () => {
+    const { saveResource } = await import("@/app/admin/resources/actions");
+    await saveResource(form(base));
+    expect(await saveResource(form({ ...base, item_kind: "alpha" }))).toEqual({});
+    expect(row("s-1")).toMatchObject({ item_type: "alpha", item_tier: null });
+  });
+
+  it("资源类型认不出来：不写库", async () => {
+    const { saveResource } = await import("@/app/admin/resources/actions");
+    expect((await saveResource(form({ ...base, item_kind: "beta-gold" }))).error).toMatch(/资源类型/);
+    expect(fake.writes.filter((w) => w.op === "update")).toEqual([]);
   });
 
   it("有效期结束早于开始：把话带回来，不写库", async () => {
@@ -112,3 +131,26 @@ describe("/admin/resources/bookings", () => {
     expect((await get(null)).status).toBe(400);
   });
 });
+
+describe("saveProviderAddress —— Resource 管理里直接改物主的城市 / 州 / 邮编", () => {
+  const person = (id: string) => fake.db.people.find((p: any) => p.id === id);
+
+  it("存进物主那个人身上；空的存 null；街道和国家不碰", async () => {
+    const { saveProviderAddress } = await import("@/app/admin/resources/actions");
+    expect(await saveProviderAddress(form({ provider_id: "o-1", city: " Madison ", region: "WI", postal_code: "" }))).toEqual({});
+    expect(person("o-1")).toMatchObject({ city: "Madison", region: "WI", postal_code: null, address_line1: "1 Main St", country: "US" });
+  });
+
+  it("**不是物主的人改不了**（curl 一下就能改客户地址的那条路）", async () => {
+    const { saveProviderAddress } = await import("@/app/admin/resources/actions");
+    expect((await saveProviderAddress(form({ provider_id: "r-1", city: "Hacked" }))).error).toBeTruthy();
+    expect(person("r-1").city).toBe("Seattle");
+  });
+
+  it("太长的拒掉，不写库", async () => {
+    const { saveProviderAddress } = await import("@/app/admin/resources/actions");
+    expect((await saveProviderAddress(form({ provider_id: "o-1", city: "x".repeat(61) }))).error).toBeTruthy();
+    expect(fake.writes.filter((w) => w.op === "update")).toEqual([]);
+  });
+});
+

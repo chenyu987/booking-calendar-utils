@@ -13,14 +13,42 @@ import { deleteResource, restoreResource } from "./actions";
 import FilterForm from "../orders/FilterForm";
 import { ResourceEditProvider, ResourceRow, EditResourceButton } from "./ResourceEditing";
 import BookingHistory from "./BookingHistory";
-import { VALIDITY_WIDTH, rangeInputStyle, tildeStyle, oneLineStyle } from "./styles";
+import {
+  VALIDITY_WIDTH,
+  rangeInputStyle,
+  tildeStyle,
+  oneLineStyle,
+  PROVIDER_COL,
+  HOLDER_COL,
+  BOOKING_COL,
+  ADDRESS_COL,
+  ITEM_WIDTH,
+  CONTACT_WIDTH,
+  RESOURCE_TABLE_MIN_WIDTH,
+} from "./styles";
 import HolderAvatar from "../overview/HolderAvatar";
 import {
   parseResourceFilters,
   hasAnyResourceFilter,
   matchesResourceFilters,
   STATUS_FILTER_OPTIONS,
+  resourceFiltersQuery,
+  DEFAULT_RESOURCE_FILTERS,
 } from "@/lib/resourceFilter";
+import { CONTACT_FILTER_NONE, resolvePrimaryAdmin } from "@/lib/admins";
+import { loadAdmins, loadPersonContacts } from "@/lib/personContacts";
+import { getPrimaryAdminId } from "@/lib/appSettings";
+import { ContactTags } from "../customers/CustomerTable";
+import { ITEM_KINDS, ITEM_KIND_LABELS, itemKind, itemColumns, type ItemKind } from "@/lib/itemKind";
+import { ADDRESS_COLUMNS, formatAddress } from "@/lib/address";
+import ProviderAddress from "./ProviderAddress";
+import {
+  parseResourceListSort,
+  nextSort,
+  sortParams,
+  sortResourceRows,
+  type ResourceListSortKey,
+} from "@/lib/resourceListSort";
 import {
   badgeKind,
   formatDateRange,
@@ -59,9 +87,13 @@ async function createResource(formData: FormData) {
   const providerId = formData.get("provider_id") as string;
   if (!providerId) throw new Error("必须选一个 Provider");
 
+  // 资源类型一个下拉选，写库拆成类型 + 分档两列（lib/itemKind.ts）
+  const item = itemColumns(String(formData.get("item_kind") ?? ""));
+  if (!item) throw new Error("资源类型不对");
+
   const { error } = await supabase.from("resources").insert({
     provider_id: providerId,
-    item_type: formData.get("item_type") as string,
+    ...item,
     holder_name: (formData.get("holder_name") as string)?.trim() || null,
     holder_gender: (formData.get("holder_gender") as string) || null,
     holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
@@ -126,8 +158,24 @@ const bookingCss = `
     background: var(--surface); box-shadow: 0 6px 20px rgba(0,0,0,.12);
     font-size: 12px; line-height: 1.9; white-space: nowrap;
   }
+  .pk { position: relative; }
+  .pk > summary { list-style: none; cursor: pointer; }
+  .pk > summary::-webkit-details-marker { display: none; }
+  .pk[open] > summary::after { content: ""; position: fixed; inset: 0; z-index: 5; cursor: default; }
+  .pk-pop {
+    position: absolute; left: 0; top: 100%; margin-top: 4px; z-index: 10;
+    display: flex; flex-direction: column; gap: 4px; padding: 6px 10px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); box-shadow: 0 6px 20px rgba(0,0,0,.12);
+    font-size: 12px; white-space: nowrap;
+  }
+  .pk-pop label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   .bk-pop-row { display: grid; grid-template-columns: max-content max-content 1fr max-content; column-gap: 10px; }
 `;
+// 跟 lib/adminMobile.ts 里手机那两条一样，只是不放在 @media 里。
+// 底下留 120px 空：横滑框（overflow-x:auto）竖着也会裁切，最后几行点开的浮层（地址、资源类型、
+// 排期）会被框底切掉一截，得在框里再滚。留出来的空让小浮层完整打开；排期那种长单子照旧在框里滚
+const RESOURCE_SCROLL_CSS = ".m-scroll{overflow-x:auto}.m-scroll-inner{min-width:var(--m-min);padding-bottom:120px}";
 const filterInputStyle = {
   ...inputStyle,
   width: "100%",
@@ -151,16 +199,19 @@ export default async function ResourcesAdminPage(
       vto?: string;
       booked?: string;
       sstatus?: string;
+      /** 点表头排序（lib/resourceListSort.ts） */
+      sort?: string;
+      dir?: string;
       /** 删除被拦下时带回来（./actions.ts） */
       error?: string;
     }>;
   }
 ) {
   const searchParams = await props.searchParams;
-  const [{ data: resources, error }, { data: providers }, { data: assignments }] =
+  const [{ data: resources, error }, { data: providers }, { data: assignments }, admins, contactsByPerson, rawPrimaryId] =
     await Promise.all([
       supabase.from("resources").select("*").order("created_at", { ascending: false }),
-      supabase.from("providers").select(`id, ${personSpread(DISPLAY_COLUMNS)}`),
+      supabase.from("providers").select(`id, ${personSpread(`${DISPLAY_COLUMNS}, ${ADDRESS_COLUMNS}`)}`),
       supabase
         .from("order_assignments")
         .select(
@@ -168,7 +219,15 @@ export default async function ResourcesAdminPage(
           // 浮层点开才去拿（lib/resourceBookings.ts）。带上客户名的话近五千条分配要多 join 一层
           "resource_id, orders(id, location, demand_days)"
         ),
+      // 谁的联系人：物主（人）挂在哪几个管理员名下，跟 Provider 管理同一份数据
+      loadAdmins(),
+      loadPersonContacts(),
+      getPrimaryAdminId(),
     ]);
+  const primaryId = resolvePrimaryAdmin(rawPrimaryId, admins);
+  const contactsOf = (personId: string) => contactsByPerson.get(personId) ?? [];
+  const contactNames = (personId: string) =>
+    admins.filter((a) => contactsOf(personId).includes(a.id)).map((a) => a.name);
 
   // 每个资源的排期历史：这个资源都被哪些订单、在哪几天、去哪个地点用过
   const bookingsByResource = new Map<string, any[]>();
@@ -189,13 +248,27 @@ export default async function ResourcesAdminPage(
 
   // 逐列筛选。年龄是从生日现算的，所以在内存里筛——写进 SQL 就得在两处
   // 维护同一套算法，正是 CLAUDE.md 反复警告的那个模式。一季几十个资源，不心疼。
-  const filters = parseResourceFilters(searchParams);
+  const parsed = parseResourceFilters(searchParams);
+  // 管理员 id 认不出来（改过链接、删过人）当没筛，跟 Provider 管理一样
+  const filters = {
+    ...parsed,
+    contact:
+      parsed.contact === CONTACT_FILTER_NONE || admins.some((a) => a.id === parsed.contact) ? parsed.contact : "",
+  };
   const filtering = hasAnyResourceFilter(filters);
-  const visibleResources = (resources ?? []).filter((s: any) =>
+  const providerOf = (id: string): any => providers?.find((x: any) => x.id === id) ?? null;
+  // 地址那一格只传地址几列给客户端组件，别把整个人序列化过去
+  const pickAddress = (o: any) =>
+    o ? { city: o.city, region: o.region, postal_code: o.postal_code, country: o.country } : null;
+  // 每位物主名下几张（没删的）资源：改地址的浮层里提示「N 个资源一起变」
+  const cardsPerProvider = new Map<string, number>();
+  for (const s of resources ?? []) if (!s.deleted_at) cardsPerProvider.set(s.provider_id, (cardsPerProvider.get(s.provider_id) ?? 0) + 1);
+
+  const filtered = (resources ?? []).filter((s: any) =>
     matchesResourceFilters(
       {
         providerName: providerName(s.provider_id),
-        itemType: s.item_type,
+        itemKind: itemKind(s),
         holderName: s.holder_name,
         holderGender: s.holder_gender,
         age: calcAge(s.holder_date_of_birth),
@@ -204,14 +277,56 @@ export default async function ResourcesAdminPage(
         rangeEnd: validitySpan(resourcePeriods(s)).end,
         bookingCount: (bookingsByResource.get(s.id) ?? []).length,
         badge: badgeKind(s),
+        address: formatAddress(providerOf(s.provider_id)),
+        contactIds: contactsOf(s.provider_id),
       },
       filters
     )
   );
 
+  // 点表头排序（lib/resourceListSort.ts）：表头那行管排序，底下那行管筛选，同一列上下对齐
+  const sort = parseResourceListSort(searchParams);
+  const visibleResources = sortResourceRows(filtered, sort, (s: any) => ({
+    providerName: providerName(s.provider_id),
+    itemKind: itemKind(s),
+    holderName: s.holder_name,
+    holderGender: s.holder_gender,
+    dob: s.holder_date_of_birth,
+    validFrom: validitySpan(resourcePeriods(s)).start,
+    bookingCount: (bookingsByResource.get(s.id) ?? []).length,
+    badge: badgeKind(s),
+    address: providerOf(s.provider_id),
+    contactNames: contactNames(s.provider_id),
+  }));
+  // 表头上的一格：点一下 升序 → 降序 → 回默认。换排序时筛选原样带着
+  const sortHeader = (key: ResourceListSortKey, label: string) => {
+    const on = sort.sort === key;
+    const next = nextSort(sort, key);
+    return (
+      <Link
+        href={`/admin/resources${resourceFiltersQuery(filters, sortParams(next))}`}
+        scroll={false}
+        // 不预取：表头十一个链接，预取一个 = 服务端把整张表按那个顺序画一遍（一两秒），
+        // 一打开页面就白跑十几遍。点下去再要就是了（tests/e2e/resources.spec.ts 盯着）
+        prefetch={false}
+        // 表头永远一行：列被挤窄时字用省略号截，不折成一个字一行；箭头不缩，永远看得见
+        style={{ color: on ? "var(--text)" : "inherit", textDecoration: "none", display: "flex", alignItems: "baseline", gap: 3, minWidth: 0 }}
+        title={`${label}：${on ? (sort.dir === "asc" ? "现在是升序，点一下降序" : "现在是降序，点一下取消排序") : "点一下按这一列排"}`}
+      >
+        <span style={{ ...oneLineStyle, minWidth: 0 }}>{label}</span>
+        <span style={{ flexShrink: 0, color: on ? "var(--link)" : "var(--text-faint)" }}>
+          {on ? (sort.dir === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </Link>
+    );
+  };
+
   return (
     <main>
-      <style dangerouslySetInnerHTML={{ __html: bookingCss }} />
+      {/* 窗口比表窄时**只有表格**在自己的框里横滑（MobileScroll），标题和新增表单照常按屏宽排。
+          MobileScroll 平时只在手机上生效；这张表列多、最小宽度一千三，桌面窗口窄一点也放不下，
+          所以这一页在任何宽度都把那个框的横滑打开。规则跟着这一页的 <style> 走，不影响别的页 */}
+      <style dangerouslySetInnerHTML={{ __html: bookingCss + RESOURCE_SCROLL_CSS }} />
       <h1 style={pageTitleStyle}>Resource 管理</h1>
       <p style={helpTextStyle}>
         一个 Provider 可以挂多个人的资源，一个资源挂一行。
@@ -231,9 +346,12 @@ export default async function ResourcesAdminPage(
             </option>
           ))}
         </select>
-        <select name="item_type" style={selectStyle} defaultValue="alpha">
-          <option value="beta">beta</option>
-          <option value="alpha">alpha</option>
+        <select name="item_kind" style={selectStyle} defaultValue="alpha">
+          {ITEM_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {ITEM_KIND_LABELS[k]}
+            </option>
+          ))}
         </select>
         <input name="holder_name" placeholder="物主姓名" style={inputStyle} />
         <select name="holder_gender" style={selectStyle} defaultValue="">
@@ -266,17 +384,19 @@ export default async function ResourcesAdminPage(
 
       {error && <p style={{ color: "crimson" }}>{error.message}</p>}
 
-      <MobileScroll minWidth={1500}>
+      <MobileScroll minWidth={RESOURCE_TABLE_MIN_WIDTH}>
       <div style={headerRowStyle}>
-        <div style={{ ...cellStyle, flex: 1.1 }}>Provider</div>
-        <div style={{ ...cellStyle, width: 70 }}>资源类型</div>
-        <div style={{ ...cellStyle, flex: 1.1 }}>物主姓名</div>
-        <div style={{ ...cellStyle, width: 60 }}>性别</div>
-        <div style={{ ...cellStyle, width: 96 }}>物主生日</div>
-        <div style={{ ...cellStyle, width: 70 }}>年龄</div>
-        <div style={{ ...cellStyle, width: VALIDITY_WIDTH }}>有效期</div>
-        <div style={{ ...cellStyle, flex: 1.8 }}>排期（去过/要去的地点）</div>
-        <div style={{ ...cellStyle, width: 110 }}>挂牌状态</div>
+        <div style={{ ...cellStyle, ...PROVIDER_COL }}>{sortHeader("provider", "Provider")}</div>
+        <div style={{ ...cellStyle, width: ITEM_WIDTH }}>{sortHeader("item", "资源类型")}</div>
+        <div style={{ ...cellStyle, ...HOLDER_COL }}>{sortHeader("holder", "物主姓名")}</div>
+        <div style={{ ...cellStyle, width: 60 }}>{sortHeader("gender", "性别")}</div>
+        <div style={{ ...cellStyle, width: 96 }}>{sortHeader("dob", "物主生日")}</div>
+        <div style={{ ...cellStyle, width: 70 }}>{sortHeader("age", "年龄")}</div>
+        <div style={{ ...cellStyle, width: VALIDITY_WIDTH }}>{sortHeader("validity", "有效期")}</div>
+        <div style={{ ...cellStyle, ...BOOKING_COL }}>{sortHeader("booked", "排期（去过/要去的地点）")}</div>
+        <div style={{ ...cellStyle, ...ADDRESS_COL }}>{sortHeader("address", "物主地址")}</div>
+        <div style={{ ...cellStyle, width: CONTACT_WIDTH }}>{sortHeader("contact", "谁的联系人")}</div>
+        <div style={{ ...cellStyle, width: 110 }}>{sortHeader("status", "挂牌状态")}</div>
         <div style={{ ...cellStyle, width: 110 }}>操作</div>
       </div>
 
@@ -285,18 +405,32 @@ export default async function ResourcesAdminPage(
           年龄和有效期那几列本来太窄放不下输入框，一并加宽了，表头/编辑态/展示
           都跟着改，列还是对齐的。 */}
       <FilterForm action="/admin/resources">
+        {/* 改筛选时排序别丢：FilterForm 只拼表单里的字段 */}
+        {Object.entries(sortParams(sort)).map(([k, v]) => (
+          <input key={k} type="hidden" name={k} value={v} />
+        ))}
         <div style={{ ...rowStyle, background: "var(--surface-2)" }}>
-          <div style={{ ...cellStyle, flex: 1.1 }}>
+          <div style={{ ...cellStyle, ...PROVIDER_COL }}>
             <input name="provider" defaultValue={filters.provider} placeholder="Provider" style={filterInputStyle} />
           </div>
-          <div style={{ ...cellStyle, width: 70 }}>
-            <select name="item" defaultValue={filters.item} style={filterInputStyle}>
-              <option value="">全部</option>
-              <option value="beta">beta</option>
-              <option value="alpha">alpha</option>
-            </select>
+          {/* 资源类型多选：原生 <details> 里一排勾选框，勾一个就自动筛（勾选框的 change 冒泡到 FilterForm，
+              同名的几个由 FilterForm 用逗号接起来）。一个都不勾 = 全部 */}
+          <div style={{ ...cellStyle, width: ITEM_WIDTH }}>
+            <details className="pk">
+              <summary style={{ ...filterInputStyle, ...oneLineStyle }} title="资源类型，可以多选">
+                {filters.item ? filters.item.split(",").map((k) => ITEM_KIND_LABELS[k as ItemKind]).join("、") : "全部"}
+              </summary>
+              <div className="pk-pop">
+                {ITEM_KINDS.map((k) => (
+                  <label key={k}>
+                    <input type="checkbox" name="item" value={k} defaultChecked={filters.item.split(",").includes(k)} />
+                    {ITEM_KIND_LABELS[k]}
+                  </label>
+                ))}
+              </div>
+            </details>
           </div>
-          <div style={{ ...cellStyle, flex: 1.1 }}>
+          <div style={{ ...cellStyle, ...HOLDER_COL }}>
             <input name="holder" defaultValue={filters.holder} placeholder="物主姓名" style={filterInputStyle} />
           </div>
           <div style={{ ...cellStyle, width: 60 }}>
@@ -332,16 +466,31 @@ export default async function ResourcesAdminPage(
             <span style={tildeStyle}>~</span>
             <input type="date" max={DATE_INPUT_MAX} name="vto" defaultValue={filters.validTo} title="有效期止：不晚于这天" style={{ ...filterInputStyle, ...rangeInputStyle }} />
           </div>
-          <div style={{ ...cellStyle, flex: 1.8 }}>
+          <div style={{ ...cellStyle, ...BOOKING_COL }}>
             <select name="booked" defaultValue={filters.booked} style={filterInputStyle}>
               <option value="">全部</option>
               <option value="yes">有排期</option>
               <option value="no">完全没排（空资源）</option>
             </select>
           </div>
+          <div style={{ ...cellStyle, ...ADDRESS_COL }}>
+            <input name="addr" defaultValue={filters.addr} placeholder="城市 / 州" style={filterInputStyle} />
+          </div>
+          <div style={{ ...cellStyle, width: CONTACT_WIDTH }}>
+            <select name="contact" defaultValue={filters.contact} style={filterInputStyle}>
+              <option value="">全部</option>
+              {admins.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+              <option value={CONTACT_FILTER_NONE}>还没标</option>
+            </select>
+          </div>
           <div style={{ ...cellStyle, width: 110 }}>
-            <select name="sstatus" defaultValue={filters.sstatus} style={filterInputStyle}>
-              <option value="">全部状态</option>
+            {/* 默认出租中（lib/resourceFilter.ts 的 DEFAULT_RESOURCE_FILTERS）；「全部」要显式写 all，空着就是默认 */}
+            <select name="sstatus" defaultValue={filters.sstatus || "all"} style={filterInputStyle}>
+              <option value="all">全部状态</option>
               {STATUS_FILTER_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
@@ -363,7 +512,8 @@ export default async function ResourcesAdminPage(
             {filtering ? (
               <>
                 <span style={{ color: "var(--warn)" }}>{visibleResources.length} 张</span>
-                <Link href="/admin/resources" style={linkButtonStyle}>
+                {/* 清的是筛选，排序留着 */}
+                <Link href={`/admin/resources${resourceFiltersQuery(DEFAULT_RESOURCE_FILTERS, sortParams(sort))}`} style={linkButtonStyle}>
                   清除
                 </Link>
               </>
@@ -391,6 +541,7 @@ export default async function ResourcesAdminPage(
             id: s.id,
             provider_id: s.provider_id,
             item_type: s.item_type,
+            item_tier: s.item_tier ?? null,
             holder_name: s.holder_name,
             holder_gender: s.holder_gender,
             holder_date_of_birth: s.holder_date_of_birth,
@@ -402,9 +553,11 @@ export default async function ResourcesAdminPage(
           {/* 删掉的资源整行压暗 —— 右边挂牌状态那一格已经写着「已删除」（statusBadge），
               压暗是让人扫表时一眼略过它 */}
           <div style={s.deleted_at ? { ...rowStyle, color: "var(--text-faint)" } : rowStyle}>
-            <div title={providerName(s.provider_id)} style={{ ...cellStyle, ...oneLineStyle, flex: 1.1 }}>{providerName(s.provider_id)}</div>
-            <div style={{ ...cellStyle, width: 70 }}>{s.item_type ?? "-"}</div>
-            <div title={s.holder_name ?? ""} style={{ ...cellStyle, flex: 1.1, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <div title={providerName(s.provider_id)} style={{ ...cellStyle, ...oneLineStyle, ...PROVIDER_COL }}>{providerName(s.provider_id)}</div>
+            <div style={{ ...cellStyle, ...oneLineStyle, width: ITEM_WIDTH }}>
+              {itemKind(s) ? ITEM_KIND_LABELS[itemKind(s)!] : "-"}
+            </div>
+            <div title={s.holder_name ?? ""} style={{ ...cellStyle, ...HOLDER_COL, display: "flex", alignItems: "center", gap: 6 }}>
               <HolderAvatar path={s.holder_photo_path} name={s.holder_name} />
               <span style={{ ...oneLineStyle, minWidth: 0 }}>{s.holder_name ?? "-"}</span>
             </div>
@@ -428,7 +581,7 @@ export default async function ResourcesAdminPage(
                 .map((p) => formatDateRange(p.start, p.end))
                 .join("、")}
             </div>
-            <div style={{ ...cellStyle, flex: 1.8 }}>
+            <div style={{ ...cellStyle, ...BOOKING_COL }}>
               {(() => {
                 // 一行只给头尾两单，其余（连同客户名、状态）收进浮层。
                 // 还是一行高：一个资源排过七八单也不会把这一行撑高，整张表扫得动
@@ -463,6 +616,19 @@ export default async function ResourcesAdminPage(
                     </BookingHistory>
                 );
               })()}
+            </div>
+            {/* 点一下就能改城市 / 州 / 邮编（改的是物主这个人的，ProviderAddress.tsx） */}
+            <div style={{ ...cellStyle, ...ADDRESS_COL }}>
+              <ProviderAddress
+                providerId={s.provider_id}
+                providerName={providerName(s.provider_id)}
+                cardCount={cardsPerProvider.get(s.provider_id) ?? 0}
+                address={pickAddress(providerOf(s.provider_id))}
+              />
+            </div>
+            {/* 颜色跟 Provider / Customer 管理的标签一样（主要管理员不上色） */}
+            <div style={{ ...cellStyle, width: CONTACT_WIDTH, overflow: "hidden" }}>
+              <ContactTags ids={contactsOf(s.provider_id)} admins={admins} primaryId={primaryId} />
             </div>
             <div style={{ ...cellStyle, width: 110, color: statusBadge(s).color }}>
               {statusBadge(s).text}

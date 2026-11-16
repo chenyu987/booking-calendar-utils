@@ -12,7 +12,8 @@ import {
   cellStyle,
   linkButtonStyle,
 } from "@/lib/adminStyles";
-import { VALIDITY_WIDTH, rangeInputStyle, tildeStyle } from "./styles";
+import { VALIDITY_WIDTH, rangeInputStyle, tildeStyle, PROVIDER_COL, HOLDER_COL, BOOKING_COL, ADDRESS_COL, ITEM_WIDTH, CONTACT_WIDTH } from "./styles";
+import { ITEM_KINDS, ITEM_KIND_LABELS, itemKind } from "@/lib/itemKind";
 import HolderPhotoUpload from "./HolderPhotoUpload";
 import { saveResource } from "./actions";
 
@@ -76,6 +77,7 @@ export type EditableResource = {
   id: string;
   provider_id: string;
   item_type: string | null;
+  item_tier: string | null;
   holder_name: string | null;
   holder_gender: string | null;
   holder_date_of_birth: string | null;
@@ -109,7 +111,7 @@ function ResourceEditForm({ s }: { s: EditableResource }) {
       data-editing-resource={s.id}
     >
       <input type="hidden" name="id" value={s.id} />
-      <div style={{ ...cellStyle, flex: 1.1 }}>
+      <div style={{ ...cellStyle, ...PROVIDER_COL }}>
         <select name="provider_id" defaultValue={s.provider_id} style={{ ...selectStyle, width: "100%" }}>
           {providers.map((o) => (
             <option key={o.id} value={o.id}>
@@ -118,14 +120,17 @@ function ResourceEditForm({ s }: { s: EditableResource }) {
           ))}
         </select>
       </div>
-      <div style={{ ...cellStyle, width: 70 }}>
-        <select name="item_type" defaultValue={s.item_type ?? "alpha"} style={{ ...selectStyle, width: "100%" }}>
-          <option value="beta">beta</option>
-          <option value="alpha">alpha</option>
+      <div style={{ ...cellStyle, width: ITEM_WIDTH }}>
+        <select name="item_kind" defaultValue={itemKind(s) ?? "alpha"} style={{ ...selectStyle, width: "100%" }}>
+          {ITEM_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {ITEM_KIND_LABELS[k]}
+            </option>
+          ))}
         </select>
       </div>
       {/* 照片在这一格：选了图马上传（HolderPhotoUpload），不跟「保存」走 */}
-      <div style={{ ...cellStyle, flex: 1.1, display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ ...cellStyle, ...HOLDER_COL, display: "flex", alignItems: "center", gap: 6 }}>
         <HolderPhotoUpload resourceId={s.id} path={s.holder_photo_path} name={s.holder_name} />
         <input name="holder_name" defaultValue={s.holder_name ?? ""} style={{ ...inputStyle, width: "100%", minWidth: 0 }} />
       </div>
@@ -171,9 +176,12 @@ function ResourceEditForm({ s }: { s: EditableResource }) {
           </div>
         ))}
       </div>
-      <div style={{ ...cellStyle, flex: 1.8, fontSize: 11, color: error ? "var(--danger, crimson)" : "var(--text-faint)" }}>
+      <div style={{ ...cellStyle, ...BOOKING_COL, fontSize: 11, color: error ? "var(--danger, crimson)" : "var(--text-faint)" }}>
         {error ?? "排期由订单决定，改不了"}
       </div>
+      {/* 地址是物主（人）身上的，不在资源上 —— 在 Provider 管理里改 */}
+      <div style={{ ...cellStyle, ...ADDRESS_COL, fontSize: 11, color: "var(--text-faint)" }}>在 Provider 管理里改</div>
+      <div style={{ ...cellStyle, width: CONTACT_WIDTH, fontSize: 11, color: "var(--text-faint)" }}>在 Provider 管理里改</div>
       <div style={{ ...cellStyle, width: 110 }}>
         <select name="status" defaultValue={s.status} style={{ ...selectStyle, width: "100%" }}>
           {RESOURCE_STATUSES.map((st) => (

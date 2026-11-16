@@ -54,6 +54,17 @@ export function addressFromFormData(
   };
 }
 
+/**
+ * 列表里的短地址：「Vancouver, BC V6B 1A1」—— 城市、州 / 省、邮编，看物主在哪一带。
+ * 街道和国家不带（完整的放 title 里）。城市州邮编都没填才退回国家。一个都没填返回 null
+ */
+export function formatAddressShort(a: Address | null | undefined): string | null {
+  if (!a) return null;
+  const regionPostal = [a.region, a.postal_code].filter(Boolean).join(" ");
+  const s = [a.city, regionPostal].filter(Boolean).join(", ");
+  return s || countryLabel(a.country);
+}
+
 /** 一行显示：「123 Main St, Apt 4, Vancouver, BC V6B 1A1, 加拿大」。一个都没填返回 null */
 export function formatAddress(a: Address | null | undefined): string | null {
   if (!a) return null;

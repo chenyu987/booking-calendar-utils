@@ -75,6 +75,8 @@ export default function PublicRail({ initialWidth }: { initialWidth: number }) {
         title={width === 0 ? "拖开 / 双击展开对外页面" : "拖动拉宽拉窄；双击收起或开满"}
         onMouseDown={beginDrag}
         onDoubleClick={toggle}
+        // 点钮：开着（哪怕半开）就收起，收着就开满
+        onToggle={() => remember(width > 0 ? 0 : RAIL_WIDTH)}
       />
     </div>
   );

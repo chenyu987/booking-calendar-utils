@@ -1,5 +1,6 @@
 "use server";
 
+import { itemColumns } from "@/lib/itemKind";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
@@ -80,11 +81,15 @@ export async function saveResource(formData: FormData): Promise<{ error?: string
   const status = String(formData.get("status") ?? "");
   if (!(RESOURCE_STATUSES as readonly string[]).includes(status)) return { error: "挂牌状态不对" };
 
+  // 资源类型一个下拉选，写库拆成类型 + 分档两列（lib/itemKind.ts）
+  const item = itemColumns(String(formData.get("item_kind") ?? ""));
+  if (!item) return { error: "资源类型不对" };
+
   const { data, error } = await supabase
     .from("resources")
     .update({
       provider_id: formData.get("provider_id") as string,
-      item_type: formData.get("item_type") as string,
+      ...item,
       holder_name: (formData.get("holder_name") as string)?.trim() || null,
       holder_gender: (formData.get("holder_gender") as string) || null,
       holder_date_of_birth: (formData.get("holder_date_of_birth") as string) || null,
@@ -99,5 +104,35 @@ export async function saveResource(formData: FormData): Promise<{ error?: string
 
   revalidatePath("/admin/resources");
   revalidatePath("/admin/overview");
+  return {};
+}
+
+// —— 物主地址：Resource 管理「物主地址」那一格点开就能改（ProviderAddress.tsx）——
+//
+// 地址在**人**身上（people，迁移 0028），不在资源上：改的是这位物主的，名下每个资源那一格一起变。
+// 只改城市 / 州 / 邮编三列，街道和国家不碰（这一格本来也只显示这三样，完整地址在 Provider 管理里改）。
+// 只认物主：providers 里没有这个 id 就拒掉 —— 不然 curl 一下就能改任何一个客户的地址。
+// 不能 export：「use server」文件只许导出 async 函数，导出常量 next build 直接报错
+const PROVIDER_ADDRESS_MAX = 60;
+
+export async function saveProviderAddress(formData: FormData): Promise<{ error?: string }> {
+  const providerId = String(formData.get("provider_id") ?? "").trim();
+  if (!providerId) return { error: "缺物主的 id" };
+  const get = (k: string) => {
+    const v = String(formData.get(k) ?? "").trim();
+    return v || null; // 空的存 null，跟 lib/address.ts 的 addressFromFormData 一个约定
+  };
+  const fields = { city: get("city"), region: get("region"), postal_code: get("postal_code") };
+  if (Object.values(fields).some((v) => v && v.length > PROVIDER_ADDRESS_MAX)) {
+    return { error: `每一项最多 ${PROVIDER_ADDRESS_MAX} 个字` };
+  }
+
+  const { data: provider, error: providerErr } = await supabase.from("providers").select("id").eq("id", providerId).maybeSingle();
+  if (providerErr) return { error: providerErr.message };
+  if (!provider) return { error: "这个人不是物主" };
+
+  const { error } = await supabase.from("people").update(fields).eq("id", providerId);
+  if (error) return { error: error.message };
+  // 不 revalidatePath：Provider 管理是 force-dynamic，每次打开都现查；这一页由 ProviderAddress 自己 router.refresh
   return {};
 }

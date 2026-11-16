@@ -6,22 +6,34 @@ import {
   resourceFiltersQuery,
   resourceReturnPath,
   EMPTY_RESOURCE_FILTERS,
+  DEFAULT_RESOURCE_FILTERS,
   type FilterableResource,
 } from "./resourceFilter";
 import { badgeKind } from "./resourceStatus";
 
 describe("resourceFiltersQuery / resourceReturnPath —— 编辑、取消、保存不丢筛选", () => {
   it("筛选拼回 URL 参数名，空的不拼；extra 带上 edit", () => {
-    const f = { ...EMPTY_RESOURCE_FILTERS, provider: "老李", ageMin: "20", validFrom: "2026-12-01" };
+    const f = { ...DEFAULT_RESOURCE_FILTERS, provider: "老李", ageMin: "20", validFrom: "2026-12-01" };
     expect(resourceFiltersQuery(f, { edit: "s1" })).toBe("?provider=%E8%80%81%E6%9D%8E&agemin=20&vfrom=2026-12-01&edit=s1");
   });
 
-  it("什么都没筛就是空串", () => {
-    expect(resourceFiltersQuery(EMPTY_RESOURCE_FILTERS)).toBe("");
+  it("默认（只看出租中）就是空串；「全部状态」写成 sstatus=all", () => {
+    expect(resourceFiltersQuery(DEFAULT_RESOURCE_FILTERS)).toBe("");
+    expect(resourceFiltersQuery(EMPTY_RESOURCE_FILTERS)).toBe("?sstatus=all");
+  });
+
+  it("挂牌状态默认出租中；all = 不筛；带 edit 跳过来的按全部（要改的资源可能过期了）", () => {
+    expect(parseResourceFilters({}).sstatus).toBe("active");
+    expect(parseResourceFilters({ sstatus: "all" }).sstatus).toBe("");
+    expect(parseResourceFilters({ edit: "s1" }).sstatus).toBe("");
+    expect(parseResourceFilters({ edit: "s1", sstatus: "paused" }).sstatus).toBe("paused");
+    // 「全部」来回一趟还是全部，不会变回默认
+    const sp = Object.fromEntries(new URLSearchParams(resourceFiltersQuery(EMPTY_RESOURCE_FILTERS).slice(1)));
+    expect(parseResourceFilters(sp)).toEqual(EMPTY_RESOURCE_FILTERS);
   });
 
   it("跟 parseResourceFilters 来回一趟不走样", () => {
-    const f = { ...EMPTY_RESOURCE_FILTERS, item: "beta" as const, gender: "female" as const, booked: "no" as const, sstatus: "unavailable" as const };
+    const f = { ...EMPTY_RESOURCE_FILTERS, item: "beta-base,beta-unknown", gender: "female" as const, booked: "no" as const, sstatus: "unavailable" as const };
     const sp = Object.fromEntries(new URLSearchParams(resourceFiltersQuery(f).slice(1)));
     expect(parseResourceFilters(sp)).toEqual(f);
   });
@@ -38,7 +50,7 @@ describe("resourceFiltersQuery / resourceReturnPath —— 编辑、取消、保
 
 const base: FilterableResource = {
   providerName: "Zoey Lee",
-  itemType: "alpha",
+  itemKind: "alpha",
   holderName: "sara lee",
   holderGender: "female",
   age: 30,
@@ -69,8 +81,9 @@ describe("parseResourceFilters", () => {
 });
 
 describe("hasAnyResourceFilter", () => {
-  it("全空是没筛", () => {
-    expect(hasAnyResourceFilter(EMPTY_RESOURCE_FILTERS)).toBe(false);
+  it("默认（只看出租中）算没筛；改成全部状态算筛了", () => {
+    expect(hasAnyResourceFilter(DEFAULT_RESOURCE_FILTERS)).toBe(false);
+    expect(hasAnyResourceFilter(EMPTY_RESOURCE_FILTERS)).toBe(true);
   });
   it("任意一个有值就算筛了", () => {
     expect(hasAnyResourceFilter(f({ item: "alpha" }))).toBe(true);
@@ -170,8 +183,8 @@ describe("matchesResourceFilters", () => {
     expect(pick("deleted")).toBe(false);
   });
 
-  it("URL 里乱写的状态当没筛", () => {
-    expect(parseResourceFilters({ sstatus: "bogus" }).sstatus).toBe("");
+  it("URL 里乱写的状态当默认（出租中）", () => {
+    expect(parseResourceFilters({ sstatus: "bogus" }).sstatus).toBe("active");
     expect(parseResourceFilters({ sstatus: "expired" }).sstatus).toBe("expired");
   });
 
@@ -180,3 +193,22 @@ describe("matchesResourceFilters", () => {
     expect(matchesResourceFilters(base, f({ item: "alpha", gender: "male" }))).toBe(false);
   });
 });
+
+describe("资源类型多选 / 地址 / 谁的联系人", () => {
+  const row = { ...base };
+  it("资源类型勾了几种，是其中一种就留", () => {
+    expect(matchesResourceFilters({ ...row, itemKind: "beta-full" }, f({ item: "alpha,beta-full" }))).toBe(true);
+    expect(matchesResourceFilters({ ...row, itemKind: "beta-unknown" }, f({ item: "alpha,beta-full" }))).toBe(false);
+    expect(parseResourceFilters({ item: "beta-full,alpha" }).item).toBe("alpha,beta-full");
+  });
+  it("地址按包含筛，不分大小写；没填地址的筛不出来", () => {
+    expect(matchesResourceFilters({ ...row, address: "Vancouver, BC, 加拿大" }, f({ addr: "vancouver" }))).toBe(true);
+    expect(matchesResourceFilters({ ...row, address: null }, f({ addr: "vancouver" }))).toBe(false);
+  });
+  it("谁的联系人：某个管理员 / 还没标", () => {
+    expect(matchesResourceFilters({ ...row, contactIds: ["a1", "a2"] }, f({ contact: "a2" }))).toBe(true);
+    expect(matchesResourceFilters({ ...row, contactIds: ["a1"] }, f({ contact: "a2" }))).toBe(false);
+    expect(matchesResourceFilters({ ...row, contactIds: [] }, f({ contact: "none" }))).toBe(true);
+  });
+});
+

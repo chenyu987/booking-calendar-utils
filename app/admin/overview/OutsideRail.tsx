@@ -180,6 +180,8 @@ export default function OutsideRail({
         }
         onMouseDown={beginDrag}
         onDoubleClick={toggle}
+        // 点钮只管开合，不碰每行几天（双击才兼着那个）
+        onToggle={() => settleRail(width > 0 ? 0 : RAIL_WIDTH)}
       />
     </div>
   );

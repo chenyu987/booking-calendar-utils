@@ -1,5 +1,6 @@
 import { RAIL_WIDTH } from "@/lib/bandDays";
 import PublicLinkCards from "./PublicLinkCards";
+import CollapseToggle, { COLLAPSED_HANDLE_WIDTH } from "./CollapseToggle";
 
 // 「对外页面」那道帘子的**外壳**：手柄 + 可裁切的外框 + 定宽内容。
 //
@@ -16,6 +17,7 @@ export default function PublicRailShell({
   title,
   onMouseDown,
   onDoubleClick,
+  onToggle,
 }: {
   width: number;
   dragging: boolean;
@@ -25,6 +27,8 @@ export default function PublicRailShell({
   title: string;
   onMouseDown: (e: React.MouseEvent) => void;
   onDoubleClick: () => void;
+  /** 竖条上那颗收起 / 展开钮。两处都要传 —— 长得一样的帘子，一边有钮一边没有就又分岔了 */
+  onToggle: () => void;
 }) {
   return (
     <>
@@ -33,12 +37,15 @@ export default function PublicRailShell({
         onDoubleClick={onDoubleClick}
         title={title}
         style={{
-          width: 5,
+          position: "relative", // 收起 / 展开那颗钮挂在这根竖条上
+          width: width === 0 ? COLLAPSED_HANDLE_WIDTH : 5,
           flexShrink: 0,
           cursor: "col-resize",
           borderLeft: `1px solid ${dragging ? "var(--text-faint)" : "var(--border)"}`,
         }}
-      />
+      >
+        <CollapseToggle collapsed={width === 0} side="right" label="对外页面" onToggle={onToggle} />
+      </div>
       <aside
         style={{
           width,

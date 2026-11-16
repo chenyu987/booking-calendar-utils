@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { addressFromFormData, formatAddress } from "./address";
+import { addressFromFormData, formatAddress, formatAddressShort } from "./address";
 
 const fd = (o: Record<string, string>) => {
   const f = new FormData();
@@ -40,5 +40,19 @@ describe("formatAddress", () => {
   });
   it("一个都没填是 null", () => {
     expect(formatAddress({ city: null })).toBeNull();
+  });
+});
+
+describe("formatAddressShort", () => {
+  it("城市, 州 邮编；街道和国家不带", () => {
+    expect(formatAddressShort({ address_line1: "1 Main St", city: "Madison", region: "WI", postal_code: "53703", country: "US" }))
+      .toBe("Madison, WI 53703");
+  });
+  it("只有邮编也显示", () => {
+    expect(formatAddressShort({ postal_code: "V6B 1A1" })).toBe("V6B 1A1");
+  });
+  it("城市州邮编都没有退回国家；全空是 null", () => {
+    expect(formatAddressShort({ country: "CA" })).toBe("加拿大");
+    expect(formatAddressShort({})).toBeNull();
   });
 });
