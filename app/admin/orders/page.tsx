@@ -9,6 +9,7 @@ import { DISPLAY_COLUMNS, displayName } from "@/lib/person";
 import LocationInput from "@/components/LocationInput";
 import { isUnknownLocation, locationHintFor } from "@/lib/locations";
 import { formatParty } from "@/lib/party";
+import { amountAfterEdit } from "@/lib/pricing";
 import { computeNeed, formatNeed } from "@/lib/assignment";
 import { STATUS_LABELS } from "@/lib/orderStatus";
 import {
@@ -90,18 +91,40 @@ async function updateOrder(formData: FormData) {
   const days = parseDaysInput((formData.get("demand_days") as string) ?? "");
   if (days.length === 0) throw new Error("日期不能为空，格式：2026-12-24, 2026-12-25");
 
+  const id = formData.get("id") as string;
+  const male = Number(formData.get("male_count") ?? 0);
+  const female = Number(formData.get("female_count") ?? 0);
+  const typed = formData.get("amount") ? Number(formData.get("amount")) : null;
+
+  // 天数、人数改了，金额没动 → 按比例重算；金额也改了 → 以手填的为准（lib/pricing.ts）
+  const { data: old, error: readErr } = await supabase
+    .from("orders")
+    .select("male_count, female_count, demand_days, amount")
+    .eq("id", id)
+    .single();
+  if (readErr) throw new Error(readErr.message);
+  const amount = amountAfterEdit(
+    {
+      days: (old.demand_days ?? []).length,
+      party: (old.male_count ?? 0) + (old.female_count ?? 0),
+      amount: old.amount != null ? Number(old.amount) : null,
+    },
+    { days: days.length, party: male + female },
+    typed
+  );
+
   const { error } = await supabase
     .from("orders")
     .update({
       customer_id: formData.get("customer_id") as string,
       location: (formData.get("location") as string)?.trim() || null,
-      male_count: Number(formData.get("male_count") ?? 0),
-      female_count: Number(formData.get("female_count") ?? 0),
+      male_count: male,
+      female_count: female,
       demand_days: days,
-      amount: formData.get("amount") ? Number(formData.get("amount")) : null,
+      amount,
       status: formData.get("status") as string,
     })
-    .eq("id", formData.get("id") as string);
+    .eq("id", id);
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/orders");

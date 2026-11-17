@@ -29,6 +29,8 @@ export type EditorCard = {
   label: string;
   /** 这个资源同一天还配在别的单上（lib/doubleBooking.ts）—— 标红 */
   clash: boolean;
+  /** 持有人性别：浮动条「⋯ → 少一个人」要知道退哪张（lib/dropPerson.ts） */
+  gender: string | null;
 };
 
 /** 画一个分配态色块要的全部数据。服务端算好，可序列化 */

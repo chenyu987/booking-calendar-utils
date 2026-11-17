@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { MORE_BUTTON_STYLE } from "./MoreMenu";
 
 // 「点下去就当已经进分配模式了」。
 //
@@ -180,7 +181,7 @@ export default function OptimisticAssign() {
           // 打字照收，真条上来了原样搬过去
           placeholder="输入物主名字"
           style={{
-            width: 190,
+            width: 140,
             fontSize: 12,
             padding: "3px 6px",
             borderRadius: 4,
@@ -196,7 +197,7 @@ export default function OptimisticAssign() {
           <input
             placeholder="备注"
             style={{
-              width: 150,
+              width: 100,
               fontSize: 12,
               padding: "3px 6px",
               borderRadius: 4,
@@ -207,6 +208,8 @@ export default function OptimisticAssign() {
           />
         </span>
       )}
+      {/* 「⋯」也摆一个一样的（不接事件），真条接上时不横着跳 */}
+      <span style={{ ...MORE_BUTTON_STYLE, opacity: 0.55 }}>⋯</span>
       {/* 删除和完成先摆着但不接事件：这半秒里真按下去，请求打给谁都不对。
           摆着是为了几何一致——少两个按钮的话，真条接上时整条会横着跳一下 */}
       <span

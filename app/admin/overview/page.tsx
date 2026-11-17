@@ -1459,6 +1459,7 @@ export default async function OverviewPage(
                             id: s.id,
                             label: holderLabels.get(s.holder_name ?? "") ?? s.holder_name,
                             clash: Boolean(clashIndex.get(clashKey(o.id, s.id))),
+                            gender: s.holder_gender ?? null,
                           })),
                           cardBg: c.bg,
                           cardBorder: c.border,

@@ -5,6 +5,8 @@ import DeleteOrderButton from "./DeleteOrderButton";
 import { AssignByNameInput } from "./AssignActions";
 import NoteInput from "./NoteInput";
 import type { Admin } from "@/lib/admins";
+import type { DropOption } from "@/lib/dropPerson";
+import MoreMenu from "./MoreMenu";
 
 /**
  * 分配模式的浮动操作条。
@@ -28,6 +30,10 @@ export default function AssigningBar({
   admins = [],
   adminId = null,
   onAdminChange,
+  dropOptions = [],
+  onDropPerson,
+  party = 0,
+  amount = null,
 }: {
   orderId: string;
   label: string;
@@ -44,6 +50,12 @@ export default function AssigningBar({
   /** 这一单现在算谁的（没写的算主要管理员） */
   adminId?: string | null;
   onAdminChange?: (adminId: string) => void;
+  /** 「⋯」菜单里「少几个人」能勾的那几个人（lib/dropPerson.ts 的 dropPersonOptions）；没传 onDropPerson 就不显示 */
+  dropOptions?: DropOption[];
+  onDropPerson?: (opts: DropOption[]) => void;
+  /** 现在几个人、总价：「⋯」里至少留一个人、确定按钮上显示减完多少钱 */
+  party?: number;
+  amount?: number | string | null;
 }) {
   return (
     <div
@@ -134,6 +146,9 @@ export default function AssigningBar({
           <NoteInput orderId={orderId} defaultValue="" />
         </span>
       )}
+
+      {/* 不常用的快捷操作收在「⋯」里（2026-11-17 加的，第一项是少几个人），别再往条上平铺 */}
+      {onDropPerson && <MoreMenu options={dropOptions} party={party} amount={amount} onPick={onDropPerson} />}
 
       <span style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
         <DeleteOrderButton

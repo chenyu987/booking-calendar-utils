@@ -28,6 +28,11 @@ export type FieldPatch = {
    * 要 admins 名单才算得出来，所以不在 patchFromChanges 里算，由 InstantAssign 填
    */
   adminColor?: string | null;
+  /**
+   * 「⋯ → 少一个人」退回去的资源（lib/dropPerson.ts）：色块上当场去掉它、已配张数减一。
+   * 带着性别是因为普通态的 BlockCard 上没有性别，减哪一边的张数得靠它
+   */
+  droppedCards?: { id: string; gender: string | null }[];
 };
 
 /** collectChangedEdits 收出来的那份（save-field 的字段名）→ 补丁 */
@@ -58,6 +63,13 @@ export function applyPatchToBlock(d: BlockData, p: FieldPatch): BlockData {
   if (p.note !== undefined) out.note = p.note;
   if (p.amount !== undefined) out.amount = p.amount === "" ? null : p.amount;
   if (p.adminColor !== undefined) out.adminColor = p.adminColor;
+  if (p.droppedCards?.length) {
+    const gone = new Set(p.droppedCards.map((c) => c.id));
+    const dropped = p.droppedCards.filter((c) => d.cards.some((x) => x.id === c.id));
+    out.cards = d.cards.filter((c) => !gone.has(c.id));
+    out.need.maleFilled -= dropped.filter((c) => c.gender === "male").length;
+    out.need.femaleFilled -= dropped.filter((c) => c.gender === "female").length;
+  }
   // 人数就是「要几个资源」的分母；配齐没有跟着重算（已配的张数不变）
   if (p.maleCount !== undefined) out.need.maleNeeded = p.maleCount;
   if (p.femaleCount !== undefined) out.need.femaleNeeded = p.femaleCount;
@@ -84,6 +96,16 @@ export function applyPatchToEditor<T extends EditorData>(d: T, p: FieldPatch): T
   }
   if (p.note !== undefined) out.note = p.note;
   if (p.amount !== undefined) out.amount = p.amount === "" ? null : p.amount;
+  // 退回去的资源要在人数之前处理：下面算 gap 用的是已配张数
+  if (p.droppedCards?.length) {
+    const gone = new Set(p.droppedCards.map((c) => c.id));
+    const dropped = d.cards.filter((c) => gone.has(c.id));
+    out.cards = d.cards.filter((c) => !gone.has(c.id));
+    out.need.maleFilled -= dropped.filter((c) => c.gender === "male").length;
+    out.need.femaleFilled -= dropped.filter((c) => c.gender === "female").length;
+    out.need.maleGap = Math.max(0, out.maleCount - out.need.maleFilled);
+    out.need.femaleGap = Math.max(0, out.femaleCount - out.need.femaleFilled);
+  }
   if (p.maleCount !== undefined) {
     out.maleCount = p.maleCount;
     out.need.maleGap = Math.max(0, p.maleCount - out.need.maleFilled);

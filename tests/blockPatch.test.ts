@@ -104,3 +104,37 @@ describe("settledPatches：什么时候撤补丁", () => {
     expect(settledPatches(m(1000), null)).toEqual([]);
   });
 });
+
+describe("少一个人：退回去的资源当场从色块上去掉", () => {
+  const patch = { maleCount: 1, femaleCount: 0, amount: "80", droppedCards: [{ id: "s-f", gender: "female" }] };
+
+  it("普通态：资源没了、女的已配张数减一，还是配齐", () => {
+    const b: BlockData = {
+      ...block,
+      need: { maleNeeded: 1, femaleNeeded: 1, maleFilled: 1, femaleFilled: 1, isComplete: true },
+      cards: [
+        { id: "s-m", label: "Evan", clashTitle: "" },
+        { id: "s-f", label: "Elaine", clashTitle: "" },
+      ],
+    };
+    const d = applyPatchToBlock(b, patch);
+    expect(d.cards.map((c) => c.id)).toEqual(["s-m"]);
+    expect(d.need).toMatchObject({ femaleFilled: 0, femaleNeeded: 0, isComplete: true });
+    expect(d.amount).toBe("80");
+  });
+
+  it("分配态：资源没了、缺口按新人数算", () => {
+    const ed = {
+      maleCount: 1,
+      femaleCount: 1,
+      need: { maleFilled: 1, femaleFilled: 1, maleGap: 0, femaleGap: 0 },
+      cards: [
+        { id: "s-m", label: "Evan", clash: false, gender: "male" },
+        { id: "s-f", label: "Elaine", clash: false, gender: "female" },
+      ],
+    } as unknown as EditorData;
+    const d = applyPatchToEditor(ed, patch);
+    expect(d.cards.map((c) => c.id)).toEqual(["s-m"]);
+    expect(d).toMatchObject({ femaleCount: 0, need: { femaleFilled: 0, femaleGap: 0, maleGap: 0 } });
+  });
+});

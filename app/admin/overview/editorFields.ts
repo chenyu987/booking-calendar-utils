@@ -1,3 +1,5 @@
+import { amountAfterEdit } from "@/lib/pricing";
+
 // 分配态编辑框里**真的改过**的字段。退出时存回去用（InstantAssign）。
 //
 // 原来在 ClickOutsideDeselect 里（那时退出是它管、要整页跳转）；退出改成在浏览器里当场完成之后
@@ -38,6 +40,19 @@ export function collectChangedEdits(block: Element | null): Record<string, strin
   }
   if (amountInput && amountInput.value !== amountInput.dataset.original) {
     payload.amount = amountInput.value;
+  } else if (amountInput && payload.male_count !== undefined && amountInput.value.trim() !== "") {
+    // 改了人数、没动金额：总价按人数比例跟着变（每人每天的价钱不变，lib/pricing.ts）。
+    // 这儿就算好一起送上去，色块当场显示新金额，不用等服务端那份回来。
+    // 编辑框里改不了天数，两头天数一样，填 1 约掉
+    const next = amountAfterEdit(
+      {
+        days: 1,
+        party: Number(maleInput!.dataset.original) + Number(femaleInput!.dataset.original),
+        amount: Number(amountInput.value),
+      },
+      { days: 1, party: Number(payload.male_count) + Number(payload.female_count) }
+    );
+    if (next !== null && Number.isFinite(next)) payload.amount = String(next);
   }
   // 备注框在窄色块上会被容器查询 display:none 掉（一列宽的单子塞不下）。
   // 藏起来的元素还在 DOM 里、照样能被 querySelector 找到，但既然点不进去也打不了字，

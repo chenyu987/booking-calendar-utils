@@ -74,11 +74,11 @@ export async function POST(req: NextRequest) {
     if (reason) return NextResponse.json({ error: reason }, { status: 400 });
   }
 
-  // 总价跟着天数按比例重算：改天数前的单价（总价/天数）不变，改完乘回新天数
+  // 总价跟着天数按比例重算：人数没变，两头填一样的就约掉了
   const newAmount = rescaleAmount(
     ord.amount != null ? Number(ord.amount) : null,
-    (ord.demand_days ?? []).length,
-    merged.length
+    { days: (ord.demand_days ?? []).length, party: 1 },
+    { days: merged.length, party: 1 }
   );
 
   const { error } = await supabase

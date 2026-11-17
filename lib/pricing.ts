@@ -1,15 +1,37 @@
 import { requiredItem, type ItemType } from "@/lib/locations";
 
-// 总价这两处都是一次性算出来存进 orders.amount，不是公式字段——价格可以后面再手动改
+// 总价是一次性算出来存进 orders.amount 的，不是公式字段——价格可以后面再手动改。
+// 但单子的天数、人数变了，总价得跟着变：所有改天数 / 人数的入口都调下面这两个
+// （排期总览拖天数、色块里改人数、Order 列表的编辑），别在入口里自己乘。
 
-// 排期总览拖拽改天数：按比例重算总价，单价（旧总价/旧天数）不变，乘回新天数
+/** 一单的「规模」：几天、几个人 */
+export type OrderSize = { days: number; party: number };
+
+// 按比例重算总价：每人每天的价钱（旧总价 / 旧天数 / 旧人数）不变，乘回新的天数和人数。
+// 原来谈的是整单价（3 天 2 人一共 250）的也一样按比例走 —— 不对就手动改金额
 export function rescaleAmount(
   oldAmount: number | null,
-  oldDayCount: number,
-  newDayCount: number
+  from: OrderSize,
+  to: OrderSize
 ): number | null {
-  if (oldAmount == null || oldDayCount <= 0) return oldAmount;
-  return Math.round((oldAmount / oldDayCount) * newDayCount * 100) / 100;
+  const oldUnits = from.days * from.party;
+  // 旧的天数或人数是 0：单价算不出来，原样返回，不猜
+  if (oldAmount == null || !(oldUnits > 0)) return oldAmount;
+  return Math.round((oldAmount / oldUnits) * to.days * to.party * 100) / 100;
+}
+
+/**
+ * 编辑一单之后该存的总价。
+ * - 这次**手动改了金额**（typed 跟旧金额不一样）→ 以手填的为准（谈了个优惠价之类的）
+ * - 没改金额（typed 不传，或者跟旧的一样）→ 按天数、人数的变化按比例重算
+ */
+export function amountAfterEdit(
+  old: OrderSize & { amount: number | null },
+  next: OrderSize,
+  typed?: number | null
+): number | null {
+  if (typed !== undefined && typed !== old.amount) return typed;
+  return rescaleAmount(old.amount, old, next);
 }
 
 // 新建单弹窗填「每天单价」时，顺手算出总价（单价 × 天数 × 人数）

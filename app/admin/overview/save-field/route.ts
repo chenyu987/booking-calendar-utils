@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { personSpread } from "@/lib/people";
 import { displayNameField } from "@/lib/person";
 import { STATUS_LABELS } from "@/lib/orderStatus";
+import { amountAfterEdit } from "@/lib/pricing";
 
 // 分配模式里那几个字段（客人姓名/地点/男女人数/总价/状态）退出编辑时用
 // navigator.sendBeacon 打到这里，不走 Server Action。
@@ -81,10 +82,29 @@ export async function POST(req: NextRequest) {
         Number.isInteger(femaleCount) &&
         femaleCount >= 0
       ) {
-        const { error } = await supabase
-          .from("orders")
-          .update({ male_count: maleCount, female_count: femaleCount })
-          .eq("id", orderId);
+        // 人数变了总价跟着按比例变（每人每天的价钱不变）。同一次里手动改了金额的，
+        // 以手填的为准 —— 下面 body.amount 那段会写它，这里就不算
+        const patch: Record<string, unknown> = { male_count: maleCount, female_count: femaleCount };
+        if (body.amount === undefined) {
+          const { data: old, error: readErr } = await supabase
+            .from("orders")
+            .select("male_count, female_count, demand_days, amount")
+            .eq("id", orderId)
+            .single();
+          if (readErr) throw new Error(readErr.message);
+          if (old) {
+            const days = (old.demand_days ?? []).length;
+            patch.amount = amountAfterEdit(
+              {
+                days,
+                party: (old.male_count ?? 0) + (old.female_count ?? 0),
+                amount: old.amount != null ? Number(old.amount) : null,
+              },
+              { days, party: maleCount + femaleCount }
+            );
+          }
+        }
+        const { error } = await supabase.from("orders").update(patch).eq("id", orderId);
         if (error) throw new Error(error.message);
       }
     }

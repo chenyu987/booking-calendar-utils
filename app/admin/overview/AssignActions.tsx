@@ -260,7 +260,7 @@ export function AssignByNameInput({
               : "打一半就行，能唯一对上一个资源时回车直接配上"
           }
           style={{
-            width: 190,
+            width: 140,
             fontSize: 12,
             padding: "3px 6px",
             borderRadius: 4,

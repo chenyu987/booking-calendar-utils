@@ -27,6 +27,8 @@ import { nameCandidates } from "@/lib/assignPanel";
 import { previousOrdersFor } from "@/lib/previousUse";
 import { frameColor } from "@/lib/orderFrame";
 import type { Admin } from "@/lib/admins";
+import { dropPersonOptions, type DropOption } from "@/lib/dropPerson";
+import { rescaleAmount } from "@/lib/pricing";
 
 // 排期总览的分配态（编辑一单），**全在浏览器里**：进、出、存都不等整页渲染。
 //
@@ -157,6 +159,77 @@ export default function InstantAssign({
         });
     },
     [router, select, admins, primaryAdminId]
+  );
+
+  // 「⋯ → 少几个人」：人数减掉、金额按比例减、退回那几个资源（服务端 drop-person，判断在 lib/dropPerson.ts）。
+  // 不退出编辑：色块和编辑框当场画成新样子（补丁），写库在后台，存不上撤回并提示 —— 跟 save 一个路子
+  const dropPerson = useCallback(
+    (id: string, cur: EditorData, opts: DropOption[]) => {
+      if (opts.length === 0) return;
+      // 编辑框里还有没存的改动先存上（排在同一条队里，先到先写）：补丁一改人数编辑框就重挂，
+      // 不先存的话刚打的字就没了
+      const typed = collectChangedEdits(document.querySelector(`[data-assign-editor="${CSS.escape(id)}"]`));
+      if (Object.keys(typed).length > 0) save(id, typed);
+
+      const before = getPatches().get(id);
+      const male = cur.maleCount - opts.filter((o) => o.gender === "male").length;
+      const female = cur.femaleCount - opts.filter((o) => o.gender === "female").length;
+      const dropped = opts
+        .filter((o) => o.resourceId)
+        .map((o) => ({ id: o.resourceId!, gender: o.gender as string | null }));
+      const mk = (amount: number | null, savedAt: number | null) => ({
+        patch: {
+          ...before?.patch,
+          maleCount: male,
+          femaleCount: female,
+          amount: amount == null ? "" : String(amount),
+          droppedCards: [...(before?.patch.droppedCards ?? []), ...dropped],
+        },
+        savedAt,
+      });
+      // 天数不变，按人数比例先画一个（服务端回来的那个为准）
+      const oldAmount = cur.amount == null || cur.amount === "" ? null : Number(cur.amount);
+      setPatches(
+        new Map(getPatches()).set(
+          id,
+          mk(rescaleAmount(oldAmount, { days: 1, party: cur.maleCount + cur.femaleCount }, { days: 1, party: male + female }), null)
+        )
+      );
+
+      const prev = saving.current.get(id) ?? Promise.resolve();
+      const run = prev
+        .catch(() => {})
+        .then(async () => {
+          const res = await fetch("/admin/overview/drop-person", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              order_id: id,
+              drops: opts.map((o) => ({ gender: o.gender, resource_id: o.resourceId })),
+            }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok || typeof body.at !== "number") throw new Error(body.error ?? `HTTP ${res.status}`);
+          return body as { at: number; amount: number | null };
+        });
+      saving.current.set(id, run);
+      run
+        .then((body) => {
+          setPatches(new Map(getPatches()).set(id, mk(body.amount, body.at)));
+          startTransition(() => router.refresh());
+        })
+        .catch((err: any) => {
+          const next = new Map(getPatches());
+          if (before) next.set(id, before);
+          else next.delete(id);
+          setPatches(next);
+          setToast(`没改成：${err?.message ?? err}`);
+        })
+        .finally(() => {
+          if (saving.current.get(id) === run) saving.current.delete(id);
+        });
+    },
+    [router, save]
   );
 
   const exit = useCallback(
@@ -379,6 +452,10 @@ export default function InstantAssign({
         // 跟退出时存字段走同一条路（save）：色块边框当场换色、后台写库、存不上撤回并提示。
         // 不等退出才存 —— 这个下拉在浮动条上，不在编辑框里，退出时收字段收不到它
         onAdminChange={(adminId) => save(d.orderId, { admin_id: adminId })}
+        dropOptions={dropPersonOptions(d.maleCount, d.femaleCount, d.cards)}
+        onDropPerson={(opts) => dropPerson(d.orderId, d, opts)}
+        party={d.maleCount + d.femaleCount}
+        amount={d.amount}
       />
     </>
   );

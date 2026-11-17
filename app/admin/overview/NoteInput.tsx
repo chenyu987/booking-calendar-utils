@@ -64,7 +64,7 @@ export default function NoteInput({
         }
       }}
       style={{
-        width: 150,
+        width: 100,
         fontSize: 12,
         padding: "3px 6px",
         borderRadius: 4,
