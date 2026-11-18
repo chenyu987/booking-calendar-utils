@@ -31,6 +31,15 @@ async function gotoOverview(page: Page, qs = "", admin: string | null = "admin-a
 }
 
 /**
+ * 排期总览自己的整页数据请求（整页刷新 / 跳转）。**不算预取**：侧边栏「排期总览」这些链接 Next 会在空闲时自己预取，
+ * 带 next-router-prefetch 头，跟「存完 / 切完筛选整页重画」无关（CI 机器上时机不一样，本地碰不到、CI 上抓到过）
+ */
+function isPageDataRequest(r: import("@playwright/test").Request) {
+  const h = r.headers();
+  return Boolean(h["rsc"] || r.url().includes("_rsc=")) && !h["next-router-prefetch"] && r.url().includes("/admin/overview");
+}
+
+/**
  * 量一个色块里几个「锚点」的横坐标。
  * 锚点挑的是两个状态里都以同样形态出现的东西：♀、女、$、以及可编辑的三个字段。
  * 字符锚点按**字符偏移**单独框出来量 —— 普通态「♂张三 ♀李四」是一整个文字节点，
@@ -665,6 +674,29 @@ test.describe("按管理员筛 / 管理员的边框颜色", () => {
     expect(admin2.length).toBe(all.length - 1);
   });
 
+  test("**切筛选不回服务端**：选了当场只剩他的单、地址栏跟着变；清除当场回来", async ({ page }) => {
+    await gotoOverview(page);
+    const all = await ids(page);
+    const rsc: string[] = [];
+    page.on("request", (r) => {
+      if (isPageDataRequest(r)) rsc.push(r.url());
+    });
+    await page.locator('select[name="oadmin"]').selectOption("admin-admin1");
+    await expect.poll(() => ids(page)).toEqual([MAIN]);
+    expect(new URL(page.url()).searchParams.get("oadmin")).toBe("admin-admin1");
+
+    await page.getByRole("link", { name: "清除" }).first().click();
+    await expect.poll(async () => (await ids(page)).length).toBe(all.length);
+    expect(new URL(page.url()).searchParams.get("oadmin")).toBeNull();
+    expect(rsc).toEqual([]);
+
+    // 刷新还是这个筛选（地址栏就是唯一出处）
+    await page.locator('select[name="oadmin"]').selectOption("admin-admin1");
+    await page.reload();
+    await page.locator("body[data-overview-ready]").waitFor({ state: "attached" });
+    expect(await ids(page)).toEqual([MAIN]);
+  });
+
   test("设了主要管理员就没有「没标」这个选项", async ({ page }) => {
     await gotoOverview(page);
     const labels = await page.locator('select[name="oadmin"] option').allTextContents();
@@ -1193,7 +1225,7 @@ test.describe("实时更新", () => {
     const rows: string[] = [];
     page.on("request", (r) => {
       // 只看排期总览自己的整页数据请求（侧边栏「对外页面」的链接会自己预取 /provider，跟这个无关）
-      if ((r.headers()["rsc"] || r.url().includes("_rsc=")) && r.url().includes("/admin/overview")) rsc.push(r.url());
+      if (isPageDataRequest(r)) rsc.push(r.url());
       if (r.url().includes("/admin/overview/rows")) rows.push(r.url());
     });
     await page.evaluate(
@@ -1228,7 +1260,7 @@ test.describe("实时更新", () => {
     const rsc: string[] = [];
     const rows: string[] = [];
     page.on("request", (r) => {
-      if ((r.headers()["rsc"] || r.url().includes("_rsc=")) && r.url().includes("/admin/overview")) rsc.push(r.url());
+      if (isPageDataRequest(r)) rsc.push(r.url());
       if (r.url().includes("/admin/overview/rows")) rows.push(r.postData() ?? "");
     });
     const saved = page.waitForResponse((r) => r.url().includes("/admin/overview/save-field"));
@@ -1243,6 +1275,29 @@ test.describe("实时更新", () => {
 
     // 改回去
     await page.request.post("/admin/overview/save-field", { data: { order_id: SHORT_NAME, location: "locbm" } });
+  });
+
+  test("**拖空白建单不整页重新渲染**：只拉新的那一单，建完直接是它的分配态", async ({ page }) => {
+    await gotoOverview(page);
+    const rsc: string[] = [];
+    page.on("request", (r) => {
+      if (isPageDataRequest(r)) rsc.push(r.url());
+    });
+    const grid = page.locator('[title="拖动选日期，双击建新单"]').first();
+    const box = (await grid.boundingBox())!;
+    const vw = page.viewportSize()!.width;
+    await page.mouse.dblclick((Math.max(box.x, 0) + Math.min(box.x + box.width, vw)) / 2, box.y + box.height - 20);
+    const popup = page.locator('[data-new-order-popup="true"]');
+    await popup.waitFor();
+    await popup.locator('input[placeholder="客人昵称"]').fill("新客人e2e");
+    const created = page.waitForResponse((r) => r.url().includes("/admin/overview/create-order"));
+    await popup.getByRole("button", { name: "创建" }).click();
+    const res = await created;
+    expect(res.status()).toBe(200);
+    const { id } = await res.json();
+    await expect(page.locator(`[data-assign-editor="${id}"]`)).toHaveCount(1, { timeout: 10000 });
+    expect(new URL(page.url()).searchParams.get("assign")).toBe(id);
+    expect(rsc).toEqual([]);
   });
 
   test("正在编辑的那一单先不动（刚打的字不能没了），退出编辑后再合进来", async ({ page }) => {

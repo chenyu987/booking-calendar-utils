@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { buildOverview, type OverviewParams, type OverviewRaw } from "@/lib/overviewModel";
 import { isWeekend, shortLabel } from "@/lib/dates";
@@ -13,6 +14,9 @@ import ResourcePanel from "./ResourcePanel";
 import InstantAssign from "./InstantAssign";
 import DayNote from "./DayNote";
 import { useLiveRaw } from "./useLiveRaw";
+import { registerInstantFilter } from "@/app/admin/orders/FilterForm";
+import { overviewHref, parseOverviewQuery } from "@/lib/overviewQuery";
+import { RESOURCE_SORTS, type ResourceSort } from "@/lib/resourceSort";
 
 // 排期总览的日历、资源清单、统计：**在浏览器里算、在浏览器里画**。
 // 服务端只把这一季的原始数据（OverviewRaw）和筛选、设置交下来，怎么排、排在哪、统计多少
@@ -59,9 +63,6 @@ const ROW_HEIGHT = 42;
 // 改其中一个的时候记得看另一个 —— 它俩现在是一对。
 const HEADER_ROW_HEIGHT = ROW_HEIGHT;
 
-/** 色块链接里占位的单号：服务端拼好「进这一单分配态」的地址，浏览器换成真单号（函数传不下来） */
-export const ASSIGN_ID_PLACEHOLDER = "__ORDER_ID__";
-
 type ResourcePanelProps = React.ComponentProps<typeof ResourcePanel>;
 type NewOrderProps = React.ComponentProps<typeof NewOrderSelector>;
 type InstantProps = React.ComponentProps<typeof InstantAssign>;
@@ -81,26 +82,14 @@ export default function OverviewBoard({
   raw: OverviewRaw;
   /** 服务端这次渲染开始查库的时间（main[data-rendered-at] 同一个数）：实时合进来的、比它晚的那几批要在它上面再合一次 */
   renderedAt: number;
-  params: Omit<OverviewParams, "hrefFor"> & { assignHrefTemplate: string };
+  /** 筛选（orderFilter / resourceFilter）是服务端从地址栏读的，只用来对照：这边自己从地址栏读（切筛选不回服务端） */
+  params: Omit<OverviewParams, "hrefFor">;
   railWidth: number;
   /** 地址栏上的 ?assign=（打开页面就带着、建完新单跳过来） */
   serverAssigningId: string | null;
   /** 资源清单里跟数据无关、服务端拼好的那些（链接、cookie 里的收起状态） */
-  resourcePanel: Pick<
-    ResourcePanelProps,
-    | "orderRegion"
-    | "orderMtn"
-    | "season"
-    | "showAllCards"
-    | "showAllHref"
-    | "hideUnusableHref"
-    | "sortBy"
-    | "sortHrefs"
-    | "initialCollapsed"
-    | "filtersCollapsed"
-    | "loadError"
-  >;
-  newOrder: Pick<NewOrderProps, "createOrderAction" | "adminName" | "adminId" | "dayPrices">;
+  resourcePanel: Pick<ResourcePanelProps, "season" | "initialCollapsed" | "filtersCollapsed" | "loadError">;
+  newOrder: Pick<NewOrderProps, "adminName" | "adminId" | "dayPrices">;
   instant: Pick<InstantProps, "exitHref" | "deleteAction">;
   /** 筛选那一排（服务端画的，跟数据无关） */
   filters: React.ReactNode;
@@ -109,12 +98,28 @@ export default function OverviewBoard({
 }) {
   // 手里的原始数据：服务端给的整季那份，加上实时合进来的那几行（useLiveRaw.ts）
   const raw = useLiveRaw(serverRaw, params.season.key, renderedAt);
-  const { assignHrefTemplate, ...rest } = params;
+  // 筛选的唯一出处是地址栏（lib/overviewQuery.ts）：切区域、地点、状态、管理员、资源筛选只改地址栏，
+  // 这里读出来当场重算，不回服务端。只有换季要回服务端（要另一季的数据）
+  const sp = useSearchParams();
+  const query = parseOverviewQuery(sp, params.admins);
+  const seasonParam = params.isCurrentSeason ? "" : params.season.key;
+  useEffect(() => {
+    registerInstantFilter("/admin/overview", (next) => (next.get("season") ?? "") === seasonParam);
+    return () => registerInstantFilter("/admin/overview", null);
+  }, [seasonParam]);
+
+  const filterKey = JSON.stringify([query.orderFilter, query.resourceFilter]);
   const model = useMemo(
-    () => buildOverview(raw, { ...rest, hrefFor: (id) => assignHrefTemplate.replace(ASSIGN_ID_PLACEHOLDER, id) }),
+    () =>
+      buildOverview(raw, {
+        ...params,
+        orderFilter: query.orderFilter,
+        resourceFilter: query.resourceFilter,
+        hrefFor: (id) => overviewHref(sp, { assign: id }),
+      }),
     // params 每次服务端渲染都是新对象；按内容比，别每次都重算
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [raw, JSON.stringify(params)]
+    [raw, JSON.stringify(params), filterKey]
   );
   const { noteByDay, timeline, bands, hiddenBeforeStart, stats, instantEditors } = model;
   const { season, isCurrentSeason, today } = params;
@@ -133,11 +138,22 @@ export default function OverviewBoard({
           <ResourcePanel
             key="resource-panel"
             {...resourcePanel}
+            orderRegion={query.orderFilter.region}
+            orderMtn={query.orderFilter.mtn}
+            showAllCards={query.showAllCards}
+            showAllHref={overviewHref(sp, { allcards: "1" })}
+            hideUnusableHref={overviewHref(sp, { allcards: "" })}
+            sortBy={query.sortBy}
+            sortHrefs={
+              Object.fromEntries(
+                (Object.keys(RESOURCE_SORTS) as ResourceSort[]).map((k) => [k, overviewHref(sp, { ssort: k })])
+              ) as Record<ResourceSort, string>
+            }
             assignHistory={model.assignHistory}
             bookingsByResource={Object.fromEntries(model.bookingsByResource)}
             allResources={model.modeResources}
             resourceIds={model.resources.map((s: any) => s.id)}
-            filters={params.resourceFilter}
+            filters={query.resourceFilter}
             hasFilter={model.hasFilter}
             total={model.resourceTotal}
             bookedDays={Object.fromEntries(model.bookedDays)}

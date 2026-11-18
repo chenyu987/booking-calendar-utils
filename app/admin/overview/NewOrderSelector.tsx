@@ -26,7 +26,6 @@ export default function NewOrderSelector({
   rowHeight,
   laneCount,
   assigningOrderId: serverAssigningId,
-  createOrderAction,
   adminName,
   adminId,
   itemMode,
@@ -37,7 +36,6 @@ export default function NewOrderSelector({
   rowHeight: number;
   laneCount: number;
   assigningOrderId: string | null;
-  createOrderAction: (formData: FormData) => Promise<string>;
   /** 当前身份（标题旁边那个下拉）。null = 还没选，不让建 —— 不知道这个客人该记在谁名下 */
   adminName: string | null;
   /** 当前身份的 id。新单记到他名下（orders.admin_id），建完要看它跟管理员筛选对不对得上 */
@@ -271,14 +269,15 @@ export default function NewOrderSelector({
     setError("");
     const days = dateRangeToArray(dateStart, dateEnd);
 
-    const fd = new FormData();
-    fd.set("customer_name", name.trim());
-    fd.set("location", location.trim());
-    fd.set("note", note.trim());
-    fd.set("male_count", String(parseCount(male)));
-    fd.set("female_count", String(parseCount(female)));
-    fd.set("demand_days", JSON.stringify(days));
-    fd.set("amount", totalPrice.trim());
+    const payload = {
+      customer_name: name.trim(),
+      location: location.trim(),
+      note: note.trim(),
+      male_count: parseCount(male),
+      female_count: parseCount(female),
+      demand_days: days,
+      amount: totalPrice.trim(),
+    };
 
     // 先把弹窗关掉、同时在日历上画一个占位色块再等服务端：写库要一两秒，
     // 让人对着"建单中…"干等、或者点完日历上半天不出现，都像卡住了。
@@ -294,14 +293,20 @@ export default function NewOrderSelector({
     }
 
     try {
-      const newOrderId = await createOrderAction(fd);
-      // 只 push 不 refresh：action 里已经 revalidatePath 过了，这次跳转拿到的就是
-      // 新数据。多加一个 refresh 等于白等一次服务端来回（一个来回将近 1 秒）。
-      goToNewOrder(newOrderId, location.trim(), adminId);
-    } catch {
+      // Route Handler（create-order），不是 Server Action：Server Action revalidate 当前页会顺带整页重画。
+      // 写完只回新单号，只拉这一单合进日历、选中它（goToNewOrder 的 refetch）
+      const res = await fetch("/admin/overview/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || typeof body.id !== "string") throw new Error(body.error ?? `HTTP ${res.status}`);
+      goToNewOrder(body.id, payload.location, body.admin_id ?? adminId, true);
+    } catch (err: any) {
       // 弹窗已经关了，错误得单独提示一下，不然建单失败会悄无声息
       setPending(null);
-      setFailed("建单失败，请重试（点这里关掉）");
+      setFailed(`建单失败：${err?.message ?? err}（点这里关掉）`);
     }
   }
 

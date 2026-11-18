@@ -1,31 +1,26 @@
-import { Fragment } from "react";
-import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
-import { createPerson } from "@/lib/people";
 import { deleteOrder as deleteOrderAndStrayPerson } from "@/lib/deleteOrder";
-import { CONTACT_FILTER_NONE, parseOrderAdminFilter, resolveAdmin, resolvePrimaryAdmin } from "@/lib/admins";
-import { addContact, loadAdmins } from "@/lib/personContacts";
+import { resolveAdmin, resolvePrimaryAdmin } from "@/lib/admins";
+import { loadAdmins } from "@/lib/personContacts";
 import AdminSwitcher from "./AdminSwitcher";
 import { currentAdminId } from "@/lib/adminSession";
-import ItemModeSwitcher from "./ItemModeSwitcher";
 import { ITEM_MODE_COOKIE, parseItemMode } from "@/lib/itemMode";
 import DragAssign from "./DragAssign";
 import DragMove from "./DragMove";
 import OptimisticAssign from "./OptimisticAssign";
-import FilterForm from "@/app/admin/orders/FilterForm";
 import BulkSelect from "./BulkSelect";
 import CardsRowScroll from "./CardsRowScroll";
 import { cookies } from "next/headers";
-import { parseResourceSort, RESOURCE_SORTS, DEFAULT_RESOURCE_SORT, type ResourceSort } from "@/lib/resourceSort";
 import { todayIso } from "@/lib/dates";
 import { clampRailWidth } from "@/lib/bandDays";
 import { getOverviewStart, getOverviewEnd, getPrimaryAdminId, getRequestPrices } from "@/lib/appSettings";
 import { getBandDays } from "@/lib/bandDaysSetting";
 import { BETA_FRAME_COLOR, adminColor } from "@/lib/orderFrame";
 import { statusColor, STATUS_LABELS } from "@/lib/orderStatus";
-import { LOCATION_OPTIONS, REGION_LABELS, type Region } from "@/lib/locations";
-import OverviewBoard, { ASSIGN_ID_PLACEHOLDER } from "./OverviewBoard";
+import OverviewBoard from "./OverviewBoard";
+import OverviewFilters from "./OverviewFilters";
+import { overviewHref, parseOverviewQuery } from "@/lib/overviewQuery";
 import { seasonOrdersQuery, resourcesQuery } from "@/lib/overviewData";
 import { parseSeasonKey, seasonOf, seasonsBetween, type Season } from "@/lib/season";
 import { pageTitleStyle, selectStyle } from "@/lib/adminStyles";
@@ -41,85 +36,8 @@ export const dynamic = "force-dynamic";
 // EXTRA_LANES / BAND_GAP 在 lib/bandDays.ts（匹配台那张日历共用同一份），
 // 最后一段多留的空行（EXTRA_LANES_LAST）在 lib/overviewModel.ts
 
-async function createQuickOrder(formData: FormData) {
-  "use server";
-  const customerName = ((formData.get("customer_name") as string) ?? "").trim();
-  if (!customerName) throw new Error("客人姓名不能为空");
-
-  const location = ((formData.get("location") as string) ?? "").trim() || null;
-  const note = ((formData.get("note") as string) ?? "").trim();
-  const maleCount = Number(formData.get("male_count") ?? 0) || 0;
-  const femaleCount = Number(formData.get("female_count") ?? 0) || 0;
-  const demandDays = JSON.parse((formData.get("demand_days") as string) ?? "[]") as string[];
-  if (demandDays.length === 0) throw new Error("日期不能为空");
-  const amountRaw = ((formData.get("amount") as string) ?? "").trim();
-  const amount = amountRaw === "" ? null : Number(amountRaw);
-
-
-  // 当前身份（标题旁边那个下拉；没切过就是登录的那个人，middleware 定的）：这单的客人记成这个管理员的
-  // （= 哪个账号加的，以后找人知道用谁的号）。id 得在库里真有这个人，
-  // 不然记下的归属指向一个不存在的管理员。**跟找客人那条查询并排跑**，不多等一个来回
-  const adminId = (await currentAdminId()) ?? "";
-  const findAdmin = async () => {
-    if (!adminId) return null;
-    const { data } = await supabase.from("admins").select("id").eq("id", adminId).maybeSingle();
-    return (data?.id as string | undefined) ?? null;
-  };
-  // 同名客人复用，找不到就现建一个 —— 快速建单不打断流程去 Customer 页面
-  // 名字在 people 上，但只在**客户**里找（!inner = 没有 customers 这一行的人不算）——
-  // 同名的物主不该被顺手拉来下单
-  const findCustomer = async () => {
-    const { data } = await supabase
-      .from("customers")
-      .select("id, people!inner(chat_name)")
-      .ilike("people.chat_name", customerName)
-      .limit(1)
-      .maybeSingle();
-    return (data?.id as string | undefined) ?? null;
-  };
-  const [admin, existingCustomerId] = await Promise.all([findAdmin(), findCustomer()]);
-  // 拦在任何写库之前。界面上没选身份时「创建」是灰的，这里拦的是旧页面和直接 POST
-  if (!admin) throw new Error("还没选当前身份（排期总览标题旁边），选了才知道这个客人记在谁名下");
-
-  // 建单弹窗里填的「客人」就是昵称（0020）—— 后台认人、显示都靠它
-  const customerId = existingCustomerId ?? (await createPerson("customer", { chat_name: customerName }));
-  // 老客人原来是别人加的也照样补上（别人的保留）：能给他建单，说明这个号也联系得上他。
-  // 放在建单之前：这步失败就整个停住，不留一个建好了却没记归属的单子
-  await addContact(customerId, admin);
-
-  const { data: order, error } = await supabase
-    .from("orders")
-    .insert({
-      customer_id: customerId,
-      // 这一单是谁的（0019）：当前身份。排期总览按它筛
-      admin_id: admin,
-      location,
-      male_count: maleCount,
-      female_count: femaleCount,
-      demand_days: demandDays,
-      amount,
-      status: "created",
-    })
-    .select("id")
-    .single();
-  if (error) throw new Error(error.message);
-
-  // 备注存在 order_notes 里（表本来就有，跟 orders 一对一），不往 orders 上加字段。
-  // 填了才写，多一次写库就多一个 Supabase 来回（0.4~2 秒），没填就别浪费这个时间。
-  // 这一步失败不往上抛：订单其实已经建好了，抛上去客户端会显示"建单失败"，
-  // 比丢一条备注更误导人——备注可以进分配模式重填。
-  if (note) {
-    await supabase.from("order_notes").insert({ order_id: order.id, internal_note: note });
-  }
-
-  revalidatePath("/admin/overview");
-  revalidatePath("/admin/orders");
-  revalidatePath("/admin/customers");
-  // 这里不 redirect：server action 里的 redirect 会顺带把跳转目标整页渲染完再返回，
-  // 客户端得一路等着（实测 3~5 秒，全程卡在"建单中…"）。改成把新单子 id 还回去，
-  // 让客户端自己跳——弹窗可以先关掉，不用对着按钮干等。
-  return order.id as string;
-}
+// 拖空白建单原来在这儿（Server Action createQuickOrder），2026-11-18 挪到 create-order/route.ts：
+// Server Action revalidate 当前页会顺带整页重画，挪过去以后浏览器只拉新的那一单
 
 // 拖色块边缘改日期原来在这儿（Server Action），已经挪到
 // app/admin/overview/resize/route.ts —— 那条路上要拦「同一个资源同一天配两单」，
@@ -136,7 +54,7 @@ async function deleteOrder(formData: FormData) {
   revalidatePath("/admin/customers");
   revalidatePath("/admin/payments");
   revalidatePath("/admin/matches");
-  // 同 createQuickOrder：不在这儿 redirect，那样会把跳转目标整页渲染完才返回，
+  // 同原来的 createQuickOrder：不在这儿 redirect，那样会把跳转目标整页渲染完才返回，
   // 白等一个来回。跳转交给客户端，它点完就能立刻退出分配模式。
 }
 
@@ -241,57 +159,13 @@ export default async function OverviewPage(
   ].sort((a, b) => (a.start < b.start ? -1 : 1));
   const seasonOptions = seasonsBetween(seasonEnds[0], seasonEnds[seasonEnds.length - 1]);
 
-  const f = {
-    item: searchParams.item ?? "",
-    gender: searchParams.gender ?? "",
-    sstatus: searchParams.sstatus || "active",
-    q: (searchParams.q ?? "").trim().toLowerCase(),
-    // 上次去的区域 / 具体的地点。"none" 是「只看还没排过的」那一档
-    sregion: searchParams.sregion ?? "",
-    smtn: searchParams.smtn ?? "",
-  };
-  const sortBy = parseResourceSort(searchParams.ssort);
-
-  const orderFilter = {
-    region: (searchParams.region ?? "") as Region | "",
-    mtn: searchParams.mtn ?? "",
-    status: STATUS_LABELS[searchParams.ostatus ?? ""] ? searchParams.ostatus! : "",
-    // 这一单是哪个管理员的（orders.admin_id，0019）。跟状态一样，日历和统计一起筛 ——
-    // 「只看我的单」就该看到我的单的钱
-    admin: parseOrderAdminFilter(searchParams.oadmin, admins),
-  };
-  const hasOrderFilter = Boolean(
-    orderFilter.region || orderFilter.mtn || orderFilter.status || orderFilter.admin
-  );
+  // 地址栏上的筛选怎么读、链接怎么拼：lib/overviewQuery.ts（浏览器那边切筛选时用的是同一份）
+  const { resourceFilter: f, orderFilter } = parseOverviewQuery(new URLSearchParams(searchParams as Record<string, string>), admins);
 
   // 今天这季是默认，不写进 URL；认不出来的 season 参数也不往下传
   const seasonParam = isCurrentSeason ? "" : season.key;
-  const qs = (extra: Record<string, string>) => {
-    const p = new URLSearchParams();
-    if (seasonParam) p.set("season", seasonParam);
-    if (f.item) p.set("item", f.item);
-    if (f.gender) p.set("gender", f.gender);
-    if (f.sstatus !== "active") p.set("sstatus", f.sstatus); // active 是默认，不写进 URL
-    if (f.q) p.set("q", f.q);
-    if (f.sregion) p.set("sregion", f.sregion);
-    if (f.smtn) p.set("smtn", f.smtn);
-    // 默认那档不写进 URL，链接短一点；parseResourceSort 拿不到也会退回默认
-    if (searchParams.ssort && searchParams.ssort !== DEFAULT_RESOURCE_SORT) {
-      p.set("ssort", searchParams.ssort);
-    }
-    if (searchParams.assign) p.set("assign", searchParams.assign);
-    if (searchParams.allcards) p.set("allcards", searchParams.allcards);
-    if (searchParams.region) p.set("region", searchParams.region);
-    if (searchParams.mtn) p.set("mtn", searchParams.mtn);
-    if (searchParams.ostatus) p.set("ostatus", searchParams.ostatus);
-    if (searchParams.oadmin) p.set("oadmin", searchParams.oadmin);
-    for (const [k, v] of Object.entries(extra)) {
-      if (v) p.set(k, v);
-      else p.delete(k);
-    }
-    const s = p.toString();
-    return s ? `/admin/overview?${s}` : "/admin/overview";
-  };
+  const qs = (extra: Record<string, string>) =>
+    overviewHref(new URLSearchParams({ ...(searchParams as Record<string, string>), season: seasonParam }), extra);
 
   // 这一季的原始数据，交给浏览器（OverviewBoard）。日历范围、排行、冲突、统计、资源清单、
   // 色块数据都在 lib/overviewModel.ts 里算，服务端这儿不再算一遍
@@ -443,25 +317,11 @@ export default async function OverviewPage(
           bandDays: bandDaysSetting,
           overviewStart,
           overviewEnd,
-          assignHrefTemplate: qs({ assign: ASSIGN_ID_PLACEHOLDER }),
         }}
         railWidth={clampRailWidth(Number((await cookies()).get("overview_rail_width")?.value ?? NaN))}
         serverAssigningId={searchParams.assign ?? null}
         resourcePanel={{
-          orderRegion: orderFilter.region,
-          orderMtn: orderFilter.mtn,
           season: seasonParam,
-          showAllCards: searchParams.allcards === "1",
-          showAllHref: qs({ allcards: "1" }),
-          hideUnusableHref: qs({ allcards: "" }),
-          sortBy,
-          // 四条链接在服务端拼好传下去 —— URL 怎么拼是 qs 的事，菜单只管点
-          sortHrefs: Object.fromEntries(
-            (Object.keys(RESOURCE_SORTS) as ResourceSort[]).map((k) => [
-              k,
-              qs({ ssort: k === DEFAULT_RESOURCE_SORT ? "" : k }),
-            ])
-          ) as Record<ResourceSort, string>,
           // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
           initialCollapsed: (await cookies()).get("resource_panel_collapsed")?.value === "1",
           // 筛选默认收起：平时都是直接看资源列表，筛选是偶尔为之
@@ -469,7 +329,6 @@ export default async function OverviewPage(
           loadError: resourceError?.message,
         }}
         newOrder={{
-          createOrderAction: createQuickOrder,
           adminName: currentAdmin?.name ?? null,
           adminId: currentAdmin?.id ?? null,
           dayPrices,
@@ -481,130 +340,16 @@ export default async function OverviewPage(
         // 这两段在 OverviewBoard 里跟统计排在同一行：React 19 dev 下服务端交下去的元素跟别的并排时要 key，
         // 不然控制台报「缺 key」（ResourcePanel 那个 key 是同一个原因）
         filters={
-          <Fragment key="filters">
-        {/* 按区域 / 具体的地点筛订单。用 GET 表单不用 useState —— 跟这个项目里
-            其它筛选一个路子，筛选状态留在 URL 上，刷新和分享链接都还在。
-            选完自动提交（onChange 交给 FilterAutoSubmit，跟资源筛选共用）。 */}
-        {/* 外面再包一层同样 gap 的 flex：类型开关在表单外面（见下），不包的话它跟前面那排下拉
-            之间隔的是外层的大间距，看着像另一组 */}
-        {/* ov-filters：手机上这一排换行（lib/adminMobile.ts），桌面不变 */}
-        <div className="ov-filters" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <FilterForm action="/admin/overview" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {/* 看哪一季。放最前面：它决定读哪批数据，后面几个筛选都是在这一季里面再筛。
-              今天这季的选项值是空的 —— 默认那档不写进 URL（FilterForm 会剔掉空值） */}
-          <select
-            key={`season-${season.key}`}
-            name="season"
-            defaultValue={seasonParam}
-            style={filterSelectStyle}
-            aria-label="季"
-          >
-            {seasonOptions.map((s) => (
-              <option key={s.key} value={s.key === currentSeason.key ? "" : s.key}>
-                {s.label}
-                {s.key === currentSeason.key ? "（本季）" : ""}
-              </option>
-            ))}
-          </select>
-          {/* 资源面板那边的筛选也在 URL 上，这个表单一提交就会把它们冲掉，
-              所以原样带过去 */}
-          {f.item && <input type="hidden" name="item" value={f.item} />}
-          {f.gender && <input type="hidden" name="gender" value={f.gender} />}
-          {f.sstatus !== "active" && (
-            <input type="hidden" name="sstatus" value={f.sstatus} />
-          )}
-          {f.q && <input type="hidden" name="q" value={f.q} />}
-          {searchParams.ssort && (
-            <input type="hidden" name="ssort" value={searchParams.ssort} />
-          )}
-          {searchParams.assign && (
-            <input type="hidden" name="assign" value={searchParams.assign} />
-          )}
-          {/* key 不能省：defaultValue 只在挂载时读一次，URL 上的参数变了（比如建完
-              新单把筛选清掉了）而 DOM 节点被复用，下拉框会一直显示旧值 ——
-              看起来就像「筛选还开着但没生效」。把值拼进 key，值一变就重新挂载。
-              CLAUDE.md 里分配输入框那段记的是同一个坑。 */}
-          <select
-            key={`region-${orderFilter.region}`}
-            name="region"
-            defaultValue={orderFilter.region}
-            style={filterSelectStyle}
-          >
-            <option value="">全部区域</option>
-            {(Object.keys(REGION_LABELS) as Region[]).map((r) => (
-              <option key={r} value={r}>
-                {REGION_LABELS[r]}
-              </option>
-            ))}
-          </select>
-          {/* 地点这个下拉原来是**跟着最长的那条选项撑开**的（"全部地点" 才 4 个字，
-              框却有 200 多 px），一个人看过去还以为是搜索框。三个筛选共用
-              filterSelectStyle 的固定宽度，一条线上对齐。
-              选项文字也从 `canonical · label` 收成只留 label —— 两者九成情况下
-              就是同一个词（locbl · Locbl），显示两遍纯粹是把框撑长。 */}
-          <select
-            key={`mtn-${orderFilter.mtn}`}
-            name="mtn"
-            defaultValue={orderFilter.mtn}
-            style={filterSelectStyle}
-          >
-            <option value="">全部地点</option>
-            {LOCATION_OPTIONS.filter(
-              (m) =>
-                (!orderFilter.region || m.region === orderFilter.region) &&
-                (!itemMode || m.item === itemMode)
-            ).map((m) => (
-              <option key={m.value} value={m.value} title={m.hint}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-          {/* 按订单状态筛。下面那排色块只是图例（看颜色对应哪个状态），
-              真要「只看待付款的单」得有个地方选 —— 就是这里。
-              选项顺序直接吃 STATUS_LABELS，跟图例、跟色块里的下拉框同一个源。 */}
-          <select
-            key={`ostatus-${orderFilter.status}`}
-            name="ostatus"
-            defaultValue={orderFilter.status}
-            style={filterSelectStyle}
-          >
-            <option value="">全部状态</option>
-            {Object.entries(STATUS_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-          {/* 这一单是哪个管理员的。名单跟标题旁边「当前身份」是同一份（admins 表），
-              以后加了员工这里自动多一项。「没标」= 以前的单、客户自己发的需求 */}
-          <select
-            key={`oadmin-${orderFilter.admin}`}
-            name="oadmin"
-            defaultValue={orderFilter.admin}
-            style={filterSelectStyle}
-          >
-            <option value="">全部管理员</option>
-            {admins.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-            {/* 设了主要管理员之后，没写是谁的单都算他的，就不存在「没标」了 */}
-            {!primaryAdminId && <option value={CONTACT_FILTER_NONE}>没标</option>}
-          </select>
-          {hasOrderFilter && (
-            <Link
-              href={qs({ region: "", mtn: "", ostatus: "", oadmin: "" })}
-              style={{ fontSize: 12, color: "var(--text-faint)" }}
-            >
-              清除
-            </Link>
-          )}
-        </FilterForm>
-        {/* 「全部 / Alpha / Beta」开关。存 cookie 不走 URL，所以放在表单外面（见 ItemModeSwitcher） */}
-        <ItemModeSwitcher mode={itemMode} style={filterSelectStyle} />
-        </div>
-          </Fragment>
+          <OverviewFilters
+            key="filters"
+            seasonOptions={seasonOptions.map((x) => ({ key: x.key, label: x.label }))}
+            currentSeasonKey={currentSeason.key}
+            seasonParam={seasonParam}
+            admins={admins}
+            primaryAdminId={primaryAdminId}
+            itemMode={itemMode}
+            selectStyle={filterSelectStyle}
+          />
         }
         legend={
         <div key="legend" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
