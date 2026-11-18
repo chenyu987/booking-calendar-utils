@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { refetchOrRefresh } from "./liveData";
 
 // 配一个资源 / 撤一个资源的按钮。打 /admin/overview/assign 这个 Route Handler，
 // 不走 Server Action —— Server Action 末尾那个 redirect() 会把整页渲染
@@ -47,8 +48,9 @@ export function useAssignCall() {
           stop();
           return;
         }
-        // 写库已经完成了，整页刷新丢到后台，不挡着人接着配下一张
-        router.refresh();
+        // 写库已经完成了：只拉这一单（分配跟着订单走）合进日历，不挡着人接着配下一张。
+        // 拉回来以后这个按钮不一定被换掉（不再整页重画），自己把「分配中」收掉
+        refetchOrRefresh({ orders: [body.order_id] }, () => router.refresh()).then((ok) => ok && stop());
       } catch {
         setError("网络出错，没有改动");
         stop();

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { STATUS_LABELS } from "@/lib/orderStatus";
 import { BULK_SETTABLE_STATUSES } from "@/lib/bulkStatus";
 import { requestExit, useAssignSelection } from "./assignSelection";
+import { refetchOrRefresh } from "./liveData";
 
 // 多选 + 批量改状态。
 //
@@ -171,8 +172,8 @@ export default function BulkSelect() {
             ? `已改 ${json.updated} 单，另外 ${json.missing} 单找不到了（可能已被删除）`
             : `已改 ${json.updated} 单`
         );
-        // 选中留着不清：改完能直接看到这批色块换了颜色，也方便接着做下一步
-        router.refresh();
+        // 选中留着不清：改完能直接看到这批色块换了颜色，也方便接着做下一步。只拉这批单
+        refetchOrRefresh({ orders: selected }, () => router.refresh());
       }
     } catch {
       setMsg("网络出错，没有改动");

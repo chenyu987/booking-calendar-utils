@@ -11,6 +11,7 @@ import { normalizeLocation, sameVenue } from "@/lib/locations";
 import { getSelection as getAssignSelection, requestExit, useAssignSelection } from "./assignSelection";
 import { getCopiedOrder, isPasteKey, isTextClipboardTarget, lastPointer, setCopiedOrder, type CopiedOrder } from "./orderClipboard";
 import { itemModeLocationBlock, type ItemMode } from "@/lib/itemMode";
+import { refetchRows } from "./liveData";
 
 const GAP = 2;
 const POPUP_WIDTH = 260;
@@ -307,7 +308,9 @@ export default function NewOrderSelector({
   // 建完跳过去、进这一单的分配态。要**带上当前的筛选**：原来 push 一个光秃秃的地址，
   // 建完单区域筛选、资源筛选全没了，而下拉框还显示着旧值（非受控 select 只在挂载时读 defaultValue）。
   // 但新单跟区域 / 地点 / 管理员筛选对不上的话，把那个筛选去掉 —— 不然一建出来就被自己的筛选藏起来
-  function goToNewOrder(newOrderId: string, typedLocation: string, newAdminId: string | null) {
+  // refetch：只拉这一单合进日历、地址栏 replaceState 选中它，不整页重新渲染（粘贴 / 剪切走 Route Handler，
+  // 写完库不带整页）。拖空白建单走的是 Server Action，它 revalidate 当前页时 Next 本来就整页重画了，照旧 push
+  function goToNewOrder(newOrderId: string, typedLocation: string, newAdminId: string | null, refetch = false) {
     const params = new URLSearchParams(window.location.search);
     params.set("assign", newOrderId);
     const region = params.get("region");
@@ -323,7 +326,18 @@ export default function NewOrderSelector({
     }
     const oadmin = params.get("oadmin");
     if (oadmin && oadmin !== newAdminId) params.delete("oadmin");
-    router.push(`/admin/overview?${params.toString()}`);
+    const url = `/admin/overview?${params.toString()}`;
+    // 筛选要清掉的话盘子本身变了（筛选是服务端交下来的），只能整页
+    const filtersCleared = !fitsFilter || (oadmin && oadmin !== newAdminId);
+    if (!refetch || filtersCleared) {
+      router.push(url);
+      return;
+    }
+    refetchRows({ orders: [newOrderId] }).then((ok) => {
+      // InstantAssign 看地址栏上的 ?assign= 选中它（这一单已经合进日历了）
+      if (ok) window.history.replaceState(null, "", url);
+      else router.push(url);
+    });
   }
 
   // Ctrl/⌘+V：把复制着的那一单（orderClipboard.ts）贴到这一格开头，像 Excel。
@@ -379,7 +393,7 @@ export default function NewOrderSelector({
         if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
         setCopiedOrder(null);
         // 还是这一单、谁的单没变 —— 管理员筛选本来就对得上
-        goToNewOrder(src.orderId, src.location, new URLSearchParams(window.location.search).get("oadmin"));
+        goToNewOrder(src.orderId, src.location, new URLSearchParams(window.location.search).get("oadmin"), true);
         return;
       }
       const res = await fetch("/admin/overview/paste-order", {
@@ -391,7 +405,7 @@ export default function NewOrderSelector({
       if (!res.ok || typeof body.id !== "string") throw new Error(body.error ?? `HTTP ${res.status}`);
       // 贴完就放下复制（虚线撤掉）：要再贴一次就再按一次 Ctrl+C
       setCopiedOrder(null);
-      goToNewOrder(body.id, src.location, body.admin_id ?? null);
+      goToNewOrder(body.id, src.location, body.admin_id ?? null, true);
     } catch (err: any) {
       setPending(null);
       setFailed(`没贴上：${err?.message ?? err}（点这里关掉）`);

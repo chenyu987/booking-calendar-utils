@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ErrorToast } from "./AssignActions";
 import { getSelection } from "./assignSelection";
 import { daysBetween, shiftDays, shortLabel } from "@/lib/dates";
+import { orderDataAt, refetchRows, subscribeMerged } from "./liveData";
 
 // 按住订单色块拖到别的日子：整单挪过去（天数、总价不变，不连续的单间隔不变）。
 //
@@ -346,23 +347,30 @@ export default function DragMove() {
           });
           const json = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(json.error ?? "挪日期没成功");
-          // 等「存完之后才开始查库」的那次渲染到了再撤 —— 不然撤了 clone、
-          // 新位置还没画出来，那一单会凭空消失一两秒
+          // 等「存完之后才查库」的数据到了再撤 —— 不然撤了 clone、新位置还没画出来，
+          // 那一单会凭空消失一两秒。数据有两种来路：只拉这一单（liveData.ts，平常走这条）
+          // 或者整页重新渲染（main[data-rendered-at]，实时更新还没接上时退回这条）
           const at = Number(json.at) || Date.now();
-          const settled = () => {
-            const raw = document.querySelector<HTMLElement>("[data-rendered-at]")?.dataset.renderedAt;
-            return raw ? Number(raw) >= at : false;
-          };
+          const settled = () => orderDataAt(d.orderId) >= at;
           if (!pending.has(d.orderId)) return; // 组件已经卸载
-          mo = new MutationObserver(() => settled() && settle(d.orderId));
+          const check = () => settled() && settle(d.orderId);
+          mo = new MutationObserver(check);
           mo.observe(document.body, {
             subtree: true,
             childList: true,
             attributes: true,
             attributeFilter: ["data-rendered-at"],
           });
+          const unsub = subscribeMerged(check);
+          const prevUndo = pending.get(d.orderId);
+          pending.set(d.orderId, () => {
+            unsub();
+            prevUndo?.();
+          });
           timer = setTimeout(() => settle(d.orderId), SETTLE_TIMEOUT);
-          routerRef.current.refresh();
+          refetchRows({ orders: [d.orderId] }).then((ok) => {
+            if (!ok) routerRef.current.refresh();
+          });
         } catch (e: any) {
           // 存不上：撤回原位 + 把原因说出来。不提示的话看起来就是「挪过去又自己跳回来了」
           settle(d.orderId);

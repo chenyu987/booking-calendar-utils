@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import Link from "next/link";
 import { BLOCK_BASE_STYLE, COUNT_BOX, COUNT_GAP, MONEY_SLOT } from "./blockGeometry";
 import { statusColor } from "@/lib/orderStatus";
@@ -61,7 +62,14 @@ export type BlockData = {
   cards: BlockCard[];
 };
 
-export default function OrderBlock({ d: server }: { d: BlockData }) {
+/**
+ * 实时更新时整季的色块数据每次都是重新算出来的新对象（lib/overviewModel.ts）——
+ * 按内容比，没变的色块不重画：一个人改了一单，一千八百个色块里只有那一两块真的要动。
+ * 选中、补丁这些客户端状态是各自订阅的（下面那几个 hook），不受这层影响
+ */
+export default memo(OrderBlock, (a, b) => a.d === b.d || JSON.stringify(a.d) === JSON.stringify(b.d));
+
+function OrderBlock({ d: server }: { d: BlockData }) {
   // 选中 / 「上一次」/ 退出时改过还在存的字段 —— 全是客户端状态（assignSelection.ts），
   // 每个色块只订阅跟自己有关的那一个布尔 / 那一份，别的单变了这块不重画
   const selected = useIsSelected(server.orderId);

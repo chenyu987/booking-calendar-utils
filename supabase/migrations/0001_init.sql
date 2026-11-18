@@ -394,6 +394,41 @@ create trigger log_change_delete after delete on app_settings
 -- Supabase 新建函数默认给这两个角色执行权限，光 revoke from public 不够
 revoke execute on function log_change() from public, anon, authenticated;
 
+-- 实时更新（0035）：change_log 每进一条就广播一句「哪张表哪一行变了」（只有 id，不带内容），
+-- 开着排期总览的管理员收到后只拉那几行。为什么这么做见 0035_change_broadcast.sql
+create function broadcast_change() returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform realtime.send(
+    jsonb_build_object(
+      'id', new.id,
+      't', new.table_name,
+      'row', new.row_id,
+      'op', new.op,
+      'order', coalesce(new.new_row ->> 'order_id', new.old_row ->> 'order_id')
+    ),
+    'change',
+    'admin-changes',
+    true
+  );
+  return null;
+exception when others then
+  return null;
+end;
+$$;
+revoke execute on function broadcast_change() from public, anon, authenticated;
+create trigger broadcast_change after insert on change_log
+  for each row execute function broadcast_change();
+create policy "admins receive changes" on realtime.messages
+  for select to authenticated
+  using (
+    realtime.topic() = 'admin-changes'
+    and (auth.jwt() -> 'app_metadata' ->> 'admin_id') is not null
+  );
+
 -- RLS（0026）：一条策略都不写 = anon / authenticated 全拒，应用走 service key。
 -- 为什么这么做见 0026_rls.sql。**新建表要在这儿加一行**（tests/rls.test.ts 盯着）
 alter table people enable row level security;

@@ -128,13 +128,18 @@ export type PendingPatch = {
   savedAt: number | null;
 };
 
-/** 哪些补丁可以撤了：存完了，而且页面上这一次渲染是存完之后才开始查库的 */
+/**
+ * 哪些补丁可以撤了：存完了，而且手里这一单的数据是存完之后才开始查库的 ——
+ * 要么整页渲染（renderedAt，main[data-rendered-at]）晚于它，要么实时更新单独拉回这一单的那次
+ * （mergedAt，按单记，liveData.ts）晚于它。**按单看**：拉回 A 单不代表 B 单也是新的
+ */
 export function settledPatches(
   pending: ReadonlyMap<string, PendingPatch>,
-  renderedAt: number | null
+  renderedAt: number | null,
+  mergedAt: ReadonlyMap<string, number> = new Map()
 ): string[] {
-  if (renderedAt === null || !Number.isFinite(renderedAt)) return [];
+  const page = renderedAt !== null && Number.isFinite(renderedAt) ? renderedAt : -Infinity;
   return [...pending]
-    .filter(([, p]) => p.savedAt !== null && renderedAt > p.savedAt)
+    .filter(([id, p]) => p.savedAt !== null && Math.max(page, mergedAt.get(id) ?? -Infinity) > p.savedAt)
     .map(([id]) => id);
 }

@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorToast } from "./AssignActions";
 import { resizeIndices } from "@/lib/dates";
+import { refetchOrRefresh } from "./liveData";
 
 // 分配模式下拖左右边框改订单的开始/结束日期，最短 1 天
 export default function ResizableOrderBlock({
@@ -100,7 +101,8 @@ export default function ResizableOrderBlock({
           });
           const json = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(json.error ?? "改日期没成功");
-          router.refresh();
+          // 只拉这一单（天数、总价都可能变了）；拉不成就整页刷新
+          refetchOrRefresh({ orders: [orderId] }, () => router.refresh());
         } catch (e: any) {
           // 拖回原样 + 把原因说出来。不提示的话看起来就是「拖了没反应」，
           // 人会以为是资源了，反复再拖几次

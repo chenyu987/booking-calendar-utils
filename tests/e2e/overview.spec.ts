@@ -1168,3 +1168,116 @@ test.describe("复制 / 粘贴一单（像 Excel）", () => {
     expect(await src.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
   });
 });
+
+// 实时更新（迁移 0035 + useLiveRaw.ts）：别人改了，这边不刷新、只拉那一单就变。
+// 测试里没有真的 Realtime：「别人」用一个独立的请求改库（不经过这个页面），
+// 再在页面上发一条模拟的广播（E2E 构建里 useLiveRaw 听的是 window 事件）
+test.describe("实时更新", () => {
+  test("别人挪了一单：广播一到，这一单就挪过去了，不整页重新渲染", async ({ page }) => {
+    await gotoOverview(page);
+    const seg = page.locator(`a[data-order-id="${SHORT_NAME}"][data-edit-seg]`).first();
+    const from = (await seg.getAttribute("data-order-start"))!;
+    const d = new Date(`${from}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
+    const to = d.toISOString().slice(0, 10);
+
+    // 「另一个管理员」挪了这一单
+    const moved = await page.request.post("/admin/overview/move", {
+      data: { order_id: SHORT_NAME, from_day: from, to_day: to },
+    });
+    expect(moved.ok()).toBe(true);
+    // 还没收到广播：这边照旧是老样子
+    await expect(seg).toHaveAttribute("data-order-start", from);
+
+    const rsc: string[] = [];
+    const rows: string[] = [];
+    page.on("request", (r) => {
+      // 只看排期总览自己的整页数据请求（侧边栏「对外页面」的链接会自己预取 /provider，跟这个无关）
+      if ((r.headers()["rsc"] || r.url().includes("_rsc=")) && r.url().includes("/admin/overview")) rsc.push(r.url());
+      if (r.url().includes("/admin/overview/rows")) rows.push(r.url());
+    });
+    await page.evaluate(
+      (id) =>
+        window.dispatchEvent(
+          new CustomEvent("overview-live-test", { detail: { id: 1, t: "orders", row: id, op: "update" } })
+        ),
+      SHORT_NAME
+    );
+    await expect(seg).toHaveAttribute("data-order-start", to, { timeout: 5000 });
+    expect(rows).toHaveLength(1);
+    expect(rsc).toEqual([]);
+
+    // 挪回去，别影响别的测试
+    await page.request.post("/admin/overview/move", { data: { order_id: SHORT_NAME, from_day: to, to_day: from } });
+    await page.evaluate(
+      (id) =>
+        window.dispatchEvent(
+          new CustomEvent("overview-live-test", { detail: { id: 2, t: "orders", row: id, op: "update" } })
+        ),
+      SHORT_NAME
+    );
+    await expect(seg).toHaveAttribute("data-order-start", from, { timeout: 5000 });
+  });
+
+  test("**自己改完退出：不整页重新渲染，只拉这一单**，色块是新值", async ({ page }) => {
+    await gotoOverview(page);
+    const seg = page.locator(`a[data-order-id="${SHORT_NAME}"][data-edit-seg]`).first();
+    await seg.click();
+    const editor = page.locator(`[data-assign-editor="${SHORT_NAME}"]`);
+    await editor.waitFor();
+    const rsc: string[] = [];
+    const rows: string[] = [];
+    page.on("request", (r) => {
+      if ((r.headers()["rsc"] || r.url().includes("_rsc=")) && r.url().includes("/admin/overview")) rsc.push(r.url());
+      if (r.url().includes("/admin/overview/rows")) rows.push(r.postData() ?? "");
+    });
+    const saved = page.waitForResponse((r) => r.url().includes("/admin/overview/save-field"));
+    await editor.locator('input[name="location"]').fill("local");
+    await page.locator("h1").click(); // 空白处 = 退出并存
+    await saved;
+    await expect(seg).toContainText("local");
+    await expect.poll(() => rows.length, { timeout: 5000 }).toBeGreaterThan(0);
+    expect(JSON.parse(rows[0]).orders).toEqual([SHORT_NAME]);
+    await page.waitForTimeout(800);
+    expect(rsc).toEqual([]);
+
+    // 改回去
+    await page.request.post("/admin/overview/save-field", { data: { order_id: SHORT_NAME, location: "locbm" } });
+  });
+
+  test("正在编辑的那一单先不动（刚打的字不能没了），退出编辑后再合进来", async ({ page }) => {
+    await gotoOverview(page);
+    const seg = page.locator(`a[data-order-id="${SHORT_NAME}"][data-edit-seg]`).first();
+    await seg.click();
+    const editor = page.locator(`[data-assign-editor="${SHORT_NAME}"]`);
+    await editor.waitFor();
+    const input = editor.locator("input:not([type=hidden])").first();
+    await input.fill("正在打字");
+
+    // 「另一个管理员」改了这一单的地点 —— 地点在编辑框的 key 里，合进来编辑框就重挂、刚打的字没了
+    const saved = await page.request.post("/admin/overview/save-field", {
+      data: { order_id: SHORT_NAME, location: "local" },
+    });
+    expect(saved.ok()).toBe(true);
+    const fire = (id: number) =>
+      page.evaluate(
+        ([oid, n]) =>
+          window.dispatchEvent(
+            new CustomEvent("overview-live-test", { detail: { id: n, t: "orders", row: oid, op: "update" } })
+          ),
+        [SHORT_NAME, id] as const
+      );
+    await fire(3);
+    await page.waitForTimeout(1000);
+    // 编辑框还在、字还在
+    await expect(input).toHaveValue("正在打字");
+
+    // Esc 不存退出：这时候才把别人改的合进来
+    await page.keyboard.press("Escape");
+    await expect(seg).toContainText("local", { timeout: 5000 });
+
+    await page.request.post("/admin/overview/save-field", { data: { order_id: SHORT_NAME, location: "locbm" } });
+    await fire(4);
+    await expect(seg).toContainText("locbm", { timeout: 5000 });
+  });
+});

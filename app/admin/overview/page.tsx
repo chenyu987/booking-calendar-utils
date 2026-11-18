@@ -1,198 +1,45 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
-import { createPerson, personSpread } from "@/lib/people";
+import { createPerson } from "@/lib/people";
 import { deleteOrder as deleteOrderAndStrayPerson } from "@/lib/deleteOrder";
-import { displayName, formatPerson } from "@/lib/person";
-import {
-  CONTACT_FILTER_NONE,
-  matchesOrderAdmin,
-  parseOrderAdminFilter,
-  resolveAdmin,
-  resolvePrimaryAdmin,
-} from "@/lib/admins";
+import { CONTACT_FILTER_NONE, parseOrderAdminFilter, resolveAdmin, resolvePrimaryAdmin } from "@/lib/admins";
 import { addContact, loadAdmins } from "@/lib/personContacts";
 import AdminSwitcher from "./AdminSwitcher";
 import { currentAdminId } from "@/lib/adminSession";
 import ItemModeSwitcher from "./ItemModeSwitcher";
-import {
-  ITEM_MODE_COOKIE,
-  orderInItemMode,
-  parseItemMode,
-  resourceInItemMode,
-} from "@/lib/itemMode";
-import ZoomableCalendar from "./ZoomableCalendar";
-import ResizableOrderBlock from "./ResizableOrderBlock";
-import OptimisticEditForm from "./OptimisticEditForm";
-import NewOrderSelector from "./NewOrderSelector";
+import { ITEM_MODE_COOKIE, parseItemMode } from "@/lib/itemMode";
 import DragAssign from "./DragAssign";
 import DragMove from "./DragMove";
 import OptimisticAssign from "./OptimisticAssign";
-import type { EditorData } from "./AssignEditor";
-import OrderBlock from "./OrderBlock";
-import ResourcePanel from "./ResourcePanel";
-import type { PanelOrder } from "@/lib/assignPanel";
-import InstantAssign, { type InstantEditors } from "./InstantAssign";
-import {
-  BLOCK_BASE_STYLE,
-  COUNT_BOX,
-  COUNT_GAP,
-  FIELD_SIZING_CONTENT,
-  MONEY_SLOT,
-} from "./blockGeometry";
 import FilterForm from "@/app/admin/orders/FilterForm";
-import PanelScroller from "./PanelScroller";
-import CollapsibleResourcePanel from "./CollapsibleResourcePanel";
-import CollapsibleFilters from "./CollapsibleFilters";
-import SortMenu from "./SortMenu";
 import BulkSelect from "./BulkSelect";
 import CardsRowScroll from "./CardsRowScroll";
-import { AssignResourceButton, UnassignButton } from "./AssignActions";
 import { cookies } from "next/headers";
-import { formatParty } from "@/lib/party";
-import { calcAge } from "@/lib/age";
-import {
-  compareResources,
-  parseResourceSort,
-  RESOURCE_SORTS,
-  DEFAULT_RESOURCE_SORT,
-  type ResourceSort,
-} from "@/lib/resourceSort";
-import {
-  dateRangeToArray,
-  isWeekend,
-  todayIso,
-  shortLabel,
-  contiguousRuns,
-  formatDayRanges,
-} from "@/lib/dates";
-import { isPeakDate } from "@/lib/peakDates";
-import { BAND_GAP, COL_WIDTH, EXTRA_LANES, clampRailWidth } from "@/lib/bandDays";
-import { shortHolderNames } from "@/lib/holderName";
-import {
-  resolveTimelineStart,
-  ordersBeforeStart,
-  resolveTimelineEnd,
-} from "@/lib/timelineStart";
-import type { ResourceUse } from "@/lib/previousUse";
-import { findClashes, indexClashes, clashKey } from "@/lib/doubleBooking";
+import { parseResourceSort, RESOURCE_SORTS, DEFAULT_RESOURCE_SORT, type ResourceSort } from "@/lib/resourceSort";
+import { todayIso } from "@/lib/dates";
+import { clampRailWidth } from "@/lib/bandDays";
 import { getOverviewStart, getOverviewEnd, getPrimaryAdminId, getRequestPrices } from "@/lib/appSettings";
 import { getBandDays } from "@/lib/bandDaysSetting";
-import { BETA_FRAME_COLOR, adminColor, effectiveAdminId, frameColor, frameInnerColor, orderFrame } from "@/lib/orderFrame";
-import DayNote from "./DayNote";
-import { readNoteText } from "@/lib/orderNote";
-import {
-  weekBounds,
-  monthFirstDay,
-  countInRange,
-  sumInRange,
-  startsInRange,
-  countsTowardRevenue,
-  orderStartDay,
-} from "@/lib/revenue";
-import { statusColor, statusOptions, STATUS_LABELS } from "@/lib/orderStatus";
-import {
-  computeNeed,
-  formatNeed,
-  formatGap,
-} from "@/lib/assignment";
-import {
-  LOCATION_OPTIONS,
-  REGION_LABELS,
-  isUnknownLocation,
-  locationHintFor,
-  matchesLocationFilter,
-  normalizeLocation,
-  type Region,
-} from "@/lib/locations";
-import LocationInput from "@/components/LocationInput";
-import {
-  formatRun,
-  sortChronologically,
-  toBookingRuns,
-  type Booking,
-} from "@/lib/booking";
-import {
-  recommendResources,
-  explain,
-  type PastUse,
-  type Scored,
-} from "@/lib/recommend";
-import {
-  RESOURCE_STATUSES,
-  RESOURCE_STATUS_LABELS,
-  abnormalBadge,
-  coversOrder,
-  formatValidity,
-  itemConflictReason,
-  validityOverlaps,
-} from "@/lib/resourceStatus";
-import { compareByValidityStart } from "@/lib/validity";
-import {
-  inSeason,
-  parseSeasonKey,
-  seasonDays,
-  seasonOf,
-  seasonsBetween,
-  type Season,
-} from "@/lib/season";
-import {
-  pageTitleStyle,
-  inputStyle,
-  selectStyle,
-  buttonStyle,
-  linkButtonStyle,
-} from "@/lib/adminStyles";
+import { BETA_FRAME_COLOR, adminColor } from "@/lib/orderFrame";
+import { statusColor, STATUS_LABELS } from "@/lib/orderStatus";
+import { LOCATION_OPTIONS, REGION_LABELS, type Region } from "@/lib/locations";
+import OverviewBoard, { ASSIGN_ID_PLACEHOLDER } from "./OverviewBoard";
+import { seasonOrdersQuery, resourcesQuery } from "@/lib/overviewData";
+import { parseSeasonKey, seasonOf, seasonsBetween, type Season } from "@/lib/season";
+import { pageTitleStyle, selectStyle } from "@/lib/adminStyles";
 
 export const dynamic = "force-dynamic";
 
-// 所有行统一这个高度。**不要改成 auto/minmax** —— 那样分配的那一行会比别的行高，
-// 每次进出编辑模式色块都跳一下，看久了很晃眼（试过，被否了）。
-//
-// 两个状态排成一一对应的 **2 行**，位置一样，所以进出编辑不跳、
-// 也看得出哪个字段对哪个框：
-//   1 姓名 · 地点 ……… 备注 | $金额   ←→  姓名框 | 地点框 ……… 状态框 | 备注框 | 金额框
-//   2 男1/1 女1/1 ……… 已配的资源       ←→  男1/[框] 女1/[框] ……… 已配的资源
-//
-// 原来是 3 行（资源单独占一行、金额在第 3 行右下角）。一周上百单的时候，
-// 每单多一行就是整张表长一截，看来看去很累，所以压成两行。
-// 每行都靠一个**弹簧**（flex:1 的空 span）把右边那组顶到右边：分配态中间多出来
-// 一个状态框时，弹簧自己缩掉，备注和金额一像素都不挪 —— 这是「进出编辑不动」的关键。
-//
-// 第 2 行是「分配进度」和「几男几女」合并的结果：进度的分母本来就是要几个人，
-// 两行是同一份信息，所以分配模式把 male_count/female_count 的输入框直接摆在分母位置。
-//
-// 62 → 42。两行内容量出来是：
-//   普通态 15.59 + 2 + 14.30 = 31.89，加内边距 4 和边框 2 → 37.89
-//   分配态 16.59 + 2 + 14.30 = 32.89，加内边距 4 和边框 2 → 38.89  ← 资源高度的是这个
-// 所以下限是 38.89，取 42 留 3.11px。
-//
-// 撑高分配态那 1px 的是状态下拉框（height:16，比普通态那行文字的 15.59 高）。
-// 真要再矮，得先把它压到 15 —— 但 11px 的字塞进 15px 的框，换个平台就可能切掉半行，
-// 为 1px 不值。竖直方向可以比横向贴得紧（行高是字号乘出来的，跟字体的字宽无关），
-// 但也别贴到 0。
-const ROW_HEIGHT = 42;
-
-// COL_WIDTH 从 lib/bandDays 来 —— 帘子那边算「一行排得下几天」用的是同一个数，
-// 各写一份迟早对不上（见那边的注释）
-// 日期带那一行的高度。**跟订单色块的 ROW_HEIGHT 是同一个数**：
-// 两边都是两行，高度对不上的话看着像没对齐。
-//
-// 52 → 42：备注从单独的第三行挪到「周几」右边（省一行），上下内边距
-// 又从 4 收到 2 跟色块看齐。内容量出来是 15（日期）+ 17（周几那行，
-// 按编辑时的输入框给，不是按文字）+ 内边距 4 + 边框 2 = 38，留 4px。
-//
-// 改其中一个的时候记得看另一个 —— 它俩现在是一对。
-const HEADER_ROW_HEIGHT = ROW_HEIGHT;
+// 行高（ROW_HEIGHT / HEADER_ROW_HEIGHT）和画日历的那部分在 OverviewBoard.tsx
 
 // 一条时间轴拉到底横着能滑很久，改成每 4 周折一段往下排（跟 Excel 里那张排期表一个思路）。
 // 段的起点对齐到周一，所以每段正好是 4 个完整自然周。
 // 每行几天现在跟着右边那道帘子走（lib/bandWeeks.ts），不再是写死的。
 // 帘子收着的时候就是 28 天 —— 原来的样子。
-// EXTRA_LANES / BAND_GAP 在 lib/bandDays.ts（匹配台那张日历共用同一份）
-// 最后一段底下留多一点：下面没有别的段接着了，往后加新单子都得在这儿拖。
-// **这条只有排期总览有** —— 匹配台不能拖着建单
-const EXTRA_LANES_LAST = 5;
+// EXTRA_LANES / BAND_GAP 在 lib/bandDays.ts（匹配台那张日历共用同一份），
+// 最后一段多留的空行（EXTRA_LANES_LAST）在 lib/overviewModel.ts
 
 async function createQuickOrder(formData: FormData) {
   "use server";
@@ -352,25 +199,9 @@ export default async function OverviewPage(
     primaryAdminRaw,
     dayPrices,
   ] = await Promise.all([
-    supabase
-      .from("orders")
-      .select(
-        // customer_id / 生日是推荐分配要用的：认「这个客人以前用的哪个资源」和年龄。
-        // 分配跟着订单一起带回来，不再单独拉整张 order_assignments（那张表跟着
-        // 历年的单子一起涨，单独拉就又是全量）
-        `id, customer_id, admin_id, location, amount, status, demand_days, male_count, female_count, customers(${personSpread("chat_name, chat_id, first_name, last_name, date_of_birth")}), order_assignments(resource_id)`
-      )
-      // 有一天落在这一季里就算（lib/season.ts）。跨季的单两边都看得见
-      .overlaps("demand_days", seasonDays(season)),
-    supabase
-      .from("resources")
-      .select(
-        // provider_id 是推荐要用的：同一单的两个资源如果同一个物主，取还跑一趟就够
-        "id, provider_id, holder_name, holder_gender, holder_date_of_birth, holder_photo_path, item_type, validity, status"
-      )
-      // 物主删掉的资源不在这儿列 —— 这一页是干活的地方，配也配不上（lib/assignable.ts
-      // 拦着）。库里还在，要看去 /admin/resources（迁移 0013）
-      .is("deleted_at", null),
+    // 查哪几列在 lib/overviewData.ts：实时更新只拉变了的那几行时用的是同一份
+    seasonOrdersQuery(season),
+    resourcesQuery(),
     supabase.from("order_notes").select("order_id, internal_note"),
     // 日期条上「这一天的备注」。整张表拉下来：一天一行，一个季撑死两三百行
     supabase.from("day_notes").select("day, note"),
@@ -398,19 +229,6 @@ export default async function OverviewPage(
   // 标题旁边「全部 / Alpha / Beta」开关：单子、资源清单、建单的地点名提示一起跟着它（lib/itemMode.ts）
   const itemMode = parseItemMode((await cookies()).get(ITEM_MODE_COOKIE)?.value);
 
-  const noteByDay = new Map<string, string>(
-    (dayNotes ?? []).map((n: any) => [n.day, n.note])
-  );
-
-  // 订单备注：色块右上角显示用。internal_note 这一列里还混着「取消原因」写进去的
-  // JSON 信封（那个功能的代码没了，数据还在），统一走 readNoteText 拆一层，
-  // 别把整段 JSON 印到色块上
-  const noteByOrder = new Map<string, string>();
-  for (const n of orderNotes ?? []) {
-    const t = readNoteText(n.internal_note);
-    if (t) noteByOrder.set(n.order_id, t);
-  }
-
   // 季下拉：最早那单到最晚那单的每一季，再把今天这季和正在看的这季也算进去
   // （新的一季还没单子时也得能选到它）
   const boundDays = [...(earliestOrder ?? []), ...(latestOrder ?? [])]
@@ -423,85 +241,6 @@ export default async function OverviewPage(
   ].sort((a, b) => (a.start < b.start ? -1 : 1));
   const seasonOptions = seasonsBetween(seasonEnds[0], seasonEnds[seasonEnds.length - 1]);
 
-  // 资源：只列有效期跟这一季沾边的（往年的资源配不了今年的单，列出来只是占地方）。
-  // 但**认分配记录用全部的** —— 一单配的资源万一有效期对不上这季（以前留下的），
-  // 也得照样显示「配了谁」，不能让它看着像没配
-  // 按开始生效排（原来是库里 .order("date_range_start")，有效期改成多段之后在内存里排，
-  // 见 lib/validity.ts 的 compareByValidityStart）
-  const allResources = (rawResources ?? [])
-    .filter((s: any) => validityOverlaps(s, season.start, season.end))
-    .sort(compareByValidityStart);
-  const resourceById = new Map((rawResources ?? []).map((s: any) => [s.id, s]));
-  const orderById = new Map((orders ?? []).map((o: any) => [o.id, o]));
-  const assignments = (orders ?? []).flatMap((o: any) =>
-    (o.order_assignments ?? []).map((a: any) => ({ order_id: o.id, resource_id: a.resource_id }))
-  );
-
-  const assignedTo = new Map<string, any[]>();
-  // 每个资源被订单占用了哪几天 —— 用来在卡片上显示「已排 9/10~9/12」
-  const bookedDays = new Map<string, string[]>();
-
-  for (const a of assignments ?? []) {
-    const s = resourceById.get(a.resource_id);
-    if (!s) continue;
-    assignedTo.set(a.order_id, [...(assignedTo.get(a.order_id) ?? []), s]);
-
-    const o: any = orderById.get(a.order_id);
-    if (o?.demand_days?.length) {
-      bookedDays.set(a.resource_id, [
-        ...(bookedDays.get(a.resource_id) ?? []),
-        ...o.demand_days,
-      ]);
-    }
-  }
-
-  // 推荐分配要看的历史：每个资源以前被配给过哪些单、那些单去了哪、走到哪一步了。
-  // 这些数据上面已经查出来了，这里只是换个形状，不额外查库。
-  // 资源清单那行「已排 …」要按订单分组显示（哪几天去哪个地点），
-  // 跟 bookedDays 那个并集不是一回事：并起来就丢了「哪几天去哪」
-  const bookingsByResource = new Map<string, Booking[]>();
-  const usesByResource = new Map<string, ResourceUse[]>();
-  const assignHistory: PastUse[] = [];
-  for (const a of assignments ?? []) {
-    const o: any = orderById.get(a.order_id);
-    if (!o) continue;
-    bookingsByResource.set(a.resource_id, [
-      ...(bookingsByResource.get(a.resource_id) ?? []),
-      { days: o.demand_days ?? [], location: o.location ?? null },
-    ]);
-    // 跟 bookingsByResource 几乎一样，多带一个 orderId —— 分配时要顺着它找回
-    // 「这个资源上一单是哪一单」，好把那一单点亮
-    usesByResource.set(a.resource_id, [
-      ...(usesByResource.get(a.resource_id) ?? []),
-      { orderId: a.order_id, days: o.demand_days ?? [] },
-    ]);
-    assignHistory.push({
-      resourceId: a.resource_id,
-      customerId: o.customer_id ?? null,
-      location: o.location ?? null,
-      status: o.status,
-      days: o.demand_days ?? [],
-    });
-  }
-
-  // 每个资源上一次去的是哪一片区域 —— 左边按这个筛，就能只挑「一直在这一片用」的资源。
-  // 取的是**最近一次**（按结束日期最大），跟卡片上「已排 …」那一行默认停在最右边
-  // 是同一个意思：最近去哪对配下一单最有参考价值。
-  // 认不出地点名的那几段跳过，不能因为写错一个名字就让整个资源归错区。
-  const lastVenueOf = (resourceId: string) => {
-    let best: { end: string; venue: ReturnType<typeof normalizeLocation> } | null = null;
-    for (const b of bookingsByResource.get(resourceId) ?? []) {
-      const venue = normalizeLocation(b.location);
-      if (!venue) continue;
-      const end = [...(b.days ?? [])].sort().at(-1);
-      if (!end) continue;
-      if (!best || end > best.end) best = { end, venue };
-    }
-    return best?.venue ?? null;
-  };
-
-  // 左边卡片清单的筛选
-  // 挂牌状态默认只看「出租中」——暂停和已下架的平时不该占地方
   const f = {
     item: searchParams.item ?? "",
     gender: searchParams.gender ?? "",
@@ -512,52 +251,7 @@ export default async function OverviewPage(
     smtn: searchParams.smtn ?? "",
   };
   const sortBy = parseResourceSort(searchParams.ssort);
-  // 色块里那行「已配的资源」显示成什么：默认只写 first name，撞名的才往后补姓氏字母。
-  // **用 allResources 而不是筛选后的 resources**：左边面板筛掉几个资源，不该让
-  // 日历上某个人的名字突然从「admin1C」变回「admin1」—— 撞名这件事跟筛选无关
-  const holderLabels = shortHolderNames(
-    (allResources ?? []).map((s: any) => s.holder_name ?? "")
-  );
 
-  // 开关切到 Alpha / Beta 时，资源清单和分配候选只剩这一边的资源。
-  // 上面的 holderLabels 照旧用全部的资源算（撞名跟开关无关），色块上「配了谁」走 resourceById 也不受影响
-  const modeResources = (allResources ?? []).filter((s: any) => resourceInItemMode(s.item_type, itemMode));
-  const resources = modeResources.filter((s: any) => {
-    if (f.item && s.item_type !== f.item) return false;
-    if (f.gender && s.holder_gender !== f.gender) return false;
-    if (f.sstatus !== "all" && s.status !== f.sstatus) return false;
-    if (f.q && !(s.holder_name ?? "").toLowerCase().includes(f.q)) return false;
-    if (f.sregion || f.smtn) {
-      const last = lastVenueOf(s.id);
-      if (f.sregion === "none") {
-        // 只看还没排过的
-        if (last !== null) return false;
-      } else if (last !== null) {
-        // **还没排过的资源一律不筛掉**：它不属于任何一片，但对哪一片都可用，
-        // 筛掉等于把最灵活的那批资源藏起来，正好跟这个筛选的目的相反
-        if (f.smtn && last.canonical !== f.smtn) return false;
-        if (f.sregion && last.region !== f.sregion) return false;
-      }
-    }
-    return true;
-  });
-  const hasFilter = Boolean(
-    f.item || f.gender || f.q || f.sregion || f.smtn || f.sstatus !== "active"
-  );
-  const resourceTotal = modeResources.length;
-
-  // 按区域 / 具体的地点筛订单。
-  //
-  // **只筛日历和统计，不筛资源面板那边的排期历史** —— 一个资源去过哪几个地点是它
-  // 自己的事实，不该因为当前在看 RegionB 就少掉几段。bookedDays / assignHistory
-  // 都是上面用这一季的全部订单算好的，这里不动它们。（往年那几季的不在里面 ——
-  // 资源基本一季一张，往年的资源配不了今年的单；有效期不限的那种跨物品，
-  // 推荐时就只看得到它这一季的记录，为这个把历年分配全读一遍不划算）
-  //
-  // 状态筛选（ostatus）走的是同一条路：**日历和统计一起筛**。顶上那几个数字
-  // 跟着筛选走是有意的 —— 「只看已完成的单」就该看到这批单的钱，
-  // 不然筛完之后数字和下面的色块对不上，更难解释。
-  // 不在白名单里的值一律当没筛（URL 是人能随便改的）。
   const orderFilter = {
     region: (searchParams.region ?? "") as Region | "",
     mtn: searchParams.mtn ?? "",
@@ -569,200 +263,6 @@ export default async function OverviewPage(
   const hasOrderFilter = Boolean(
     orderFilter.region || orderFilter.mtn || orderFilter.status || orderFilter.admin
   );
-  const matchesOrderFilter = (o: any) => {
-    // 「全部 / Alpha / Beta」开关：日历和统计一起跟着它，跟状态、管理员筛选一样
-    if (!orderInItemMode(o.location, itemMode)) return false;
-    if (orderFilter.status && o.status !== orderFilter.status) return false;
-    // 比的是算出来的归属：没写是谁的算主要管理员的
-    if (!matchesOrderAdmin(effectiveAdminId(o.admin_id, primaryAdminId), orderFilter.admin)) return false;
-    // 地点 / 区域那两条走 lib/locations.ts 那一份 —— 物主那边用的是同一个
-    return matchesLocationFilter(o.location, orderFilter);
-  };
-
-  const withDays = (orders ?? []).filter(
-    (o: any) => o.demand_days && o.demand_days.length > 0 && matchesOrderFilter(o)
-  );
-
-  const allDays = withDays.flatMap((o: any) => o.demand_days).sort();
-
-  const shiftDay = (iso: string, delta: number) => {
-    const d = new Date(`${iso}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() + delta);
-    return d.toISOString().slice(0, 10);
-  };
-
-  // 每行排几天。拖右边那根条改，设置页里也能改 —— 两边写的是同一处（库里的
-  // app_settings），不是各存一份。服务端拿它切段：泳道要看整段里哪些单子重叠，
-  // 段一变就全变，客户端算不了。
-  const DAYS_PER_BAND = bandDaysSetting;
-
-  const todayForTimeline = todayIso();
-
-  // 设置里的起止日期只在这一季里面再缩小范围：落在这季外面的（比如去年设的）就当没设，
-  // 不然切到另一季，日历要么从一年前画起、要么整个是空的
-  const startSetting =
-    overviewStart && inSeason(overviewStart, season) ? overviewStart : undefined;
-  const endSetting = overviewEnd && inSeason(overviewEnd, season) ? overviewEnd : undefined;
-
-  // 日历要盖住的几个点：这季的单子；看的是今天这季的话还有今天。
-  // 一单都没有、今天也不在这季（翻到一个空的老季）就从季初画起 ——
-  // 新的一季刚开始一单都没有时也照样有日历，能拖着建第一单
-  const anchors = [...allDays];
-  if (inSeason(todayForTimeline, season)) anchors.push(todayForTimeline);
-  if (anchors.length === 0) anchors.push(season.start);
-  anchors.sort();
-
-  let timeline: string[] = [];
-  {
-    // 时间轴必须盖住"今天"：不然九月的单子做完了、现在已经十二月的时候，日历上
-    // 压根没有十二月那几列，进来只能停在九月，也没法在今天附近拖新单子。
-    // （看往年那季时今天不在季里，就不硬拉到今天 —— 那样会接上一大段空白）
-    const earliest = anchors[0];
-    const latest = anchors[anchors.length - 1];
-
-    // 起点先往前留两天，再退到那一周的周一（getUTCDay：0=周日）。
-    // 界面上指定了开始日期的话就原样用它，这一套默认不参与（见 lib/timelineStart.ts）
-    const firstPadded = shiftDay(earliest, -2);
-    const backToMonday = (new Date(`${firstPadded}T00:00:00Z`).getUTCDay() + 6) % 7;
-    // 起始日期是**设置**不是筛选：筛选是「这一眼我想看什么」，看完就没了；
-    // 这个是「以后每次进来都这样」，所以存在库里（/admin/settings），不走 URL
-    const start = resolveTimelineStart(startSetting, shiftDay(firstPadded, -backToMonday));
-    // 起点被拖到所有单子后面时，latest 会跑到 start 前面，dateRangeToArray 就空了 ——
-    // 那样日历整个不见，连往后拖新单的空白都没有。所以末尾至少给起点留出一段
-    let end = shiftDay(latest > start ? latest : start, 10);
-    timeline = dateRangeToArray(start, end);
-    // 补齐最后一段，让每段都是完整的 4 周；末尾多出来的空白正好用来拖拽建新单
-    const remainder = timeline.length % DAYS_PER_BAND;
-    if (remainder !== 0) {
-      end = shiftDay(end, DAYS_PER_BAND - remainder);
-      timeline = dateRangeToArray(start, end);
-    }
-
-    // 最后一段必须是空的：留一整段空白在最底下，往后加新单子随时有地方拖。
-    // 最后一段里只要还有单子，就再往后接一段 4 周，直到接出一段完全空的。
-    while (
-      withDays.some((o: any) =>
-        (o.demand_days as string[]).some((d) =>
-          timeline.slice(timeline.length - DAYS_PER_BAND).includes(d)
-        )
-      )
-    ) {
-      end = shiftDay(end, DAYS_PER_BAND);
-      timeline = dateRangeToArray(start, end);
-    }
-
-    // 界面上指定了结束日期就原样截到那天：上面补齐整段、末尾留空白那两步都不作数。
-    // 最后一行可以比别的行短 —— 看得出「日历到这儿就停了」（见 lib/timelineStart.ts）
-    const explicitEnd = resolveTimelineEnd(endSetting, start);
-    if (explicitEnd) timeline = dateRangeToArray(start, explicitEnd);
-  }
-
-  // 起点定在中间的时候，整单落在起点之前的就一条都看不见了。数出来告诉人，
-  // 别让单子无声无息地消失 —— 「明明建了单怎么没有」是这个项目最容易出的错觉
-  const hiddenBeforeStart =
-    timeline.length > 0 ? ordersBeforeStart(withDays as any[], timeline[0]).length : 0;
-  // 终点那头**不提示**（2026-11-17 用户说多此一举）：结束日期是自己设的，后面还有单是知道的
-
-  // 库里已经存在的「同一个资源同一天配给两单」。拖日期那条路现在拦着了，但数据
-  // 还可能从别处进来（两个人同时操作、直接改库、以前留下的），所以照样查一遍标红 ——
-  // 拦得住新的，也得让旧的看得见
-  const clashIndex = indexClashes(findClashes(usesByResource));
-  const orderNameById = new Map<string, string>(
-    (withDays as any[]).map((o) => [o.id, displayName(o.customers, "另一单")])
-  );
-
-  const sorted = [...withDays].sort((a: any, b: any) =>
-    a.demand_days[0] < b.demand_days[0] ? -1 : 1
-  );
-
-  // 每段单独排泳道：这一段只有一个单子就只占一行，段的高度自动跟着缩，
-  // 不会像以前那样所有段都被最挤的那一段撑高
-  type Band = {
-    days: string[];
-    colIndex: Map<string, number>;
-    laneOf: Map<string, number>;
-    laneCount: number;
-  };
-  const bands: Band[] = [];
-  for (let i = 0; i < timeline.length; i += DAYS_PER_BAND) {
-    const days = timeline.slice(i, i + DAYS_PER_BAND);
-    const inBand = new Set(days);
-    const bandLanes: string[][] = [];
-    const laneOf = new Map<string, number>();
-    for (const o of sorted as any[]) {
-      const daysHere = (o.demand_days as string[]).filter((d) => inBand.has(d));
-      if (daysHere.length === 0) continue;
-      let lane = 0;
-      while (bandLanes[lane] && bandLanes[lane].some((d) => daysHere.includes(d))) {
-        lane += 1;
-      }
-      bandLanes[lane] = [...(bandLanes[lane] ?? []), ...daysHere];
-      laneOf.set(o.id, lane);
-    }
-    const isLastBand = i + DAYS_PER_BAND >= timeline.length;
-    bands.push({
-      days,
-      colIndex: new Map(days.map((d, j) => [d, j])),
-      laneOf,
-      laneCount: bandLanes.length + (isLastBand ? EXTRA_LANES_LAST : EXTRA_LANES),
-    });
-  }
-
-  const today = todayIso();
-
-  // 顶上那几个数字。口径见 lib/revenue.ts：单子按最早那天归属（跨周不拆），
-  // 三个流水的结束点都是本周日，所以月和季的数里包含完整的本周。
-  const { start: weekStart, end: weekEnd } = weekBounds(today);
-  const weekOrderCount = countInRange(withDays, weekStart, weekEnd);
-  const weekRevenue = sumInRange(withDays, weekStart, weekEnd);
-  const monthRevenue = sumInRange(withDays, monthFirstDay(today), weekEnd);
-  // 季流水 = 最早那天落在这季里的单（跨季的单整单算进开始那季，不按天拆）。
-  // 以前起点是 null（「到本周日为止的所有单」），只有一季数据时看不出来；
-  // 导入往年之后那个数是好几季加起来的。看往年那季时，结束点就是那季最后一天
-  const seasonRevenue = sumInRange(
-    withDays,
-    season.start,
-    isCurrentSeason && weekEnd < season.end ? weekEnd : season.end
-  );
-
-  // 本周未配齐：跟上面几个数字同一套归属规则（按最早那天算本周），
-  // 取消/退款的单子不用分配所以排除掉
-  const weekNotFullyAssigned = withDays.filter(
-    (o: any) =>
-      startsInRange(o, weekStart, weekEnd) &&
-      countsTowardRevenue(o.status) &&
-      !computeNeed(o, assignedTo.get(o.id) ?? []).isComplete
-  ).length;
-
-  const assigningOrder = searchParams.assign
-    ? withDays.find((o: any) => o.id === searchParams.assign)
-    : null;
-  const assigningNeed = assigningOrder
-    ? computeNeed(assigningOrder, assignedTo.get((assigningOrder as any).id) ?? [])
-    : null;
-
-  // 左边资源清单（客户端组件）要的：每一单算一份「缺几张、配了哪几张、哪几天、哪个地点」，
-  // 选中哪单取哪单。Map 传不到客户端，换成普通对象
-  const panelOrders: Record<string, PanelOrder> = {};
-  for (const o of withDays as any[]) {
-    const assigned = assignedTo.get(o.id) ?? [];
-    const need = computeNeed(o, assigned);
-    panelOrders[o.id] = {
-      id: o.id,
-      customerId: o.customer_id ?? null,
-      customerDob: o.customers?.date_of_birth ?? null,
-      location: o.location ?? null,
-      demandDays: o.demand_days ?? [],
-      maleGap: need.maleGap,
-      femaleGap: need.femaleGap,
-      assignedResourceIds: assigned.map((x: any) => x.id),
-    };
-  }
-  const bookedDaysRec = Object.fromEntries(bookedDays);
-  const bookingsByResourceRec = Object.fromEntries(bookingsByResource);
-  // 每个资源用在了哪几单：选中一单时，它配的资源「上一次」用在哪一单要亮一圈（lib/previousUse.ts）。
-  // 原来服务端按 ?assign= 算好，现在选中是客户端的事，这份数据交给客户端现算
-  const usesByResourceRec = Object.fromEntries(usesByResource);
 
   // 今天这季是默认，不写进 URL；认不出来的 season 参数也不往下传
   const seasonParam = isCurrentSeason ? "" : season.key;
@@ -793,9 +293,17 @@ export default async function OverviewPage(
     return s ? `/admin/overview?${s}` : "/admin/overview";
   };
 
-  // 每一单分配态色块要的数据，下面画日历时顺手收进来（只收不在分配态的那些），
-  // 交给 InstantAssign：点下去当场画，不等整页渲染
-  const instantEditors: InstantEditors = {};
+  // 这一季的原始数据，交给浏览器（OverviewBoard）。日历范围、排行、冲突、统计、资源清单、
+  // 色块数据都在 lib/overviewModel.ts 里算，服务端这儿不再算一遍
+  // 服务端和浏览器用同一份（实时更新时浏览器拿合进来的新数据再算一遍）
+  const raw = {
+    orders: orders ?? [],
+    resources: rawResources ?? [],
+    orderNotes: orderNotes ?? [],
+    dayNotes: dayNotes ?? [],
+  };
+  // 今天由服务端定：浏览器自己算的话跨日那几小时跟服务端不是同一天（CLAUDE.md）
+  const today = todayIso();
 
   return (
     // data-rendered-at：这一次渲染开始查库时的服务端时间。退出分配态时先画上去的新值，
@@ -917,70 +425,63 @@ export default async function OverviewPage(
       <OptimisticAssign />
       {/* 填地点名的输入框共用这一份补全列表 */}
 
-      {/* 统计 / 状态图例 / 缩放 / 资源面板 / 日历 全交给 ZoomableCalendar 排版。
-          缩放状态在客户端、统计是服务端渲染的，两者要挤在同一行就得由同一个
-          客户端组件来渲染——所以统计行和资源面板当 props 传进去。 */}
-      <ZoomableCalendar
-        bandDays={DAYS_PER_BAND}
-        railWidth={clampRailWidth(
-          Number((await cookies()).get("overview_rail_width")?.value ?? NaN)
-        )}
-        panel={
-          // key 是给 React 19 dev 下的检查看的：不加的话控制台报「ZoomableCalendar 里的列表缺 key」、
-          // 指着这一行（2026-11-11 实测，加了就没了）。只有一个、不会重排，写死就行
-          <ResourcePanel
-            key="resource-panel"
-            assignHistory={assignHistory}
-            orderRegion={orderFilter.region}
-            orderMtn={orderFilter.mtn}
-            season={seasonParam}
-            showAllCards={searchParams.allcards === "1"}
-            showAllHref={qs({ allcards: "1" })}
-            hideUnusableHref={qs({ allcards: "" })}
-            bookingsByResource={bookingsByResourceRec}
-            sortBy={sortBy}
-            // 四条链接在服务端拼好传下去 —— URL 怎么拼（哪些筛选要带过去、
-            // 默认那档不写进去）是 qs 的事，菜单只管点
-            sortHrefs={
-              Object.fromEntries(
-                (Object.keys(RESOURCE_SORTS) as ResourceSort[]).map((k) => [
-                  k,
-                  qs({ ssort: k === DEFAULT_RESOURCE_SORT ? "" : k }),
-                ])
-              ) as Record<ResourceSort, string>
-            }
-            // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
-            initialCollapsed={(await cookies()).get("resource_panel_collapsed")?.value === "1"}
-            // 筛选默认收起：平时都是直接看资源列表，筛选是偶尔为之
-            filtersCollapsed={(await cookies()).get("resource_filters_collapsed")?.value !== "0"}
-            allResources={modeResources}
-            resourceIds={resources.map((s: any) => s.id)}
-            filters={f}
-            hasFilter={hasFilter}
-            total={resourceTotal}
-            loadError={resourceError?.message}
-            bookedDays={bookedDaysRec}
-            // 选中哪一单不再由服务端算好：清单搬到了客户端，点一单当场就换（ResourcePanel.tsx）
-            serverAssigningId={assigningOrder ? (assigningOrder as any).id : null}
-            orders={panelOrders}
-            usesByResource={usesByResourceRec}
-            today={today}
-          />
-        }
-        toolbar={
-          <>
-        <Stat label="本周订单数" value={String(weekOrderCount)} />
-        <Stat label="本周流水" value={`$${weekRevenue.toLocaleString()}`} />
-        <Stat label="本月流水" value={`$${monthRevenue.toLocaleString()}`} />
-        <Stat
-          label={isCurrentSeason ? "本季流水" : `${season.label} 流水`}
-          value={`$${seasonRevenue.toLocaleString()}`}
-        />
-        <Stat
-          label="本周未配齐"
-          value={String(weekNotFullyAssigned)}
-          highlight={weekNotFullyAssigned > 0}
-        />
+      {/* 统计 / 状态图例 / 缩放 / 资源面板 / 日历：数据和怎么画都在 OverviewBoard（浏览器里）——
+          它拿这一季的原始数据自己算（lib/overviewModel.ts），实时更新时只合进变了的那几行再算。
+          服务端只画筛选那一排和图例（跟数据无关），连同原始数据一起交下去 */}
+      <OverviewBoard
+        raw={raw}
+        renderedAt={renderedAt}
+        params={{
+          season,
+          isCurrentSeason,
+          today,
+          itemMode,
+          admins,
+          primaryAdminId,
+          orderFilter,
+          resourceFilter: f,
+          bandDays: bandDaysSetting,
+          overviewStart,
+          overviewEnd,
+          assignHrefTemplate: qs({ assign: ASSIGN_ID_PLACEHOLDER }),
+        }}
+        railWidth={clampRailWidth(Number((await cookies()).get("overview_rail_width")?.value ?? NaN))}
+        serverAssigningId={searchParams.assign ?? null}
+        resourcePanel={{
+          orderRegion: orderFilter.region,
+          orderMtn: orderFilter.mtn,
+          season: seasonParam,
+          showAllCards: searchParams.allcards === "1",
+          showAllHref: qs({ allcards: "1" }),
+          hideUnusableHref: qs({ allcards: "" }),
+          sortBy,
+          // 四条链接在服务端拼好传下去 —— URL 怎么拼是 qs 的事，菜单只管点
+          sortHrefs: Object.fromEntries(
+            (Object.keys(RESOURCE_SORTS) as ResourceSort[]).map((k) => [
+              k,
+              qs({ ssort: k === DEFAULT_RESOURCE_SORT ? "" : k }),
+            ])
+          ) as Record<ResourceSort, string>,
+          // 收起状态服务端读 cookie 当初始值，首屏不会先展开再收起闪一下
+          initialCollapsed: (await cookies()).get("resource_panel_collapsed")?.value === "1",
+          // 筛选默认收起：平时都是直接看资源列表，筛选是偶尔为之
+          filtersCollapsed: (await cookies()).get("resource_filters_collapsed")?.value !== "0",
+          loadError: resourceError?.message,
+        }}
+        newOrder={{
+          createOrderAction: createQuickOrder,
+          adminName: currentAdmin?.name ?? null,
+          adminId: currentAdmin?.id ?? null,
+          dayPrices,
+        }}
+        instant={{
+          exitHref: qs({ assign: "" }),
+          deleteAction: deleteOrder,
+        }}
+        // 这两段在 OverviewBoard 里跟统计排在同一行：React 19 dev 下服务端交下去的元素跟别的并排时要 key，
+        // 不然控制台报「缺 key」（ResourcePanel 那个 key 是同一个原因）
+        filters={
+          <Fragment key="filters">
         {/* 按区域 / 具体的地点筛订单。用 GET 表单不用 useState —— 跟这个项目里
             其它筛选一个路子，筛选状态留在 URL 上，刷新和分享链接都还在。
             选完自动提交（onChange 交给 FilterAutoSubmit，跟资源筛选共用）。 */}
@@ -1103,20 +604,10 @@ export default async function OverviewPage(
         {/* 「全部 / Alpha / Beta」开关。存 cookie 不走 URL，所以放在表单外面（见 ItemModeSwitcher） */}
         <ItemModeSwitcher mode={itemMode} style={filterSelectStyle} />
         </div>
-        {/* 有单子被挡在起点前面就说一声，并给一条改设置的路。
-            悄悄少几个单子，比日历难看多了 */}
-        {/* 设置是侧边栏里的弹框，不是页面（/admin/settings 只剩一条数据接口，
-            链过去打开的是一段 JSON），所以这里只给文字提示，不给链接 */}
-        {hiddenBeforeStart > 0 && (
-          <span
-            style={{ fontSize: 12, color: "var(--warn)", whiteSpace: "nowrap" }}
-            title="在侧边栏「设置」里改起始日期"
-          >
-            起始日期之前还有 {hiddenBeforeStart} 单没显示
-          </span>
-        )}
-
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          </Fragment>
+        }
+        legend={
+        <div key="legend" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {Object.entries(STATUS_LABELS).map(([key, label]) => {
             const c = statusColor(key);
             return (
@@ -1193,367 +684,9 @@ export default async function OverviewPage(
               </span>
             ))}
         </div>
-          </>
         }
-      >
-        {timeline.length === 0 ? (
-          <p style={{ color: "var(--text-muted)" }}>
-            还没有带日期的订单。去 <Link href="/admin/orders">Order 管理</Link> 建一个。
-          </p>
-        ) : (
-              bands.map((band, bandIdx) => (
-              <div
-                key={band.days[0]}
-                // 点下去当场画的分配态色块要放进这个 grid（InstantAssign）
-                data-band-grid={bandIdx}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: `repeat(${band.days.length}, ${COL_WIDTH}px)`,
-                  gridTemplateRows: `${HEADER_ROW_HEIGHT}px`,
-                  // 行高写死，不用 auto：auto 会让分配的那一行比别的行高，
-                  // 每次进出编辑模式整块都跳一下，看久了很晃眼。
-                  // 两个状态排成同样的 2 行，写死高度就不会有跳变。
-                  gridAutoRows: `${ROW_HEIGHT}px`,
-                  gap: 2,
-                  minWidth: "min-content",
-                  marginBottom: bandIdx === bands.length - 1 ? 0 : BAND_GAP,
-                }}
-              >
-                <NewOrderSelector
-                  timeline={band.days}
-                  colWidth={COL_WIDTH}
-                  rowHeight={ROW_HEIGHT}
-                  laneCount={band.laneCount}
-                  assigningOrderId={assigningOrder ? (assigningOrder as any).id : null}
-                  createOrderAction={createQuickOrder}
-                  adminName={currentAdmin?.name ?? null}
-                  adminId={currentAdmin?.id ?? null}
-                  itemMode={itemMode}
-                  dayPrices={dayPrices}
-                />
-                {/* peak date 的整列底色。单独铺一层是因为日期条只有表头那一格，
-                    往下滚就看不出这一列是不是 peak 了。gridRow 1/-1 铺满整段，
-                    zIndex 0 压在订单色块下面，pointerEvents none 不挡建单的框选 */}
-                {band.days.map((d, i) =>
-                  isPeakDate(d) ? (
-                    <div
-                      key={`peak-${d}`}
-                      aria-hidden
-                      style={{
-                        gridRow: "1 / -1",
-                        gridColumn: i + 1,
-                        background: "var(--peak-stripe)",
-                        pointerEvents: "none",
-                        zIndex: 0,
-                      }}
-                    />
-                  ) : null
-                )}
-                {band.days.map((d, i) => {
-                  const { date, weekday } = shortLabel(d);
-                  const weekend = isWeekend(d);
-                  // peak 盖过周末的橙色：限制资源那几天根本进不了场，
-                  // 比「这天是周末」要紧得多
-                  const peak = isPeakDate(d);
-                  return (
-                    <div
-                      key={d}
-                      // 新开标签页时用来定位到"今天"那一列
-                      data-today={d === today ? "1" : undefined}
-                      // 按住色块拖到别的日子（DragMove）：靠它认指针底下是哪一天
-                      data-day={d}
-                      title={peak ? "Alpha 限制资源的 peak date，这天进不了场" : undefined}
-                      style={{
-                        gridRow: 1,
-                        gridColumn: i + 1,
-                        // 上下内边距跟订单色块一样是 2（左右保持 6）。
-                        // 原来是 4，日期带就比色块高 4px —— 两边都是两行，
-                        // 高度却对不上，看着像没对齐
-                        padding: "2px 6px",
-                        background: peak ? "var(--peak-bg)" : weekend ? "var(--weekend-bg)" : "var(--surface-2)",
-                        borderBottom:
-                          d === today ? "2px solid var(--text)" : "1px solid var(--border)",
-                        fontSize: 12,
-                        color: peak ? "var(--peak)" : weekend ? "var(--warn)" : "var(--text-muted)",
-                        // 竖着滚的时候日期条黏在顶上，不然滚下去就不知道是哪天了。
-                        // zIndex 要压过订单色块（1）和空白选框（0）
-                        position: "sticky",
-                        top: 0,
-                        zIndex: 3,
-                      }}
-                    >
-                      <div style={{ fontWeight: 500 }}>{date}</div>
-                      {/* 周几和当天备注挤同一行，备注靠右 —— 原来备注单占第三行，
-                          一屏上二三十列每列都空着一条，整条日期带白白高出一截。
-                          高度 17 是按「编辑时那个输入框」给的（15 的行高 + 1px 边框
-                          上下各一）：不写死的话，一点进去输入框比文字高 2px，
-                          整条日期带会抖一下 */}
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                          minHeight: 17,
-                          fontSize: 11,
-                        }}
-                      >
-                        <span style={{ flexShrink: 0 }}>
-                          {weekday}
-                          {peak && " · peak"}
-                        </span>
-                        <span style={{ flex: "1 1 0", minWidth: 0 }}>
-                          <DayNote day={d} note={noteByDay.get(d) ?? ""} peak={peak} />
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {(sorted as any[]).map((o) => {
-                  // 这一段（4 周）里没有这个单子的日子就整个跳过
-                  const bandLane = band.laneOf.get(o.id);
-                  if (bandLane === undefined) return null;
-                  const cards = assignedTo.get(o.id) ?? [];
-                  const note = noteByOrder.get(o.id) ?? "";
-                  // 地点名库里认不出来 —— 标红提醒去改，**不自动改**。
-                  // 名字对不上，推荐分配那条线就是断的，而且断得无声无息
-                  const badLocation = isUnknownLocation(o.location);
-                  const locationHint = badLocation ? locationHintFor(o.location!) : "";
-                  const need = computeNeed(o, cards);
-                  // 正在配的这一单用的资源，上一次是在这一单上用的
-                  // 分配模式里那几个输入框用的是 defaultValue（不受控），React 只在挂载时读一次；
-                  // 撤销分配、拖拽改天数这些操作会在"还留在分配模式"的情况下改掉 o 的字段，
-                  // 光 router.refresh() 拿到新数据不够——同一个 key 下 React 不会重新套 defaultValue，
-                  // 输入框会继续显示改之前的老值。把这些字段拼进 key，值一变就强制重新挂载。
-                  const editStateKey = [
-                    o.amount,
-                    o.status,
-                    o.male_count,
-                    o.female_count,
-                    o.location,
-                    displayName(o.customers, ""),
-                    noteByOrder.get(o.id) ?? "",
-                  ].join("|");
-                  const allSorted = [...(o.demand_days as string[])].sort();
-                  const firstDayOverall = allSorted[0];
-                  const firstDayInBand = allSorted.find((d) => band.colIndex.has(d));
-                  return contiguousRuns(o.demand_days).flatMap((run) => {
-                    // 连续段跟"每 4 周一段"的边界不一定对齐，切出落在这一段里的那截
-                    const seg = run.filter((d) => band.colIndex.has(d));
-                    if (seg.length === 0) return [];
-                    const start = band.colIndex.get(seg[0])!;
-                    const segKey = `${o.id}-${seg[0]}-${editStateKey}`;
-                    // 整个连续段都在这一段里才给拖拽改天数的把手：被边界切开的话，
-                    // 拖出去那一头算不出正确日期，会把另一段的日子给抹掉
-                    const runFullyInBand = seg.length === run.length;
-                    // 摘要（姓名/价格/分配进度）每段显示一次，编辑控件全局只出现一次
-                    const showDetail = seg[0] === firstDayInBand;
-                    const showEdit = seg[0] === firstDayOverall;
-                    const c = statusColor(o.status);
-                    // 边框和光圈：状态 / Beta 单或是哪个管理员的 / 选中 / 上一单，一处算（lib/orderFrame.ts）。
-                    // 分配态那份（ResizableOrderBlock）也从这里取，不另写
-                    const orderAdminId = effectiveAdminId(o.admin_id, primaryAdminId);
-                    const providerColor = frameColor(o.location, orderAdminId, admins, primaryAdminId);
-                    // Beta 单的边框是青色，是谁的单放在里面那一圈（非主要管理员才有）
-                    const innerColor = frameInnerColor(o.location, orderAdminId, admins, primaryAdminId);
-                    const frame = orderFrame({
-                      statusBorder: c.border,
-                      adminColor: providerColor,
-                      innerColor,
-                      // 选中、「上一单」是客户端的事，OrderBlock 自己按客户端状态再算一遍边框光圈；
-                      // 这里只给分配态编辑框的样式（editorData.style）打底
-                      assigning: false,
-                    });
-                    const blockStyle = {
-                      gridRow: bandLane + 2,
-                      gridColumn: `${start + 1} / span ${seg.length}`,
-                      background: c.bg,
-                      // 编辑态**不能**用更粗的边框：2px vs 1px 会把整块内容往下推 1px，
-                      // 进出编辑时所有字都跳一下。永远 1px，加粗的观感交给 box-shadow
-                      // （阴影不参与布局，几何一模一样）—— 都在 orderFrame 里
-                      border: frame.border,
-                      boxShadow: frame.boxShadow,
-                      color: c.text,
-                      // 内边距 / 字号 / 行高这些跟哪一单无关的，在 blockGeometry.ts，
-                      // 分配态（AssignEditor）也从那儿取
-                      ...BLOCK_BASE_STYLE,
-                    } as const;
-                    const blockTitle = [
-                      formatPerson(o.customers),
-                      `${o.location ?? "?"} · ${formatParty(o.male_count, o.female_count)} · ${o.demand_days.length}天`,
-                      `$${o.amount ?? "?"} · ${STATUS_LABELS[o.status] ?? o.status}`,
-                      `分配 ${formatNeed(need)}（${formatGap(need)}）`,
-                      ...(note ? [`备注：${note}`] : []),
-                      ...(badLocation ? [`⚠ ${locationHint}`] : []),
-                      ...cards
-                        .map((s: any) => clashIndex.get(clashKey(o.id, s.id))?.[0])
-                        .filter(Boolean)
-                        .map(
-                          (c: any) =>
-                            `⚠ 冲突：${cards.find((s: any) => s.id === c.resourceId)?.holder_name ?? "有个资源"} 在 ${c.days.join("、")} 同时配给了「${orderNameById.get(c.otherOrderId) ?? "另一单"}」`
-                        ),
-                      ...cards.map(
-                        (s: any) =>
-                          `　${s.holder_gender === "male" ? "♂" : "♀"} ${s.holder_name}（${calcAge(s.holder_date_of_birth) ?? "?"}岁 ${s.item_type ?? ""}）`
-                      ),
-                    ].join("\n");
-
-                    // 分配态色块要的数据。只有放编辑控件的那一段（showEdit）才算：
-                    // 正在配的这一单拿它渲染；别的单收进 instantEditors，点下去当场画（InstantAssign）
-                    const editorData: EditorData | null = showEdit
-                      ? {
-                          orderId: o.id,
-                          orderStart: orderStartDay(o) ?? "",
-                          // 从普通态那份派生：位置和颜色同 blockStyle，边框光圈换成分配态的
-                          style: {
-                            gridRow: blockStyle.gridRow,
-                            gridColumn: blockStyle.gridColumn,
-                            background: blockStyle.background,
-                            color: blockStyle.color,
-                            ...orderFrame({
-                              statusBorder: c.border,
-                              adminColor: providerColor,
-                              innerColor,
-                              assigning: true,
-                            }),
-                          },
-                          resizable: runFullyInBand
-                            ? {
-                                runStart: run[0],
-                                runEnd: run[run.length - 1],
-                                startIndex: start,
-                                length: seg.length,
-                                laneRow: bandLane + 2,
-                              }
-                            : null,
-                          title: blockTitle,
-                          customerName: displayName(o.customers, ""),
-                          location: o.location ?? "",
-                          locationHint,
-                          badLocation,
-                          status: o.status,
-                          note,
-                          amount: o.amount ?? null,
-                          maleCount: o.male_count,
-                          femaleCount: o.female_count,
-                          need: {
-                            maleFilled: need.maleFilled,
-                            femaleFilled: need.femaleFilled,
-                            maleGap: need.maleGap,
-                            femaleGap: need.femaleGap,
-                          },
-                          cards: cards.map((s: any) => ({
-                            id: s.id,
-                            label: holderLabels.get(s.holder_name ?? "") ?? s.holder_name,
-                            clash: Boolean(clashIndex.get(clashKey(o.id, s.id))),
-                            gender: s.holder_gender ?? null,
-                          })),
-                          cardBg: c.bg,
-                          cardBorder: c.border,
-                          adminId: effectiveAdminId(o.admin_id, primaryAdminId),
-                        }
-                      : null;
-                    if (editorData) {
-                      instantEditors[o.id] = { ...editorData, band: bandIdx };
-                    }
-
-                    {
-                      // 普通态色块长什么样只在 OrderBlock 里（客户端组件），这儿只给数据。
-                      // 进出分配态全在浏览器里（InstantAssign），服务端永远画普通态
-                      return (
-                        <OrderBlock
-                          key={segKey}
-                          d={{
-                            orderId: o.id,
-                            orderStart: orderStartDay(o) ?? "",
-                            href: qs({ assign: o.id }),
-                            gridRow: blockStyle.gridRow,
-                            gridColumn: blockStyle.gridColumn,
-                            status: o.status,
-                            adminColor: providerColor,
-                            innerColor,
-                            title: blockTitle,
-                            // 点下去那一刻，客户端要立刻拿它拼出分配浮动条的标题 ——
-                            // 从色块的文字里猜太脆，直接把服务端用的那份原样带上
-                            label: [displayName(o.customers), o.location].filter(Boolean).join(" · "),
-                            showDetail,
-                            editSeg: showEdit,
-                            customerName: displayName(o.customers),
-                            location: o.location ?? null,
-                            locationHint,
-                            badLocation,
-                            note,
-                            amount: o.amount ?? null,
-                            need: {
-                              maleNeeded: need.maleNeeded,
-                              femaleNeeded: need.femaleNeeded,
-                              maleFilled: need.maleFilled,
-                              femaleFilled: need.femaleFilled,
-                              isComplete: need.isComplete,
-                            },
-                            // 只有放摘要的那一段才画资源，别的段不带这份数据
-                            cards: showDetail
-                              ? cards.map((s: any) => {
-                                  const clash = clashIndex.get(clashKey(o.id, s.id));
-                                  return {
-                                    id: s.id,
-                                    label: holderLabels.get(s.holder_name ?? "") ?? s.holder_name,
-                                    clashTitle: clash
-                                      ? `⚠ ${s.holder_name} 在 ${clash[0].days.join("、")} 同时配给了「${orderNameById.get(clash[0].otherOrderId) ?? "另一单"}」`
-                                      : "",
-                                  };
-                                })
-                              : [],
-                          }}
-                        />
-                      );
-                    }
-
-                  });
-                })}
-              </div>
-              ))
-        )}
-      </ZoomableCalendar>
-
-      {/* 分配态（编辑一单）全在浏览器里：点色块当场画编辑框、资源清单、浮动条，
-          退出当场画回普通态、后台存。**必须写在 ZoomableCalendar 后面** ——
-          instantEditors 是上面画日历时一单一单收进来的 */}
-      <InstantAssign
-        editors={instantEditors}
-        bandDays={bands.map((b) => b.days)}
-        exitHref={qs({ assign: "" })}
-        // 浮动条「打名字分配」的候选不在这儿传数据：跟左边资源清单共用一份（assignSelection.ts）
-        deleteAction={deleteOrder}
-        admins={admins}
-        primaryAdminId={primaryAdminId}
       />
-
     </main>
   );
 }
 
-function Stat({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-}) {
-  return (
-    <div>
-      <div style={{ fontSize: 12, color: "var(--text-faint)" }}>{label}</div>
-      <div
-        style={{
-          fontSize: 20,
-          fontWeight: 500,
-          color: highlight ? "var(--warn)" : "var(--text)",
-        }}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}

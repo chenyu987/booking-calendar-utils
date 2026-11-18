@@ -30,6 +30,7 @@ import type { Admin } from "@/lib/admins";
 import { dropPersonOptions, type DropOption } from "@/lib/dropPerson";
 import { rescaleAmount } from "@/lib/pricing";
 import { daysBetween } from "@/lib/dates";
+import { mergedAt, refetchRows, subscribeMerged } from "./liveData";
 import { getCopiedOrder, isCopyKey, isCutKey, isTextClipboardTarget, setCopiedOrder, useCopiedOrder } from "./orderClipboard";
 
 // 排期总览的分配态（编辑一单），**全在浏览器里**：进、出、存都不等整页渲染。
@@ -108,6 +109,16 @@ export default function InstantAssign({
     [setUrl]
   );
 
+  /** 存完：只拉这一单（连备注）合进日历；实时更新还没接上就整页刷新 */
+  const refetchOrder = useCallback(
+    (id: string) => {
+      refetchRows({ orders: [id], notes: [id] }).then((ok) => {
+        if (!ok) startTransition(() => router.refresh());
+      });
+    },
+    [router]
+  );
+
   const save = useCallback(
     (id: string, changes: Record<string, string>) => {
       const patch = patchFromChanges(changes);
@@ -140,8 +151,8 @@ export default function InstantAssign({
         .then((at) => {
           const cur = getPatches().get(id);
           if (cur) setPatches(new Map(getPatches()).set(id, { ...cur, savedAt: at }));
-          // 后台刷新一次跟库对齐（别人改的也一起拿回来）。transition：不打断正在做的事
-          startTransition(() => router.refresh());
+          // 只拉这一单跟库对齐（liveData.ts）；还没接上实时更新就退回整页刷新。transition：不打断正在做的事
+          refetchOrder(id);
         })
         .catch((err: any) => {
           // 撤回：色块回到存之前的样子
@@ -160,7 +171,7 @@ export default function InstantAssign({
           if (saving.current.get(id) === run) saving.current.delete(id);
         });
     },
-    [router, select, admins, primaryAdminId]
+    [refetchOrder, select, admins, primaryAdminId]
   );
 
   // 「⋯ → 少几个人」：人数减掉、金额按比例减、退回那几个资源（服务端 drop-person，判断在 lib/dropPerson.ts）。
@@ -218,7 +229,7 @@ export default function InstantAssign({
       run
         .then((body) => {
           setPatches(new Map(getPatches()).set(id, mk(body.amount, body.at)));
-          startTransition(() => router.refresh());
+          refetchOrder(id);
         })
         .catch((err: any) => {
           const next = new Map(getPatches());
@@ -231,7 +242,7 @@ export default function InstantAssign({
           if (saving.current.get(id) === run) saving.current.delete(id);
         });
     },
-    [router, save]
+    [refetchOrder, save]
   );
 
   const exit = useCallback(
@@ -380,7 +391,8 @@ export default function InstantAssign({
       const pending = getPatches();
       if (pending.size === 0) return;
       const raw = document.querySelector<HTMLElement>("[data-rendered-at]")?.dataset.renderedAt;
-      const done = settledPatches(pending, raw ? Number(raw) : null);
+      // 整页渲染够新，或者实时更新单独把这一单拉回来了（按单看，liveData.ts）
+      const done = settledPatches(pending, raw ? Number(raw) : null, mergedAt());
       if (done.length === 0) return;
       const next = new Map(pending);
       done.forEach((id) => next.delete(id));
@@ -390,7 +402,11 @@ export default function InstantAssign({
     const mo = new MutationObserver(check);
     // childList 也看：main 万一整个换了新节点，属性变化收不到
     mo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-rendered-at"] });
-    return () => mo.disconnect();
+    const unsub = subscribeMerged(check);
+    return () => {
+      mo.disconnect();
+      unsub();
+    };
   }, []);
 
   // 「上一次」那几单：选中这一单配的资源，上一次分别用在哪一单（lib/previousUse.ts）

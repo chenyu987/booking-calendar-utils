@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { refetchOrRefresh } from "./liveData";
 
 // 日期条上「这一天的备注」。
 //
@@ -42,7 +43,7 @@ export default function DayNote({
         body: JSON.stringify({ day, note: trimmed }),
       });
       if (!res.ok) throw new Error();
-      router.refresh();
+      refetchOrRefresh({ dayNotes: true }, () => router.refresh());
     } catch {
       // 存不上就退回原样并标红，不能让它看着像存上了
       setShown(note);

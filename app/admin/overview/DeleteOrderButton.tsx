@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { refetchOrRefresh } from "./liveData";
 
 // 分配模式里的删单按钮：真删库（配的资源、收款记录跟着级联删掉），所以要确认一下。
 //
@@ -66,7 +67,8 @@ export default function DeleteOrderButton({
     fd.set("order_id", orderId);
     try {
       await deleteAction(fd);
-      router.refresh();
+      // 拉回来是「没了」，日历上就去掉了；拉不成就整页刷新
+      refetchOrRefresh({ orders: [orderId] }, () => router.refresh());
     } catch {
       setBlocksHidden(false);
       setDeleting(false);

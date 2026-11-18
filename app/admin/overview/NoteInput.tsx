@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { refetchOrRefresh } from "./liveData";
 
 // 备注的输入框，放在分配浮动条上。
 //
@@ -35,7 +36,7 @@ export default function NoteInput({
       });
       if (res.ok) {
         savedRef.current = value;
-        router.refresh();
+        refetchOrRefresh({ orders: [orderId], notes: [orderId] }, () => router.refresh());
       }
     } catch {
       // 网络出错就当没存：值还在框里，挪开焦点会再试一次

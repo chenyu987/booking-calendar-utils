@@ -138,3 +138,16 @@ describe("少一个人：退回去的资源当场从色块上去掉", () => {
     expect(d).toMatchObject({ femaleCount: 0, need: { femaleFilled: 0, femaleGap: 0, maleGap: 0 } });
   });
 });
+
+describe("settledPatches：实时更新单独拉回某一单", () => {
+  const two = new Map([
+    ["o1", { patch: {}, savedAt: 1000 }],
+    ["o2", { patch: {}, savedAt: 1000 }],
+  ]) as any;
+  it("拉回 o1（晚于存完）只撤 o1 的补丁，o2 还没拉回来就留着", () => {
+    expect(settledPatches(two, 500, new Map([["o1", 1500]]))).toEqual(["o1"]);
+  });
+  it("整页渲染够新照样都撤", () => {
+    expect(settledPatches(two, 2000, new Map()).sort()).toEqual(["o1", "o2"]);
+  });
+});
