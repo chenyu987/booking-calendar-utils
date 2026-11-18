@@ -60,16 +60,3 @@ export function resolveTimelineEnd(
   if (!isIsoDate(explicit)) return null;
   return explicit >= start ? explicit : null;
 }
-
-/** 终点定死之后，这些单子整个落在终点之后，界面上一条都看不见 */
-export function ordersAfterEnd<T extends { demand_days?: string[] | null }>(
-  orders: T[],
-  end: string
-): T[] {
-  if (!isIsoDate(end)) return [];
-  // 只要有一天在终点当天或之前就还看得见，不算「被挡住」
-  return orders.filter((o) => {
-    const days = o.demand_days ?? [];
-    return days.length > 0 && days.every((d) => d > end);
-  });
-}

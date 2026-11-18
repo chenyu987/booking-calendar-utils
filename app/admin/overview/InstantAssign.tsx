@@ -29,6 +29,8 @@ import { frameColor } from "@/lib/orderFrame";
 import type { Admin } from "@/lib/admins";
 import { dropPersonOptions, type DropOption } from "@/lib/dropPerson";
 import { rescaleAmount } from "@/lib/pricing";
+import { daysBetween } from "@/lib/dates";
+import { getCopiedOrder, isCopyKey, isCutKey, isTextClipboardTarget, setCopiedOrder, useCopiedOrder } from "./orderClipboard";
 
 // 排期总览的分配态（编辑一单），**全在浏览器里**：进、出、存都不等整页渲染。
 //
@@ -338,8 +340,29 @@ export default function InstantAssign({
       exit("save");
     }
     function onKey(e: KeyboardEvent) {
-      // Esc 是真取消：不存，退回编辑前的样子
-      if (e.key === "Escape" && activeRef.current) exit("discard");
+      // Esc 是真取消：不存，退回编辑前的样子。复制着的那一单也一起放下（Excel 也是 Esc 撤掉虚线框）
+      if (e.key === "Escape") {
+        if (activeRef.current) exit("discard");
+        if (getCopiedOrder()) setCopiedOrder(null);
+        return;
+      }
+      // Ctrl/⌘+C / X：复制 / 剪切选中的这一单（像 Excel），到空格子上 Ctrl/⌘+V 贴（NewOrderSelector）。
+      // 光标在输入框里 / 选了一段字是在复制剪切文字，不抢
+      const cut = isCutKey(e);
+      if ((cut || isCopyKey(e)) && activeRef.current && !isTextClipboardTarget()) {
+        const cur = editorsRef.current[activeRef.current];
+        if (!cur) return;
+        e.preventDefault();
+        const days = [...(getPanelData()?.orders[cur.orderId]?.demandDays ?? [cur.orderStart])].sort();
+        setCopiedOrder({
+          orderId: cur.orderId,
+          mode: cut ? "cut" : "copy",
+          firstDay: days[0],
+          label: [cur.customerName, cur.location].filter(Boolean).join(" · "),
+          location: cur.location,
+          span: daysBetween(days[0], days[days.length - 1]),
+        });
+      }
     }
     document.addEventListener("click", onClick, true);
     document.addEventListener("submit", onSubmit, true);
@@ -410,9 +433,26 @@ export default function InstantAssign({
   const base = active ? live ?? (lastData.current?.orderId === active ? lastData.current : null) : null;
   // 订阅着：浮动条上改「谁的单」不退出编辑，没有别的 state 变化带着这里重画
   const pending = usePatch(active ?? "");
+  const copied = useCopiedOrder();
   const d = base && pending ? applyPatchToEditor(base, pending.patch) : base;
 
-  const toastEl = toast ? <ErrorToast message={toast} onClose={() => setToast(null)} /> : null;
+  // 复制 / 剪切着的那一单画一圈虚线（像 Excel 的「蚂蚁线」），剪切的再压淡一点（它要搬走了）。
+  // 注入 CSS 规则：色块换了新节点照样带上，见 CLAUDE.md
+  const copiedId = copied && /^[A-Za-z0-9-]+$/.test(copied.orderId) ? copied.orderId : null;
+  const toastEl = (
+    <>
+      {toast && <ErrorToast message={toast} onClose={() => setToast(null)} />}
+      {copiedId && (
+        <style
+          dangerouslySetInnerHTML={{
+            __html:
+              `a[data-order-id="${copiedId}"],[data-assign-editor="${copiedId}"]{outline:2px dashed var(--link);outline-offset:1px}` +
+              (copied!.mode === "cut" ? `a[data-order-id="${copiedId}"]{opacity:.5}` : ""),
+          }}
+        />
+      )}
+    </>
+  );
   if (!d) return toastEl;
   const grid = document.querySelector(`[data-band-grid="${d.band}"]`);
   if (!grid) return toastEl;

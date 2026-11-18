@@ -957,13 +957,17 @@ test.describe("删单", () => {
   // 删除请求根本没发到服务器。界面上什么都不报 —— 只有刷新一下才看得出来，所以这条测试要刷新
   test("删掉的单子刷新之后不会回来", async ({ page }) => {
     await gotoOverview(page);
-    page.on("dialog", (d) => d.accept());
     await page.locator('a[data-order-id="ord-doomed"]').first().click();
     const deleted = page.waitForResponse(
       (r) => r.request().method() === "POST" && !!r.request().headers()["next-action"]
     );
+    // 确认做在按钮上（不用原生弹窗，Claude 自带的浏览器会把它当「取消」）：点一下变红，再点一下才删
+    let dialogs = 0;
+    page.on("dialog", (d) => (dialogs++, d.dismiss()));
     await page.getByText("删除这单").click();
+    await page.getByText("再点一下确认删除").click();
     await deleted;
+    expect(dialogs).toBe(0);
     await gotoOverview(page);
     await expect(page.locator('[data-order-id="ord-doomed"]')).toHaveCount(0);
   });
@@ -1079,5 +1083,88 @@ test.describe("按住色块拖到别的日子", () => {
     await expect(seg(page, SHORT_NAME)).toHaveAttribute("data-order-start", from);
     expect(await seg(page, SHORT_NAME).evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
     expect(await seg(page, SHORT_NAME).evaluate((el) => getComputedStyle(el).visibility)).toBe("visible");
+  });
+});
+
+// 放在最后：这条真往假库里建了一单，排在前面的话后面几条量位置的测试会多出一个色块
+test.describe("复制 / 粘贴一单（像 Excel）", () => {
+  test("点一单 Ctrl+C 画虚线；鼠标停在空格子上 Ctrl+V：同一个客人贴到那一天，进新单的分配态", async ({ page }) => {
+    await gotoOverview(page);
+    const src = page.locator(`a[data-order-id="${SHORT_NAME}"][data-edit-seg]`);
+    await src.scrollIntoViewIfNeeded();
+    await src.click();
+    const editor = page.locator(`[data-assign-editor="${SHORT_NAME}"]`);
+    await editor.waitFor();
+    const name = (await src.getAttribute("title")) ?? "";
+
+    // 光标在输入框里时 Ctrl+C 是复制文字，不抢
+    await editor.locator("input:not([type=hidden])").first().focus();
+    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("INPUT");
+    await page.keyboard.press("Control+c");
+    expect(await editor.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("dashed");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+
+    await page.keyboard.press("Control+c");
+    await expect.poll(() => editor.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("dashed");
+
+    // 鼠标挪到这一带最下面的空泳道，不点，直接 Ctrl+V
+    const grid = page.locator('[title="拖动选日期，双击建新单"]').first();
+    const box = (await grid.boundingBox())!;
+    const vw = page.viewportSize()!.width;
+    await page.mouse.move((Math.max(box.x, 0) + Math.min(box.x + box.width, vw)) / 2, box.y + box.height - 20);
+    const res = page.waitForResponse((r) => r.url().includes("/admin/overview/paste-order"));
+    await page.keyboard.press("Control+v");
+    const r = await res;
+    expect(r.status()).toBe(200);
+    const sent = r.request().postDataJSON();
+    expect(sent.from_order_id).toBe(SHORT_NAME);
+    const { id } = await r.json();
+
+    // 贴出来的新单：贴到的那天开头、同一个客人，直接是它的分配态（改个地点就行）
+    const pasted = page.locator(`a[data-order-id="${id}"][data-edit-seg]`).first();
+    await expect(pasted).toHaveAttribute("data-order-start", sent.start, { timeout: 10000 });
+    await expect(page.locator(`[data-assign-editor="${id}"]`)).toHaveCount(1);
+    expect(await pasted.getAttribute("title")).toBe(name);
+
+    // 贴完复制就放下了：原来那单的虚线没了（2026-11-17 用户要的，不像 Excel 那样一直留着）
+    await expect.poll(() => src.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("dashed");
+
+    // 贴出来的这单当场就能删（2026-11-17 线上抓到：贴完直接点「删除这单」，请求没发出去）
+    const deleted = page.waitForResponse(
+      (r) => r.request().method() === "POST" && !!r.request().headers()["next-action"],
+      { timeout: 10000 }
+    );
+    await page.getByText("删除这单").click();
+    await page.getByText("再点一下确认删除").click();
+    await deleted;
+    await gotoOverview(page);
+    await expect(page.locator(`[data-order-id="${id}"]`)).toHaveCount(0);
+  });
+  test("Ctrl+X 剪切、Ctrl+V 贴：这一单整个挪到那一天（不是多一单），剪切的虚线撤掉", async ({ page }) => {
+    await gotoOverview(page);
+    const src = page.locator(`a[data-order-id="${SHORT_NAME}"][data-edit-seg]`).first();
+    await src.scrollIntoViewIfNeeded();
+    await src.click();
+    await page.locator(`[data-assign-editor="${SHORT_NAME}"]`).waitFor();
+    const count = await page.locator("a[data-order-id][data-edit-seg]").count();
+
+    await page.keyboard.press("Control+x");
+    await expect.poll(() => src.evaluate((el) => getComputedStyle(el).opacity)).toBe("0.5");
+
+    const grid = page.locator('[title="拖动选日期，双击建新单"]').first();
+    const box = (await grid.boundingBox())!;
+    const vw = page.viewportSize()!.width;
+    await page.mouse.move((Math.max(box.x, 0) + Math.min(box.x + box.width, vw)) / 2, box.y + box.height - 20);
+    const res = page.waitForResponse((r) => r.url().includes("/admin/overview/move"));
+    await page.keyboard.press("Control+v");
+    const r = await res;
+    expect(r.status()).toBe(200);
+    const sent = r.request().postDataJSON();
+    expect(sent.order_id).toBe(SHORT_NAME);
+
+    await expect(src).toHaveAttribute("data-order-start", sent.to_day, { timeout: 10000 });
+    await expect(page.locator("a[data-order-id][data-edit-seg]")).toHaveCount(count);
+    await expect.poll(() => src.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("dashed");
+    expect(await src.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
   });
 });

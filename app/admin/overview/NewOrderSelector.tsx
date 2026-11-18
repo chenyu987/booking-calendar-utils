@@ -8,7 +8,8 @@ import { autoTotal, defaultDayPrice, type DayPrices } from "@/lib/pricing";
 import { parseCount } from "@/lib/party";
 import LocationInput from "@/components/LocationInput";
 import { normalizeLocation, sameVenue } from "@/lib/locations";
-import { useAssignSelection } from "./assignSelection";
+import { getSelection as getAssignSelection, requestExit, useAssignSelection } from "./assignSelection";
+import { getCopiedOrder, isPasteKey, isTextClipboardTarget, lastPointer, setCopiedOrder, type CopiedOrder } from "./orderClipboard";
 import { itemModeLocationBlock, type ItemMode } from "@/lib/itemMode";
 
 const GAP = 2;
@@ -71,8 +72,8 @@ export default function NewOrderSelector({
   const [perDayTouched, setPerDayTouched] = useState(false);
   const [totalTouched, setTotalTouched] = useState(false);
   const [error, setError] = useState("");
-  // 建单失败的提示：弹窗这时候已经关了，得有个独立的地方告诉用户没建成
-  const [failed, setFailed] = useState(false);
+  // 建单 / 粘贴失败的提示：弹窗这时候已经关了，得有个独立的地方告诉用户没建成
+  const [failed, setFailed] = useState<string | null>(null);
   // 建单在跑的时候先按填的内容画一个占位色块：Supabase 一个来回就要一两秒，
   // 不这样的话点完"创建"要等好几秒日历上才冒出这个单子，像没反应一样
   const [pending, setPending] = useState<
@@ -295,34 +296,105 @@ export default function NewOrderSelector({
       const newOrderId = await createOrderAction(fd);
       // 只 push 不 refresh：action 里已经 revalidatePath 过了，这次跳转拿到的就是
       // 新数据。多加一个 refresh 等于白等一次服务端来回（一个来回将近 1 秒）。
-      // 跳转要**带上当前的筛选**。原来是 push 一个光秃秃的地址，
-      // 建完单区域筛选、资源筛选全没了，而下拉框还显示着旧值（非受控 select
-      // 只在挂载时读 defaultValue），看起来就像「筛选还开着但没生效」。
-      const params = new URLSearchParams(window.location.search);
-      params.set("assign", newOrderId);
-      // 但如果新建的这单跟当前区域/地点筛选对不上，就把这两个筛选去掉 ——
-      // 不然刚建好的单会被自己的筛选藏起来，人会以为没建成。
-      const region = params.get("region");
-      const mtn = params.get("mtn");
-      const typedLocation = location.trim();
-      const fitsFilter = mtn
-        ? sameVenue(typedLocation, mtn)
-        : region
-          ? normalizeLocation(typedLocation)?.region === region
-          : true;
-      if (!fitsFilter) {
-        params.delete("region");
-        params.delete("mtn");
-      }
-      // 管理员筛选同理：筛着 admin2 却用 Admin1 身份建了单，新单是 Admin1 的，
-      // 不清掉的话它一建出来就被筛没了
-      const oadmin = params.get("oadmin");
-      if (oadmin && oadmin !== adminId) params.delete("oadmin");
-      router.push(`/admin/overview?${params.toString()}`);
+      goToNewOrder(newOrderId, location.trim(), adminId);
     } catch {
       // 弹窗已经关了，错误得单独提示一下，不然建单失败会悄无声息
       setPending(null);
-      setFailed(true);
+      setFailed("建单失败，请重试（点这里关掉）");
+    }
+  }
+
+  // 建完跳过去、进这一单的分配态。要**带上当前的筛选**：原来 push 一个光秃秃的地址，
+  // 建完单区域筛选、资源筛选全没了，而下拉框还显示着旧值（非受控 select 只在挂载时读 defaultValue）。
+  // 但新单跟区域 / 地点 / 管理员筛选对不上的话，把那个筛选去掉 —— 不然一建出来就被自己的筛选藏起来
+  function goToNewOrder(newOrderId: string, typedLocation: string, newAdminId: string | null) {
+    const params = new URLSearchParams(window.location.search);
+    params.set("assign", newOrderId);
+    const region = params.get("region");
+    const mtn = params.get("mtn");
+    const fitsFilter = mtn
+      ? sameVenue(typedLocation, mtn)
+      : region
+        ? normalizeLocation(typedLocation)?.region === region
+        : true;
+    if (!fitsFilter) {
+      params.delete("region");
+      params.delete("mtn");
+    }
+    const oadmin = params.get("oadmin");
+    if (oadmin && oadmin !== newAdminId) params.delete("oadmin");
+    router.push(`/admin/overview?${params.toString()}`);
+  }
+
+  // Ctrl/⌘+V：把复制着的那一单（orderClipboard.ts）贴到这一格开头，像 Excel。
+  // 贴在哪：框选了格子就贴在框的开头；没框选就贴在鼠标底下那一格（点一下空白先退出了分配态，
+  // 鼠标还停在那儿，直接按就行）。一带一个 NewOrderSelector，鼠标 / 框只会落在其中一个里；
+  // 万一两个都认了，先认的那个 preventDefault，后面的看见就不动
+  useEffect(() => {
+    if (popupOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (!isPasteKey(e) || e.defaultPrevented) return;
+      const src = getCopiedOrder();
+      const box = containerRef.current;
+      if (!src || !box || isTextClipboardTarget()) return;
+      let target: { idx: number; row: number } | null = null;
+      const p = lastPointer();
+      if (p && document.elementFromPoint(p.x, p.y) === box) {
+        target = { idx: dayIndexAt(p.x), row: rowIndexAt(p.y) };
+      } else if (selection) {
+        target = { idx: Math.min(selection.start, selection.end), row: selection.row };
+      }
+      if (!target) return;
+      e.preventDefault();
+      if (getAssignSelection()) requestExit("save");
+      paste(src, target);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, popupOpen, timeline]);
+
+  async function paste(src: CopiedOrder, target: { idx: number; row: number }) {
+    const start = timeline[target.idx];
+    // 等一拍：上面退出分配态会让「选中的单」变成 null，那个变化会清掉占位块（下面那个 effect），
+    // 先让它清完再画
+    await new Promise((r) => setTimeout(r, 0));
+    setSelection(null);
+    setPending({
+      start: target.idx,
+      end: Math.min(target.idx + src.span, timeline.length - 1),
+      row: target.row,
+      label: src.label,
+      amount: "",
+    });
+    try {
+      if (src.mode === "cut") {
+        // 剪切：就是把这一单挪过去，跟按住色块拖走同一条路（move 那边拦资源有效期 / 同资源同天两单）
+        const res = await fetch("/admin/overview/move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_id: src.orderId, from_day: src.firstDay, to_day: start }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+        setCopiedOrder(null);
+        // 还是这一单、谁的单没变 —— 管理员筛选本来就对得上
+        goToNewOrder(src.orderId, src.location, new URLSearchParams(window.location.search).get("oadmin"));
+        return;
+      }
+      const res = await fetch("/admin/overview/paste-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from_order_id: src.orderId, start }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || typeof body.id !== "string") throw new Error(body.error ?? `HTTP ${res.status}`);
+      // 贴完就放下复制（虚线撤掉）：要再贴一次就再按一次 Ctrl+C
+      setCopiedOrder(null);
+      goToNewOrder(body.id, src.location, body.admin_id ?? null);
+    } catch (err: any) {
+      setPending(null);
+      setFailed(`没贴上：${err?.message ?? err}（点这里关掉）`);
     }
   }
 
@@ -370,7 +442,7 @@ export default function NewOrderSelector({
       {failed &&
         createPortal(
           <div
-            onClick={() => setFailed(false)}
+            onClick={() => setFailed(null)}
             style={{
               position: "fixed",
               top: 16,
@@ -386,7 +458,7 @@ export default function NewOrderSelector({
               zIndex: 50,
             }}
           >
-            建单失败，请重试（点这里关掉）
+            {failed}
           </div>,
           document.body
         )}

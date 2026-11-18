@@ -73,7 +73,6 @@ import {
   resolveTimelineStart,
   ordersBeforeStart,
   resolveTimelineEnd,
-  ordersAfterEnd,
 } from "@/lib/timelineStart";
 import type { ResourceUse } from "@/lib/previousUse";
 import { findClashes, indexClashes, clashKey } from "@/lib/doubleBooking";
@@ -662,11 +661,7 @@ export default async function OverviewPage(
   // 别让单子无声无息地消失 —— 「明明建了单怎么没有」是这个项目最容易出的错觉
   const hiddenBeforeStart =
     timeline.length > 0 ? ordersBeforeStart(withDays as any[], timeline[0]).length : 0;
-  // 终点那头同理
-  const hiddenAfterEnd =
-    timeline.length > 0
-      ? ordersAfterEnd(withDays as any[], timeline[timeline.length - 1]).length
-      : 0;
+  // 终点那头**不提示**（2026-11-17 用户说多此一举）：结束日期是自己设的，后面还有单是知道的
 
   // 库里已经存在的「同一个资源同一天配给两单」。拖日期那条路现在拦着了，但数据
   // 还可能从别处进来（两个人同时操作、直接改库、以前留下的），所以照样查一遍标红 ——
@@ -1118,14 +1113,6 @@ export default async function OverviewPage(
             title="在侧边栏「设置」里改起始日期"
           >
             起始日期之前还有 {hiddenBeforeStart} 单没显示
-          </span>
-        )}
-        {hiddenAfterEnd > 0 && (
-          <span
-            style={{ fontSize: 12, color: "var(--warn)", whiteSpace: "nowrap" }}
-            title="在侧边栏「设置」里改结束日期"
-          >
-            结束日期之后还有 {hiddenAfterEnd} 单没显示
           </span>
         )}
 

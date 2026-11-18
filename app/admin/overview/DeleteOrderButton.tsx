@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-// 分配模式里的删单红叉：真删库（配的资源、收款记录跟着级联删掉），所以点之前弹窗确认一下。
+// 分配模式里的删单按钮：真删库（配的资源、收款记录跟着级联删掉），所以要确认一下。
+//
+// **确认做在按钮自己身上，不用 window.confirm**：第一下按钮变成「再点一下确认删除」，3 秒内再点才删。
+// Claude 应用自带的浏览器把原生弹窗全拦了、一律当「取消」—— 用 confirm 的话在那儿点了没反应，
+// 怎么都删不掉（2026-11-17 用户在那儿踩到的）。
 //
 // 删除本身要等 Supabase 一个来回（实测这台机器上一个来回就要 0.9 秒左右），再加上
 // 删完重新渲染整页，老老实实等下来要两三秒，点完像卡住一样。所以这里改成乐观更新：
@@ -26,6 +30,13 @@ export default function DeleteOrderButton({
 }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
+  // 点过第一下、等第二下确认。过 3 秒没点就算了，按钮变回去
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
 
   // 同一个订单可能有好几个色块（日期不连续、或者被 4 周的段边界切开），全都要藏
   function setBlocksHidden(hidden: boolean) {
@@ -38,7 +49,11 @@ export default function DeleteOrderButton({
 
   async function handleDelete() {
     if (deleting) return;
-    if (!confirm("确定删除这个订单？配的资源、收款记录会一起删掉，不能撤销。")) return;
+    if (!armed) {
+      setArmed(true);
+      return;
+    }
+    setArmed(false);
 
     setDeleting(true);
     onStart?.();
@@ -63,7 +78,7 @@ export default function DeleteOrderButton({
     <button
       type="button"
       onClick={handleDelete}
-      title="删除这个订单"
+      title={armed ? "配的资源、收款记录会一起删掉，不能撤销" : "删除这个订单"}
       style={{
         background: "none",
         border: "none",
@@ -74,9 +89,11 @@ export default function DeleteOrderButton({
         lineHeight: 1,
         fontWeight: 700,
         ...style,
+        // 等确认的时候整个按钮变红，一眼看出这一下点了不是没反应
+        ...(armed ? { background: "var(--danger)", color: "var(--on-solid)", borderColor: "var(--danger)" } : null),
       }}
     >
-      {deleting ? "删除中…" : label}
+      {deleting ? "删除中…" : armed ? "再点一下确认删除" : label}
     </button>
   );
 }
