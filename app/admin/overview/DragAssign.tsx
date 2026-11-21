@@ -97,7 +97,7 @@ export default function DragAssign() {
         "[data-resource-id]"
       ) as HTMLElement | null;
       if (!card) return;
-      // 卡片右上角那个「配这单」按钮不参与拖拽，点它就是点它
+      // 卡片右下角那个「配这单」绿箭头不参与拖拽，点它就是点它
       if ((e.target as HTMLElement).closest("button")) return;
       start.current = {
         x: e.clientX,

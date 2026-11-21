@@ -147,7 +147,7 @@ export const SEED = {
   ],
   order_assignments: [
     // 主角只配了女资源：男资源那个缺口留着，jordan 才会以「候选」身份出现在
-    // 左边面板里 —— 已经配上的资源显示的是「✓ 已配给这单」，看不到推荐徽章
+    // 左边面板里 —— 已经配上的资源显示的是「✓ 已配」，看不到推荐徽章
     { id: "a2", order_id: "ord-main", resource_id: "s-female" },
     // jordan 在主角之前去过 locbn（B 区），跟 locbl 同一片
     { id: "a3", order_id: "ord-earlier", resource_id: "s-male" },

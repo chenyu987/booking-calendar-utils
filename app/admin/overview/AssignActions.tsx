@@ -124,9 +124,13 @@ export function AssignResourceButton({
   return (
     <>
       {error && <ErrorToast message={error} onClose={dismiss} />}
+      {/* 一个小绿箭头，不写字：写「配这单」三个字要占 50 多像素，分配的时候正好把
+          物主名字和生日挤成省略号 —— 而那两样正是这时候要看的（登记资源，人证要对得上） */}
       <button
         type="button"
         disabled={pending}
+        aria-label="配这单"
+        title={pending ? "分配中…" : "配这单"}
         onClick={() => run({ order_id: orderId, resource_id: resourceId, op: "add" })}
         style={{
           ...style,
@@ -134,7 +138,7 @@ export function AssignResourceButton({
           opacity: pending ? 0.6 : 1,
         }}
       >
-        {pending ? "分配中…" : "配这单"}
+        {pending ? "…" : "→"}
       </button>
     </>
   );

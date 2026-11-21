@@ -26,7 +26,61 @@
 // 身份表（customers / providers）上的 `...people(…)` 也认（0017）：按同一个 id 去 people
 // 里找到那个人，把他的字段摊平进这一行 —— 顶层的和嵌套里的都一样。
 
+import { readFileSync } from "node:fs";
+
 export type Tables = Record<string, any[]>;
+
+/**
+ * 每张表有哪些列，从 `0001_init.sql` 读（它是完整建表，含所有后续改动）。
+ * insert / update / upsert 里出现表上没有的列，就跟 PostgREST 一样报错，不照单全收 ——
+ * 需求页加群把 `{ ok: true, ... }` 整个塞进 chat_groups，真库报「找不到 ok 列」整页 500，
+ * 假库却存进去了，测试一直绿（#130 起，2026-11 才发现）。
+ * 只认 `create table` 里缩进两格的列定义行；约束行（constraint / primary key / check …）跳过。
+ * 读不到文件（比如换了工作目录）就返回 null、不查 —— 有没有读到由
+ * tests/fakeSupabase.test.ts 盯着，不会悄悄失效。
+ */
+export function loadSchemaColumns(path = "supabase/migrations/0001_init.sql"): Map<string, Set<string>> | null {
+  let sql: string;
+  try {
+    sql = readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+  const NOT_COLUMN = new Set(["constraint", "primary", "unique", "check", "foreign", "exclude"]);
+  const out = new Map<string, Set<string>>();
+  let current: Set<string> | null = null;
+  for (const line of sql.split(/\r?\n/)) {
+    const start = line.match(/^create table (?:if not exists )?([a-z_][a-z0-9_]*)\s*\(/i);
+    if (start) {
+      current = new Set();
+      out.set(start[1], current);
+      continue;
+    }
+    if (!current) continue;
+    if (/^\);/.test(line)) {
+      current = null;
+      continue;
+    }
+    const col = line.match(/^ {2}([a-z_][a-z0-9_]*)\s/i);
+    if (col && !NOT_COLUMN.has(col[1].toLowerCase())) current.add(col[1]);
+  }
+  return out;
+}
+
+let schemaCache: Map<string, Set<string>> | null | undefined;
+const schemaColumns = () => (schemaCache === undefined ? (schemaCache = loadSchemaColumns()) : schemaCache);
+
+/** 写进去的行里有表上没有的列 → PostgREST 那样的报错信息；没问题返回 null。认不得的表不查 */
+export function unknownColumnError(t: string, payload: any): string | null {
+  const cols = schemaColumns()?.get(t);
+  if (!cols) return null;
+  for (const row of Array.isArray(payload) ? payload : [payload]) {
+    for (const key of Object.keys(row ?? {})) {
+      if (!cols.has(key)) return `Could not find the '${key}' column of '${t}' in the schema cache`;
+    }
+  }
+  return null;
+}
 
 /** 关联列怎么推：order_assignments.resources → resource_id */
 const FK_COLUMN: Record<string, string> = {
@@ -225,7 +279,7 @@ export function createFakeSupabase(seed: Tables = {}, files: Record<string, Blob
       // 既能直接 await，也能接 .select("id").single() 拿回新行（createPerson 要用）
       insert(payload: any) {
         let result: { data: any; error: any };
-        const failure = takeFailure(t);
+        const failure = unknownColumnError(t, payload) ?? takeFailure(t);
         if (failure) {
           result = { data: null, error: { message: failure } };
         } else {
@@ -249,7 +303,7 @@ export function createFakeSupabase(seed: Tables = {}, files: Record<string, Blob
       },
       update(patch: any) {
         const run = () => {
-          const failure = takeFailure(t);
+          const failure = unknownColumnError(t, patch) ?? takeFailure(t);
           if (failure) {
             return { data: null, error: { message: failure } };
           }
@@ -284,7 +338,7 @@ export function createFakeSupabase(seed: Tables = {}, files: Record<string, Blob
       // onConflict 可以是多列（"person_id,admin_id"），每一列都相等才算撞上。
       // ignoreDuplicates：撞上了就什么都不做（PostgREST 的 on conflict do nothing）
       upsert(payload: any, opts?: { onConflict?: string; ignoreDuplicates?: boolean }) {
-        const failure = takeFailure(t);
+        const failure = unknownColumnError(t, payload) ?? takeFailure(t);
         if (failure) {
           return Promise.resolve({ data: null, error: { message: failure } });
         }

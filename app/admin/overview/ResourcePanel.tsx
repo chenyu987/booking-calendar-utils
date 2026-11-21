@@ -514,11 +514,12 @@ function ResourceGroup({
             covers &&
             !itemConflict &&
             conflictDays.length === 0;
-          // 右上角有没有东西要放：能配的（按钮 + 推荐标记）或者已配给这单的（√）。
-          // 配不了的资源（只有点开「显示全部」才看得到）右上角还是显示类型，
+          // 右下角有没有东西要放：能配的（绿箭头 + 推荐星）或者已配给这单的（✓）。
+          // 放右下角、不放右上角：右上角那一行是物主名字和生日，分配时正要看它们，
+          // 原来「★ 推荐 + 配这单」一占就是近百像素，名字被挤得只剩一两个字母。
           // 配不了的原因留在下面那一行 —— 那句话太长，塞不进角落。
           const hasAction = Boolean(assigningOrder && (canAssign || isAssigned));
-          const actionSlotWidth = isAssigned ? 64 : rec?.top ? 96 : 56;
+          const actionSlotWidth = isAssigned ? 48 : rec && rec.signals.length > 0 ? 50 : 28;
 
           return (
             <div
@@ -563,8 +564,6 @@ function ResourceGroup({
                     justifyContent: "space-between",
                     alignItems: "baseline",
                     gap: 6,
-                    // 给右上角那块操作区让开，名字长了也不会钻到按钮底下
-                    paddingRight: hasAction ? actionSlotWidth : 0,
                   }}
                 >
                   {/* 名字和「年龄·生日」挤在同一行。原来生日单占一行，一个资源三行高；
@@ -626,6 +625,8 @@ function ResourceGroup({
                     display: "flex",
                     justifyContent: "space-between",
                     gap: 6,
+                    // 给右下角那块操作区让开，排期长了横滚，不会钻到箭头底下
+                    paddingRight: hasAction ? actionSlotWidth : 0,
                   }}
                   title={
                     runs.length > 0
@@ -671,13 +672,13 @@ function ResourceGroup({
                 </div>
               </Link>
 
-              {/* 绝对定位放在右上角、并且**在 Link 外面** —— 塞进 Link 里就成了
-                  「链接里套按钮」，点按钮会顺带跳到卡片详情页 */}
+              {/* 绝对定位放在右下角（跟排期那一行齐）、并且**在 Link 外面** ——
+                  塞进 Link 里就成了「链接里套按钮」，点按钮会顺带跳到卡片详情页 */}
               {hasAction && (
                 <div
                   style={{
                     position: "absolute",
-                    top: 6,
+                    bottom: 7,
                     right: 8,
                     display: "flex",
                     alignItems: "center",
@@ -695,18 +696,22 @@ function ResourceGroup({
                         whiteSpace: "nowrap",
                       }}
                     >
+                      {/* 只留星，「推荐」两个字进悬停提示 —— 金色的星已经说明白了 */}
                       {rec.signals.some((s) => s.code === "repeat-customer")
-                        ? "★★ 推荐"
+                        ? "★★"
                         : rec.top
-                          ? "★ 推荐"
+                          ? "★"
                           : rec.score > 0
                             ? "☆"
                             : "⚠"}
                     </span>
                   )}
                   {isAssigned ? (
-                    <span style={{ fontSize: 11, color: "var(--ok)", whiteSpace: "nowrap" }}>
-                      ✓ 已配给这单
+                    <span
+                      title="已配给这单"
+                      style={{ fontSize: 11, color: "var(--ok)", whiteSpace: "nowrap" }}
+                    >
+                      ✓ 已配
                     </span>
                   ) : (
                     <AssignResourceButton
@@ -714,8 +719,14 @@ function ResourceGroup({
                       resourceId={s.id}
                       style={{
                         ...buttonStyle,
-                        padding: "2px 8px",
-                        fontSize: 11,
+                        width: 22,
+                        height: 18,
+                        padding: 0,
+                        fontSize: 13,
+                        lineHeight: "18px",
+                        fontWeight: 700,
+                        textAlign: "center",
+                        borderRadius: 9,
                         background: "var(--ok)",
                       }}
                     />

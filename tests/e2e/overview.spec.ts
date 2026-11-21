@@ -216,14 +216,14 @@ test.describe("进出分配态全在浏览器里：不回服务端，当场完�
 
   test("点一下：同一帧就是能打字的编辑框、左边清单换成这一单、顶上是能打字的浮动条", async ({ page }) => {
     await gotoOverview(page);
-    expect(await page.locator('[data-resource-id="s-female"]').innerText()).not.toContain("已配给这单");
+    expect(await page.locator('[data-resource-id="s-female"]').innerText()).not.toContain("✓ 已配");
     const got = await page.evaluate((id) => {
       document.querySelector<HTMLElement>(`a[data-order-id="${id}"][data-edit-seg]`)!.click();
       // 同一帧内读
       const bar = document.querySelector(`[data-assign-bar="${id}"]`);
       return {
         typeable: !!document.querySelector(`[data-assign-editor="${id}"] input[name="customer_name"]`),
-        assignedTick: document.querySelector('[data-resource-id="s-female"]')!.textContent!.includes("已配给这单"),
+        assignedTick: document.querySelector('[data-resource-id="s-female"]')!.textContent!.includes("✓ 已配"),
         barTypeable: !!bar?.querySelector("input:not([type=hidden])"),
         url: new URL(location.href).searchParams.get("assign"),
       };
@@ -973,12 +973,12 @@ test.describe("推荐分配", () => {
 
     // jordan 在本单之前去过 locbn（B 区），本单是 locbl（B 区）→ 推荐
     await expect(
-      panel.locator('[data-resource-name="jordan doe"]').getByText("★ 推荐")
+      panel.locator('[data-resource-name="jordan doe"]').getByText("★", { exact: true })
     ).toBeVisible();
 
     // zolan 只在本单**之后**去过 locbl —— 拿未来倒推现在，不算
     await expect(
-      panel.locator('[data-resource-name="zolan"]').getByText("★ 推荐")
+      panel.locator('[data-resource-name="zolan"]').getByText("★", { exact: true })
     ).toHaveCount(0);
   });
 });

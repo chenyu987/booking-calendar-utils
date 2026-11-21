@@ -94,6 +94,26 @@ describe("群名单", () => {
     expect(fake.db.chat_groups.find((g: any) => g.name === "ABC互助群")?.active).toBe(true);
   });
 
+  it("加群、改群写库时只有 name / active / note 三列（parseGroupForm 的 ok 不能混进去，真库没有这一列）", async () => {
+    await group("createGroup", { name: "新群", note: "x" });
+    await group("updateGroup", { id: "g1", name: "Xyz 活动", active: "on" });
+    const groupWrites = fake.writes.filter((w) => w.table === "chat_groups");
+    expect(groupWrites.map((w) => w.op)).toEqual(["insert", "update"]);
+    for (const w of groupWrites) expect(Object.keys(w.payload).sort()).toEqual(["active", "name", "note"]);
+  });
+
+  it("后台加的群，采集 Mac 那条查询读得到；停抓之后读不到", async () => {
+    const macGroups = async () =>
+      (await fake.client.from("chat_groups").select("id, name").eq("active", true).order("created_at")).data;
+
+    await group("createGroup", { name: " ABC互助群 " });
+    expect((await macGroups()).map((g: any) => g.name)).toEqual(["Xyz 活动", "ABC互助群"]);
+
+    const lic = fake.db.chat_groups.find((g: any) => g.name === "ABC互助群");
+    await group("updateGroup", { id: lic.id, name: "ABC互助群" }); // 不勾「在抓」= 停抓
+    expect((await macGroups()).map((g: any) => g.name)).toEqual(["Xyz 活动"]);
+  });
+
   it("重名（不分大小写空格）不写库", async () => {
     expect(await group("createGroup", { name: "xyz活动" })).toBe("REDIRECT:/admin/chat-requests?group_error=dup");
     expect(fake.db.chat_groups).toHaveLength(1);

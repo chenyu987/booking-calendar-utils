@@ -52,12 +52,21 @@ async function groupsNow() {
   return data ?? [];
 }
 
+/**
+ * 写进 chat_groups 的那一行，**一列一列点名挑**。parseGroupForm 返回的对象里还带着 `ok`，
+ * 原样塞进 insert / update 的话 PostgREST 报「找不到 ok 列」，加群、改群整页 500（#130 起就这样，
+ * 假库照单全收所以测试没发现）。
+ */
+function groupRow(p: { name: string; active: boolean; note: string | null }) {
+  return { name: p.name, active: p.active, note: p.note };
+}
+
 /** 加一个群。重名（不分大小写、不管空格）拦下：库里有 unique，但那个报错用户看不懂 */
 export async function createGroup(formData: FormData) {
   const parsed = parseGroupForm(formData, await groupsNow());
   if (!parsed.ok) redirect(back(formData, `group_error=${parsed.error}`));
 
-  const { error } = await supabase.from("chat_groups").insert(parsed);
+  const { error } = await supabase.from("chat_groups").insert(groupRow(parsed));
   if (error) throw new Error(error.message);
 
   revalidatePath(PAGE);
@@ -71,7 +80,7 @@ export async function updateGroup(formData: FormData) {
   const parsed = parseGroupForm(formData, await groupsNow(), id);
   if (!parsed.ok) redirect(back(formData, `group_error=${parsed.error}`));
 
-  const { error } = await supabase.from("chat_groups").update(parsed).eq("id", id);
+  const { error } = await supabase.from("chat_groups").update(groupRow(parsed)).eq("id", id);
   if (error) throw new Error(error.message);
 
   revalidatePath(PAGE);
