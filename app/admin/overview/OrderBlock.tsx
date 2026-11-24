@@ -7,6 +7,7 @@ import { statusColor } from "@/lib/orderStatus";
 import { orderFrame } from "@/lib/orderFrame";
 import { useIsPreviousUse, useIsSelected, usePatch } from "./assignSelection";
 import { applyPatchToBlock } from "./blockPatch";
+import CustomerHistoryHover from "./CustomerHistoryHover";
 
 // 排期总览：普通态的订单色块（点它进分配态）。
 //
@@ -47,6 +48,8 @@ export type BlockData = {
   /** 放编辑控件的那一段（整单只有一段）：当场画分配态时藏的是它 */
   editSeg: boolean;
   customerName: string;
+  /** 悬停名字时拿这个人的历史单（CustomerHistoryHover）；null = 没挂客人 */
+  customerId?: string | null;
   location: string | null;
   locationHint: string;
   badLocation: boolean;
@@ -149,7 +152,10 @@ function OrderBlock({ d: server }: { d: BlockData }) {
                 minWidth: 0,
               }}
             >
-              {d.customerName}
+              {/* 名字上悬停：浮出这个人以前的单子和当时配的资源（不带样式的 span，几何不变） */}
+              <CustomerHistoryHover customerId={d.customerId} orderId={d.orderId}>
+                {d.customerName}
+              </CustomerHistoryHover>
               {d.location ? (
                 <span
                   title={d.locationHint || undefined}

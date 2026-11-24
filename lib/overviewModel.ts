@@ -474,6 +474,7 @@ export function buildOverview(raw: OverviewRaw, p: OverviewParams) {
             showDetail,
             editSeg: showEdit,
             customerName: displayName(o.customers),
+            customerId: o.customer_id ?? null,
             location: o.location ?? null,
             locationHint,
             badLocation,
