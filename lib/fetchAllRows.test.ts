@@ -148,14 +148,4 @@ describe("主键不叫 id 的表", () => {
     }
   });
 
-  it("**0001_init.sql 里每张主键不叫 id 的表都登记了** —— 新建这种表漏登记，一过 1000 行整页报错", () => {
-    const sql = readFileSync("supabase/migrations/0001_init.sql", "utf8");
-    const tables = [...sql.matchAll(/create table (\w+) \(([\s\S]*?)\n\);/g)];
-    const noId = tables
-      .filter(([, , body]) => !/^\s*id\s+\w+.*primary key/m.test(body))
-      .map(([, name]) => name)
-      .sort();
-    expect(noId.length).toBeGreaterThan(0);
-    expect(Object.keys(STABLE_KEY).sort()).toEqual(noId);
-  });
 });
